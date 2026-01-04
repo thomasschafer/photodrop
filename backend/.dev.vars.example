@@ -1,0 +1,11 @@
+# Local development environment variables
+# Copy this file to .dev.vars and fill in your values
+
+# JWT Secret - use a strong random string
+# You can generate one with: openssl rand -base64 32
+JWT_SECRET=your-secret-key-here
+
+# VAPID keys for push notifications
+# Generate with: npx web-push generate-vapid-keys
+VAPID_PUBLIC_KEY=your-vapid-public-key-here
+VAPID_PRIVATE_KEY=your-vapid-private-key-here

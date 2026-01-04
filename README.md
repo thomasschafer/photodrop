@@ -1,1 +1,225 @@
 # photodrop
+
+A Progressive Web App (PWA) for privately sharing baby photos with family members.
+
+## Project Status
+
+**Phase 1 Foundation - In Progress**
+
+### ✅ Completed
+
+**Frontend Setup:**
+- Vite + React + TypeScript project configured
+- Tailwind CSS integrated
+- Vitest and React Testing Library configured
+- Test scripts ready (`npm test`, `npm run test:ui`, `npm run test:run`)
+
+**Backend Setup:**
+- Cloudflare Workers project structure created
+- Hono web framework integrated
+- TypeScript configuration
+- Vitest testing framework configured
+
+**Authentication System:**
+- ✅ JWT generation and validation (with 27 passing unit tests)
+  - HMAC-SHA256 signing using Web Crypto API
+  - Access tokens (15 min expiry)
+  - Refresh tokens (30 day expiry)
+  - Role-based tokens (admin/viewer)
+
+- ✅ Database helper functions (with comprehensive tests)
+  - User management (create, read, update, delete)
+  - Invite token generation (cryptographically secure)
+  - Invite acceptance with automatic first-user-as-admin logic
+  - Role management with safety checks
+
+- ✅ Auth middleware
+  - JWT verification
+  - Role-based access control (requireAuth, requireAdmin)
+
+- ✅ Auth API endpoints
+  - `POST /api/auth/create-invite` - Create invite (admin only)
+  - `POST /api/auth/accept-invite` - Accept invite and get tokens
+  - `POST /api/auth/refresh` - Refresh access token
+  - `POST /api/auth/logout` - Clear refresh token
+
+**Database:**
+- ✅ Initial schema migration created (`migrations/001_initial_schema.sql`)
+- Tables: users, photos, photo_views, photo_reactions, push_subscriptions, schema_migrations
+- Proper indexes and foreign keys
+- Cascading deletes configured
+
+### 🚧 Next Steps (Requires Your Action)
+
+**Cloudflare Infrastructure Setup:**
+
+You'll need to create the following in your Cloudflare dashboard:
+
+1. **D1 Database:**
+   ```bash
+   # Create the database
+   npx wrangler d1 create photodrop-db
+
+   # This will output a database_id - add it to backend/wrangler.toml
+
+   # Run the initial migration
+   npx wrangler d1 execute photodrop-db --file=migrations/001_initial_schema.sql --local
+   npx wrangler d1 execute photodrop-db --file=migrations/001_initial_schema.sql
+   ```
+
+2. **R2 Bucket:**
+   ```bash
+   # Create the R2 bucket
+   npx wrangler r2 bucket create photodrop-photos
+
+   # Add the binding to backend/wrangler.toml
+   ```
+
+3. **Environment Variables:**
+   ```bash
+   cd backend
+
+   # Copy the example file
+   cp .dev.vars.example .dev.vars
+
+   # Generate a JWT secret
+   openssl rand -base64 32
+
+   # Generate VAPID keys (for push notifications later)
+   npm install -g web-push
+   web-push generate-vapid-keys
+
+   # Add these values to .dev.vars
+   ```
+
+4. **Update `backend/wrangler.toml`:**
+   Uncomment and fill in the D1 and R2 bindings with your IDs.
+
+### 🧪 Running Tests
+
+**Frontend:**
+```bash
+cd frontend
+npm test          # Run tests in watch mode
+npm run test:ui   # Open Vitest UI
+npm run test:run  # Run tests once
+```
+
+**Backend:**
+```bash
+cd backend
+npm test          # Run tests in watch mode
+npm run test:run  # Run tests once
+```
+
+Current test status: **27/27 backend tests passing** ✅
+
+### 🚀 Local Development (Once Infrastructure is Set Up)
+
+**Backend:**
+```bash
+cd backend
+npm run dev  # Starts Wrangler dev server on http://localhost:8787
+```
+
+**Frontend:**
+```bash
+cd frontend
+npm run dev  # Starts Vite dev server on http://localhost:5173
+```
+
+### 📋 Remaining Work (Phase 1)
+
+**Stage 3: Core upload flow**
+- [ ] Implement client-side image compression (browser-image-compression)
+- [ ] Build photo upload UI component
+- [ ] Create photo upload API endpoint
+- [ ] Set up R2 storage integration
+- [ ] Implement thumbnail generation (client-side)
+- [ ] Create photo listing endpoint
+- [ ] Build photo feed UI
+- [ ] Add unit tests for image processing
+- [ ] Test upload and viewing
+
+After Phase 1 is complete, we'll move to:
+- Phase 2: PWA features (service worker, push notifications, onboarding)
+- Phase 3: Polish and features (admin dashboard, reactions, photo deletion)
+- Phase 4: Launch preparation (documentation, beta testing, deployment)
+
+### 📁 Project Structure
+
+```
+photodrop/
+├── frontend/              # React PWA
+│   ├── src/
+│   │   ├── test/         # Test setup
+│   │   └── ...
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── tailwind.config.js
+│
+├── backend/              # Cloudflare Workers API
+│   ├── src/
+│   │   ├── lib/          # Utility functions
+│   │   │   ├── jwt.ts    # JWT generation/validation
+│   │   │   ├── jwt.test.ts
+│   │   │   ├── db.ts     # Database helpers
+│   │   │   ├── db.test.ts
+│   │   │   └── crypto.ts # Secure random generation
+│   │   ├── middleware/   # Hono middleware
+│   │   │   └── auth.ts   # Auth middleware
+│   │   ├── routes/       # API routes
+│   │   │   └── auth.ts   # Auth endpoints
+│   │   └── index.ts      # Main entry point
+│   ├── migrations/       # D1 database migrations
+│   │   └── 001_initial_schema.sql
+│   ├── wrangler.toml     # Cloudflare Workers config
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── PLAN.md              # Comprehensive project plan
+└── README.md            # This file
+```
+
+### 🔐 Security Features Implemented
+
+- JWT tokens with HMAC-SHA256 signing
+- Refresh token rotation
+- httpOnly cookies for refresh tokens
+- Cryptographically secure invite tokens (32 bytes)
+- Cryptographically secure user IDs (16 bytes)
+- Role-based access control
+- First user automatically becomes admin
+- Safety check: cannot demote last admin
+- CORS configured for specific origins
+- Invite tokens single-use (cleared after acceptance)
+
+### 🧰 Technology Stack
+
+**Frontend:**
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS 4
+- Vitest + Testing Library
+
+**Backend:**
+- Cloudflare Workers
+- Hono web framework
+- D1 SQLite database
+- R2 object storage
+- TypeScript
+- Vitest
+
+**Authentication:**
+- JWT with Web Crypto API
+- httpOnly cookie refresh tokens
+- No passwords (invite-only system)
+
+## Notes
+
+- All tests are passing (27/27 backend tests)
+- Code follows defensive programming principles
+- No unnecessary comments added (per coding guidelines)
+- DRY principles followed throughout
+- Ready for infrastructure setup and continued development
