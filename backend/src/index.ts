@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import auth from './routes/auth';
+import users from './routes/users';
+import photos from './routes/photos';
 
 type Bindings = {
   DB: D1Database;
@@ -32,7 +34,8 @@ app.get('/health', (c) => {
   return c.json({ status: 'ok' });
 });
 
-// Mount auth routes
 app.route('/api/auth', auth);
+app.route('/api/users', users);
+app.route('/api/photos', photos);
 
 export default app;

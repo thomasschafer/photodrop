@@ -158,3 +158,141 @@ export async function countAdmins(db: D1Database): Promise<number> {
 
   return result?.count || 0;
 }
+
+export async function createPhoto(
+  db: D1Database,
+  r2Key: string,
+  thumbnailR2Key: string,
+  uploadedBy: string,
+  caption?: string
+): Promise<string> {
+  const photoId = generateId();
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare(
+      `INSERT INTO photos (id, r2_key, thumbnail_r2_key, caption, uploaded_by, uploaded_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(photoId, r2Key, thumbnailR2Key, caption || null, uploadedBy, now)
+    .run();
+
+  return photoId;
+}
+
+export async function getPhoto(
+  db: D1Database,
+  photoId: string
+): Promise<Photo | null> {
+  const result = await db
+    .prepare('SELECT * FROM photos WHERE id = ?')
+    .bind(photoId)
+    .first<Photo>();
+
+  return result;
+}
+
+export async function listPhotos(
+  db: D1Database,
+  limit: number = 20,
+  offset: number = 0
+): Promise<Photo[]> {
+  const result = await db
+    .prepare('SELECT * FROM photos ORDER BY uploaded_at DESC LIMIT ? OFFSET ?')
+    .bind(limit, offset)
+    .all<Photo>();
+
+  return result.results || [];
+}
+
+export async function deletePhoto(
+  db: D1Database,
+  photoId: string
+): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM photos WHERE id = ?')
+    .bind(photoId)
+    .run();
+
+  return result.success;
+}
+
+export async function recordPhotoView(
+  db: D1Database,
+  photoId: string,
+  userId: string
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare(
+      `INSERT INTO photo_views (photo_id, user_id, viewed_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT (photo_id, user_id) DO UPDATE SET viewed_at = ?`
+    )
+    .bind(photoId, userId, now, now)
+    .run();
+}
+
+export async function getPhotoViewers(
+  db: D1Database,
+  photoId: string
+): Promise<Array<{ userId: string; viewedAt: number }>> {
+  const result = await db
+    .prepare(
+      `SELECT user_id as userId, viewed_at as viewedAt
+       FROM photo_views
+       WHERE photo_id = ?
+       ORDER BY viewed_at DESC`
+    )
+    .bind(photoId)
+    .all<{ userId: string; viewedAt: number }>();
+
+  return result.results || [];
+}
+
+export async function addPhotoReaction(
+  db: D1Database,
+  photoId: string,
+  userId: string,
+  emoji: string
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare(
+      `INSERT INTO photo_reactions (photo_id, user_id, emoji, created_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (photo_id, user_id) DO UPDATE SET emoji = ?, created_at = ?`
+    )
+    .bind(photoId, userId, emoji, now, emoji, now)
+    .run();
+}
+
+export async function removePhotoReaction(
+  db: D1Database,
+  photoId: string,
+  userId: string
+): Promise<void> {
+  await db
+    .prepare('DELETE FROM photo_reactions WHERE photo_id = ? AND user_id = ?')
+    .bind(photoId, userId)
+    .run();
+}
+
+export async function getPhotoReactions(
+  db: D1Database,
+  photoId: string
+): Promise<PhotoReaction[]> {
+  const result = await db
+    .prepare(
+      `SELECT photo_id, user_id, emoji, created_at
+       FROM photo_reactions
+       WHERE photo_id = ?
+       ORDER BY created_at ASC`
+    )
+    .bind(photoId)
+    .all<PhotoReaction>();
+
+  return result.results || [];
+}
