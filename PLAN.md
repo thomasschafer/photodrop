@@ -66,14 +66,14 @@ A Progressive Web App (PWA) for privately sharing baby photos with family member
 └────────┬────────┘
          │
          ↓
-┌─────────────────┐
-│   Cloudflare    │
-│    Workers      │  ← API endpoints
-│  (Serverless)   │
-└────┬───────┬────┘
-     │       │
-     ↓       ↓
-┌─────────┐ ┌──────────┐
+┌───────────────────┐
+│    Cloudflare     │
+│     Workers       │  ← API endpoints
+│   (Serverless)    │
+└────┬─────────┬────┘
+     │         │
+     ↓         ↓
+┌───────────┐ ┌──────────┐
 │ Cloudflare│ │Cloudflare│
 │    D1     │ │    R2    │
 │ (Database)│ │ (Photos) │

@@ -1,8 +1,9 @@
 name: Deploy
 
 on:
-  push:
-    branches: [main]
+  # TODO: uncomment when ready
+  # push:
+  #   branches: [main]
 
 jobs:
   deploy:

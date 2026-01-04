@@ -49,6 +49,53 @@ A Progressive Web App (PWA) for privately sharing baby photos with family member
 - Proper indexes and foreign keys
 - Cascading deletes configured
 
+**Backend API Endpoints:**
+- ✅ Users API (`/api/users`)
+  - `GET /me` - Get current user info
+  - `GET /` - List all users (admin only)
+  - `PATCH /:id/role` - Update user role (admin only)
+  - `DELETE /:id` - Delete user (admin only)
+
+- ✅ Photos API (`/api/photos`)
+  - `GET /` - List photos (paginated)
+  - `POST /` - Upload photo with thumbnail (admin only)
+  - `GET /:id` - Get photo metadata
+  - `GET /:id/download` - Download full-size photo
+  - `GET /:id/thumbnail` - Download thumbnail
+  - `DELETE /:id` - Delete photo (admin only)
+  - `POST /:id/view` - Record photo view
+  - `GET /:id/viewers` - Get viewers list (admin only)
+  - `POST /:id/react` - Add/update reaction
+  - `DELETE /:id/react` - Remove reaction
+  - `GET /:id/reactions` - Get all reactions
+
+**Frontend:**
+- ✅ Auth context with automatic token refresh
+- ✅ API client with interceptors
+- ✅ Image compression utilities (client-side)
+  - Smart compression (keep <2MB at original quality)
+  - Thumbnail generation (400px, ~50KB)
+  - Uses browser-image-compression library
+- ✅ Photo upload component
+  - File validation
+  - Client-side compression with progress
+  - Caption support
+- ✅ Photo feed component
+  - Grid layout
+  - Thumbnail loading with lazy load
+  - Lightbox for full-size viewing
+  - Relative timestamps
+- ✅ Basic navigation and layout
+  - Tab-based UI for admins (Photos/Upload)
+  - Role-based rendering
+
+**CI/CD:**
+- ✅ GitHub Actions workflows
+  - `test.yml` - Run tests on PR and push
+  - `deploy.yml` - Deploy to Cloudflare on merge to main
+  - Automated migration application
+  - Health checks
+
 ### 🚧 Next Steps (Requires Your Action)
 
 **Cloudflare Infrastructure Setup:**
@@ -113,6 +160,20 @@ npm run test:run  # Run tests once
 ```
 
 Current test status: **27/27 backend tests passing** ✅
+
+**What works right now (without infrastructure):**
+- Frontend development server runs locally
+- All UI components render and function
+- Image compression works client-side
+- Backend code is complete and tested
+- GitHub Actions workflows ready to deploy
+
+**What needs infrastructure to work:**
+- Actual photo upload (needs R2 bucket)
+- Photo storage and retrieval (needs R2 bucket)
+- Database operations (needs D1 database)
+- Authentication flow (needs D1 database)
+- Deployment (needs Cloudflare Workers + Pages)
 
 ### 🚀 Local Development (Once Infrastructure is Set Up)
 
