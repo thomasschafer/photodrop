@@ -406,6 +406,147 @@ Production:
 - `https://yourdomain.com` - Main app
 - `https://yourdomain.com/api/*` - API endpoints
 
+### Infrastructure as Code (IaC)
+
+**Approach**: Use Wrangler configuration and GitHub Actions for automated infrastructure provisioning and deployment.
+
+**What can be automated:**
+
+1. **Wrangler configuration** (`backend/wrangler.toml`):
+   - D1 database bindings (database must be created first)
+   - R2 bucket bindings (bucket must be created first)
+   - Environment variable definitions
+   - Worker routes and settings
+   - All configuration is version controlled
+
+2. **Database migrations**:
+   - SQL migration files in `migrations/` directory
+   - Automatically applied via Wrangler CLI
+   - Tracked in `schema_migrations` table
+   - Can be run in CI/CD pipeline
+
+3. **GitHub Actions workflows**:
+   - Automated testing on PR
+   - Automated deployment to production on merge to main
+   - Database migrations applied automatically
+   - Frontend and backend deployed together
+
+**What requires manual setup (one-time):**
+
+1. **Cloudflare account setup**:
+   - Create Cloudflare account (free tier)
+   - Verify email
+   - Set up payment method (required even for free tier, won't be charged)
+
+2. **Initial resource creation**:
+   ```bash
+   # These commands create the resources (one-time setup)
+   npx wrangler d1 create photodrop-db
+   npx wrangler r2 bucket create photodrop-photos
+
+   # Copy the database_id from output and add to wrangler.toml
+   ```
+
+   **Why manual?** Wrangler doesn't support declarative resource creation in config files yet. You must create D1/R2 resources via CLI, then reference them in wrangler.toml.
+
+3. **GitHub secrets**:
+   Add these secrets to your GitHub repository (Settings → Secrets and variables → Actions):
+   - `CLOUDFLARE_API_TOKEN`: Create at Cloudflare Dashboard → My Profile → API Tokens
+     - Use "Edit Cloudflare Workers" template
+     - Or create custom token with permissions: Workers Scripts (Edit), D1 (Edit), R2 (Edit), Pages (Edit)
+   - `CLOUDFLARE_ACCOUNT_ID`: Found in Cloudflare Dashboard → Workers & Pages → Overview (right sidebar)
+   - `JWT_SECRET`: Generate with `openssl rand -base64 32`
+   - `VAPID_PUBLIC_KEY`: Generate with `npx web-push generate-vapid-keys`
+   - `VAPID_PRIVATE_KEY`: From same command as above
+
+4. **Custom domain setup** (optional):
+   - Purchase domain (Cloudflare Registrar or external)
+   - Add domain to Cloudflare
+   - Configure DNS records
+   - Link domain to Pages project in Cloudflare Dashboard
+
+**Deployment workflow**:
+
+The GitHub Actions workflow automates:
+1. Run tests on every PR
+2. On merge to `main`:
+   - Run frontend build
+   - Run backend tests
+   - Deploy backend Worker via Wrangler
+   - Apply database migrations
+   - Deploy frontend to Cloudflare Pages
+   - Verify deployment health
+
+**Benefits of this approach**:
+- Version-controlled infrastructure configuration
+- Automated deployments (no manual steps after initial setup)
+- Safe migrations (tested in CI before production)
+- Rollback capability (git revert + redeploy)
+- Multiple environments possible (staging/production)
+
+**Limitations**:
+- Cannot fully provision Cloudflare resources via IaC (D1/R2 creation is manual)
+- Secrets must be manually added to GitHub
+- Custom domain DNS requires Cloudflare Dashboard interaction
+- First deployment requires manual Cloudflare account connection
+
+### GitHub Actions workflows
+
+**Workflow files to create:**
+
+1. **`.github/workflows/test.yml`** - Run tests on every PR and push
+   - Triggers: Pull requests, pushes to main
+   - Jobs:
+     - Checkout code
+     - Setup Node.js
+     - Install dependencies (frontend + backend)
+     - Run frontend tests
+     - Run backend tests
+     - Report test results
+
+2. **`.github/workflows/deploy.yml`** - Deploy to production on merge to main
+   - Triggers: Push to main branch
+   - Jobs:
+     - Run all tests first (fail fast if tests fail)
+     - Deploy backend:
+       - Install dependencies
+       - Run backend tests
+       - Deploy Worker via `wrangler deploy`
+       - Apply database migrations
+       - Set environment secrets (JWT_SECRET, VAPID keys)
+     - Deploy frontend:
+       - Install dependencies
+       - Build production bundle
+       - Deploy to Cloudflare Pages
+     - Health check:
+       - Verify API health endpoint responds
+       - Verify frontend loads
+
+**Required GitHub Actions secrets:**
+
+Set these in: Repository Settings → Secrets and variables → Actions → New repository secret
+
+- `CLOUDFLARE_API_TOKEN` - API token with Workers/D1/R2/Pages permissions
+- `CLOUDFLARE_ACCOUNT_ID` - Your Cloudflare account ID
+- `JWT_SECRET` - Secret for JWT signing (base64, 32+ bytes)
+- `VAPID_PUBLIC_KEY` - VAPID public key for push notifications
+- `VAPID_PRIVATE_KEY` - VAPID private key for push notifications
+
+**Environment-specific deployments (optional future enhancement):**
+
+Create separate workflows for staging vs production:
+- `.github/workflows/deploy-staging.yml` - Deploy to staging on PR
+- `.github/workflows/deploy-production.yml` - Deploy to production on main
+- Use different Cloudflare resources (separate D1/R2) per environment
+- Use GitHub environments to manage secrets per deployment target
+
+**Workflow features:**
+
+- Automatic rollback on failed health checks
+- Slack/Discord notifications on deployment success/failure
+- Manual approval gates for production deployments
+- Deployment previews for PRs (Cloudflare Pages preview deployments)
+
 ## User flows
 
 ### Parent uploading a photo

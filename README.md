@@ -216,6 +216,241 @@ photodrop/
 - httpOnly cookie refresh tokens
 - No passwords (invite-only system)
 
+## Deployment
+
+### Deploying a new instance from scratch
+
+**Prerequisites:**
+- Cloudflare account (free tier)
+- GitHub account
+- Git installed locally
+- Node.js 18+ installed
+
+### Step 1: Cloudflare account setup
+
+1. **Create Cloudflare account:**
+   - Go to https://dash.cloudflare.com/sign-up
+   - Verify your email
+   - Add payment method (required even for free tier, you won't be charged)
+
+2. **Create API token:**
+   - Go to: Dashboard → My Profile → API Tokens
+   - Click "Create Token"
+   - Use "Edit Cloudflare Workers" template
+   - Or create custom token with these permissions:
+     - Account → Workers Scripts → Edit
+     - Account → D1 → Edit
+     - Account → Workers R2 Storage → Edit
+     - Account → Cloudflare Pages → Edit
+   - Copy the token (you'll need it for GitHub secrets)
+
+3. **Get your Account ID:**
+   - Dashboard → Workers & Pages → Overview
+   - Copy the Account ID from the right sidebar
+
+### Step 2: Create Cloudflare resources
+
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd photodrop
+
+# Install Wrangler globally (or use npx)
+npm install -g wrangler
+
+# Login to Cloudflare
+wrangler login
+
+# Create D1 database
+cd backend
+wrangler d1 create photodrop-db
+# Copy the database_id from the output
+
+# Create R2 bucket
+wrangler r2 bucket create photodrop-photos
+```
+
+### Step 3: Update Wrangler configuration
+
+Edit `backend/wrangler.toml` and uncomment/update these sections:
+
+```toml
+[[d1_databases]]
+binding = "DB"
+database_name = "photodrop-db"
+database_id = "YOUR_DATABASE_ID_HERE"  # From step 2
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "photodrop-photos"
+```
+
+Commit this change:
+```bash
+git add backend/wrangler.toml
+git commit -m "Configure D1 and R2 bindings"
+git push
+```
+
+### Step 4: Run initial database migration
+
+```bash
+# Run locally first to test
+wrangler d1 execute photodrop-db --local --file=../migrations/001_initial_schema.sql
+
+# Run in production
+wrangler d1 execute photodrop-db --file=../migrations/001_initial_schema.sql
+```
+
+### Step 5: Generate secrets
+
+```bash
+# Generate JWT secret
+openssl rand -base64 32
+# Save this output
+
+# Generate VAPID keys for push notifications
+npm install -g web-push
+web-push generate-vapid-keys
+# Save both public and private keys
+```
+
+### Step 6: Configure GitHub secrets
+
+Go to your GitHub repository:
+- Settings → Secrets and variables → Actions → New repository secret
+
+Add these secrets:
+- `CLOUDFLARE_API_TOKEN` - The API token from Step 1
+- `CLOUDFLARE_ACCOUNT_ID` - The Account ID from Step 1
+- `JWT_SECRET` - The base64 string from Step 5
+- `VAPID_PUBLIC_KEY` - The public key from Step 5
+- `VAPID_PRIVATE_KEY` - The private key from Step 5
+
+### Step 7: Set up local development (optional)
+
+```bash
+cd backend
+cp .dev.vars.example .dev.vars
+# Edit .dev.vars and add your JWT_SECRET and VAPID keys
+```
+
+### Step 8: Create GitHub Actions workflows
+
+The project needs two workflow files (these will be created in a future update):
+- `.github/workflows/test.yml` - Runs tests on every PR
+- `.github/workflows/deploy.yml` - Deploys on merge to main
+
+**Note:** These workflow files are specified in PLAN.md but not yet implemented. Once created, deployments will be fully automated.
+
+### Step 9: Deploy manually (until GitHub Actions is set up)
+
+**Deploy backend:**
+```bash
+cd backend
+
+# Set secrets for the Worker
+wrangler secret put JWT_SECRET
+# Paste your JWT secret when prompted
+
+wrangler secret put VAPID_PUBLIC_KEY
+# Paste your VAPID public key
+
+wrangler secret put VAPID_PRIVATE_KEY
+# Paste your VAPID private key
+
+# Deploy the Worker
+wrangler deploy
+```
+
+**Deploy frontend:**
+```bash
+cd frontend
+
+# Build production bundle
+npm run build
+
+# Deploy to Cloudflare Pages (first time setup)
+# Option 1: Via Cloudflare Dashboard
+# - Go to Dashboard → Workers & Pages → Create application → Pages
+# - Connect your GitHub repository
+# - Configure build settings:
+#   - Build command: cd frontend && npm install && npm run build
+#   - Build output directory: frontend/dist
+# - Deploy
+
+# Option 2: Via Wrangler (requires Pages project to exist)
+npx wrangler pages deploy dist --project-name photodrop
+```
+
+### Step 10: Verify deployment
+
+1. Check Worker is running:
+   ```bash
+   curl https://photodrop-api.<your-subdomain>.workers.dev/health
+   # Should return: {"status":"ok"}
+   ```
+
+2. Check frontend is deployed:
+   - Visit your Cloudflare Pages URL
+   - Or your custom domain if configured
+
+### Automated deployments (once GitHub Actions is set up)
+
+After completing the one-time setup above, every push to `main` will:
+1. Run all tests
+2. Deploy backend Worker
+3. Apply database migrations
+4. Deploy frontend to Pages
+5. Verify deployment health
+
+To deploy:
+```bash
+git add .
+git commit -m "Your changes"
+git push origin main
+```
+
+GitHub Actions will handle the rest automatically.
+
+### Custom domain setup (optional)
+
+1. **Purchase domain** (or use existing):
+   - Cloudflare Registrar or external provider
+   - Recommended: `.app` or `.family` domains
+
+2. **Add domain to Cloudflare:**
+   - Dashboard → Websites → Add a site
+   - Follow DNS setup instructions
+
+3. **Configure Pages custom domain:**
+   - Dashboard → Workers & Pages → Your Pages project → Custom domains
+   - Add your domain
+   - DNS records are configured automatically
+
+4. **Configure Worker route (for API):**
+   - Dashboard → Workers & Pages → Your Worker → Settings → Triggers
+   - Add route: `api.yourdomain.com/*`
+   - Or use path: `yourdomain.com/api/*`
+
+### Multiple environments (optional)
+
+To set up staging and production environments:
+
+1. Create separate Cloudflare resources:
+   ```bash
+   wrangler d1 create photodrop-db-staging
+   wrangler r2 bucket create photodrop-photos-staging
+   ```
+
+2. Create environment-specific wrangler configs or use Wrangler environments
+
+3. Set up GitHub environments with different secrets
+
+4. Create separate deployment workflows for each environment
+
+See PLAN.md for detailed multi-environment setup instructions.
+
 ## Notes
 
 - All tests are passing (27/27 backend tests)
