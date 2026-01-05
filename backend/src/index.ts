@@ -10,6 +10,7 @@ type Bindings = {
   JWT_SECRET: string;
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_KEY: string;
+  FRONTEND_URL: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();

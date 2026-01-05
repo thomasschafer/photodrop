@@ -2,6 +2,25 @@
 
 A Progressive Web App (PWA) for privately sharing baby photos with family members.
 
+## Current Status
+
+**Phase 1 (Foundation)**: ✅ Complete
+- Photo upload and feed working
+- JWT authentication (access + refresh tokens)
+- User management endpoints
+- Photo reactions and view tracking
+- All tests passing (27/27)
+
+**Phase 1.5 (Email Authentication)**: 🚧 In Progress
+- Migrating from token-based to email-based passwordless authentication
+- See PLAN.md for complete architecture details
+- See NEXT_STEPS.md for implementation checklist
+
+**Not yet functional:**
+- User onboarding (being rebuilt with email-based auth)
+- First admin creation (will use secure CLI script)
+- Invite system (will send emails instead of shareable links)
+
 ## Prerequisites
 
 - [Nix](https://install.determinate.systems/nix) with flakes enabled
@@ -28,6 +47,17 @@ This creates:
 - `photodrop-photos-dev` R2 bucket
 - `.dev.vars` with generated secrets
 - `wrangler.toml` configured for development
+
+### ⚠️ Phase 1.5 Migration Notice
+
+If you previously ran `setup-dev` before the email authentication migration, you'll need to tear down and recreate your development environment:
+
+```bash
+nix run .#teardown-dev
+nix run .#setup-dev
+```
+
+This is required because we've migrated from token-based to email-based authentication, which changes the database schema. This is a one-time requirement during the Phase 1.5 transition.
 
 ## Local development
 

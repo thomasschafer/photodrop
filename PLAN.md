@@ -1,5 +1,22 @@
 # photodrop - Project plan
 
+## ⚠️ Important: Plan vs Implementation Status
+
+**This plan describes the target architecture** (email-based passwordless authentication, PWA features, etc.).
+
+**Current implementation status:**
+- ✅ **Phase 1 (Foundation)**: Complete - photo upload/feed, JWT auth, user management
+- 🚧 **Phase 1.5 (Email Auth)**: In Progress - migrating from token-based to email-based authentication
+- ❌ **Phase 2+ (PWA, Notifications)**: Not started
+
+**The codebase currently implements Phase 1**, which uses a basic token-based invite system for testing the photo upload/feed features. Phase 1.5 is migrating this to the production-ready email-based authentication described in this plan.
+
+**For implementation status, see:**
+- `README.md` - Current status and setup instructions
+- `NEXT_STEPS.md` - Detailed implementation checklist for Phase 1.5
+
+---
+
 ## Overview
 
 A Progressive Web App (PWA) for privately sharing baby photos with family members. Parents can upload photos with one tap, and family members receive instant push notifications. Built with Cloudflare's free tier to minimize costs while maintaining security and reliability.
@@ -50,11 +67,14 @@ A Progressive Web App (PWA) for privately sharing baby photos with family member
 - Cloudflare D1 - SQLite database (free: 5GB storage, 5M reads/day)
 - Cloudflare R2 - object storage for photos (free: 10GB storage, zero egress fees)
 - Cloudflare Pages - static site hosting (free: unlimited sites)
+- Cloudflare Email Workers - send emails (free: 100 emails/day)
 
 **Authentication**:
-- JWT tokens stored in httpOnly cookies
-- No passwords - magic link authentication via invite system
-- Refresh token rotation for security
+- Passwordless email-based authentication (magic links)
+- JWT tokens (access + refresh) with httpOnly cookies
+- Self-service login via email (no admin intervention needed)
+- Secure first-admin creation via CLI script
+- Magic links expire in 15 minutes, single-use
 
 ### System diagram
 
@@ -87,10 +107,8 @@ A Progressive Web App (PWA) for privately sharing baby photos with family member
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  phone TEXT UNIQUE,  -- Optional, for contact purposes
+  email TEXT NOT NULL UNIQUE,  -- Required for passwordless auth
   role TEXT NOT NULL,  -- 'admin' or 'viewer'
-  invite_token TEXT UNIQUE,
-  invite_role TEXT,  -- Role that will be assigned when invite is accepted ('admin' or 'viewer')
   invite_accepted_at INTEGER,
   created_at INTEGER NOT NULL,
   last_seen_at INTEGER
@@ -98,9 +116,29 @@ CREATE TABLE users (
 ```
 
 Notes on the schema:
-- `invite_role`: The role specified when the invite was created; becomes the user's actual `role` upon acceptance (unless they're the first user, who always becomes admin)
-- `invite_token`: Cleared after invite is accepted for security
-- First user in the system automatically gets admin role regardless of invite_role
+- `email`: Required for passwordless authentication via magic links
+- No `invite_token` stored - magic links are temporary (15 min expiry)
+- Users can request new login links anytime via email
+- First user created via CLI script automatically gets admin role
+
+**Magic link tokens table**:
+```sql
+CREATE TABLE magic_link_tokens (
+  token TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  type TEXT NOT NULL,  -- 'invite' or 'login'
+  invite_role TEXT,  -- Only for type='invite': 'admin' or 'viewer'
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,  -- 15 minute expiry
+  used_at INTEGER  -- Null if not used yet (tokens are single-use)
+);
+```
+
+Notes:
+- Magic links are temporary (15 min expiry) and single-use
+- `type='invite'`: First-time user invitation (creates account)
+- `type='login'`: Returning user login (existing account)
+- Tokens automatically cleaned up after expiry (via scheduled cleanup job)
 
 **Push subscriptions table**:
 ```sql
@@ -155,11 +193,29 @@ CREATE TABLE photo_reactions (
 
 ### API endpoints
 
-**Authentication**:
-- `POST /api/auth/create-invite` - Generate invite link (admin only)
-- `POST /api/auth/accept-invite` - Accept invite, create account, get JWT
+**Authentication** (passwordless email-based):
+- `POST /api/auth/send-invite` - Send invite email with magic link (admin only)
+  - Body: `{ "name": "string", "email": "string", "role": "admin"|"viewer" }`
+  - Creates magic link token (type='invite'), sends email via Cloudflare Email Workers
+- `POST /api/auth/send-login-link` - Send login link to existing user (public)
+  - Body: `{ "email": "string" }`
+  - Creates magic link token (type='login'), sends email
+  - Self-service for users who need to log in on new device
+- `POST /api/auth/verify-magic-link` - Verify magic link token and issue JWT
+  - Body: `{ "token": "string" }`
+  - Validates token (not expired, not used)
+  - For type='invite': Creates user account if first time
+  - For type='login': Validates user exists
+  - Marks token as used, issues JWT access + refresh tokens
 - `POST /api/auth/refresh` - Refresh JWT token
 - `POST /api/auth/logout` - Invalidate refresh token
+
+**Admin creation** (secure, non-public):
+- No public bootstrap endpoint (security risk)
+- Use CLI script: `nix run .#create-admin-invite -- "Admin Name" "admin@example.com"`
+- Script uses wrangler to directly create user + send invite email
+- First admin created via CLI gets admin role
+- Only accessible to those with database/wrangler access
 
 **Photos**:
 - `GET /api/photos` - List all photos (paginated)
@@ -189,25 +245,48 @@ CREATE TABLE photo_reactions (
 
 ### Security model
 
-**Authentication flow**:
+**Authentication flow** (passwordless email-based):
 
-1. **Invite generation** (admin):
-   - Admin creates invite with user name
-   - System generates cryptographically random invite token (32 bytes)
-   - Stores token in database linked to pending user record
-   - Returns shareable URL: `https://app.com/invite/{token}`
+1. **First admin creation** (secure, one-time setup):
+   - Developer runs CLI script: `nix run .#create-admin-invite -- "Admin Name" "admin@example.com"`
+   - Script uses wrangler to create user + magic link token directly in D1
+   - Sends invite email via Cloudflare Email Workers with magic link
+   - Email contains: `https://app.com/auth/{token}`
+   - Admin clicks link, account activated with admin role
+   - **Security**: No public endpoint - requires database/wrangler access
 
-2. **Invite acceptance**:
-   - User clicks invite link
-   - Frontend calls `/api/auth/accept-invite` with token
-   - Backend validates token, creates user account
-   - If this is the first user in the system, automatically assign admin role
-   - Otherwise, assign role specified in invite (typically 'viewer')
+2. **Invite generation** (subsequent users):
+   - Admin fills form: name, email, role (admin or viewer)
+   - Frontend calls `/api/auth/send-invite` (admin-only endpoint)
+   - Backend generates cryptographically random token (32 bytes)
+   - Creates magic_link_tokens record (type='invite', 15 min expiry)
+   - Sends email via Cloudflare Email Workers: "Join our photo sharing app!"
+   - Email contains magic link: `https://app.com/auth/{token}`
+
+3. **New user accepting invite**:
+   - User clicks magic link in email
+   - Frontend extracts token, calls `/api/auth/verify-magic-link`
+   - Backend validates:
+     - Token exists and not expired
+     - Token not already used
+     - Type is 'invite'
+   - Creates user account with email and role from token
+   - Marks token as used
    - Issues JWT access token (15 min expiry) + refresh token (30 day expiry)
    - Refresh token stored in httpOnly cookie
    - Access token returned in response body
+   - User redirected to main app
 
-3. **Ongoing authentication**:
+4. **Returning user login** (self-service):
+   - User opens app on new device
+   - Homepage shows: "Enter your email to log in"
+   - User enters email, clicks "Send login link"
+   - Frontend calls `/api/auth/send-login-link` (public endpoint)
+   - Backend creates magic_link_tokens record (type='login', 15 min expiry)
+   - Sends email: "Click here to log in to photodrop"
+   - User clicks link → same verification flow → logged in
+
+5. **Ongoing authentication**:
    - Access token stored in memory (not localStorage)
    - All API requests include access token in Authorization header
    - When access token expires, auto-refresh using refresh token cookie
@@ -226,9 +305,15 @@ CREATE TABLE photo_reactions (
 - HTTPS only (enforced by Cloudflare)
 - CORS configured to only allow requests from your domain
 - Rate limiting on all endpoints (Cloudflare Workers built-in)
-- JWT tokens use RS256 signing (asymmetric keys)
+- JWT tokens use HS256 signing (HMAC-SHA256 with strong secret)
 - httpOnly cookies prevent XSS token theft
-- Invite tokens single-use (invalidated after acceptance)
+- Magic link tokens are:
+  - Cryptographically random (32 bytes = 256 bits entropy)
+  - Single-use (marked as used after verification)
+  - Time-limited (15 minute expiry)
+  - Automatically cleaned up after expiry
+- Email sending via Cloudflare Email Workers (SPF/DKIM configured)
+- Rate limit on `/api/auth/send-login-link` to prevent email spam
 - CSP headers to prevent XSS attacks
 
 **Preventing unauthorized access**:
@@ -576,23 +661,43 @@ Create separate workflows for staging vs production:
 ### Invite and onboarding flow
 
 1. **Admin creates invite**:
-   - Go to "Family" tab
+   - Go to "Invite" tab
    - Tap "Invite someone"
    - Enter name: "Grandma Smith"
-   - Optional: Phone number
-   - Optional: Select role (Admin or Viewer) - defaults to Viewer
-   - Tap "Create invite"
-   - Copy shareable link
-   - Send via WhatsApp/text
+   - Enter email: "grandma@example.com"
+   - Select role: Admin or Viewer (defaults to Viewer)
+   - Tap "Send invite"
+   - System sends email with magic link automatically
+   - Email preview shown: "Invite sent to grandma@example.com"
    - Note: Typically only create admin invites for the other parent initially
 
-2. **Family member accepts invite**:
-   - Receives message: "Join our baby photo app! [link]"
-   - Taps link
-   - Lands on personalized welcome page
-   - Shows: "Hi Grandma! Tom and [wife] want to share baby photos with you"
+2. **Family member receives invite email**:
+   - Email subject: "You've been invited to photodrop!"
+   - Email body:
+     - "Hi Grandma! Tom and Sarah want to share baby photos with you."
+     - "Click the link below to get started (link expires in 15 minutes)"
+     - Big button: "Join photodrop"
+   - Taps button/link
+   - Lands on welcome page
+   - Shows: "Hi Grandma! Creating your account..."
 
-3. **Installation steps** (auto-detected platform):
+3. **First-time login** (via invite link):
+   - Magic link verified automatically
+   - Account created
+   - Logged in immediately
+   - Redirected to app
+
+4. **Returning user login** (new device or cleared cookies):
+   - User opens app
+   - Homepage shows: "Welcome back! Enter your email to log in"
+   - User enters email: "grandma@example.com"
+   - Taps "Send login link"
+   - Email sent: "Click here to log in to photodrop"
+   - User checks email, clicks link
+   - Logged in automatically
+   - Self-service - no need to contact admin!
+
+5. **Installation steps** (auto-detected platform):
 
    **iOS**:
    - Step 1: "Tap Share button (box with arrow)"
@@ -605,28 +710,29 @@ Create separate workflows for staging vs production:
    - Step 2: "Tap 'Install app'"
    - Shows screenshot
 
-4. **Open installed app**:
+6. **Open installed app**:
    - "Now tap the icon on your home screen"
    - Shows what icon looks like
 
-5. **Grant permissions**:
+7. **Grant permissions**:
    - App opens, shows welcome
    - "We need permission to notify you about new photos"
    - Tap "Enable notifications"
    - Browser shows permission prompt
    - User taps "Allow"
 
-6. **Complete**:
+8. **Complete**:
    - "You're all set!"
    - Admin dashboard shows test notification button
    - Admin sends test: "Testing! You should see this notification"
    - User receives test notification
    - Success state shown
 
-7. **Account created**:
+9. **Session created**:
    - Refresh token cookie set (30 day expiry)
    - User marked as active
-   - No password needed - they're permanently logged in
+   - No password needed - tokens handle authentication
+   - Can request new login link anytime via email
 
 ### Role management
 
@@ -743,37 +849,39 @@ Create separate workflows for staging vs production:
 
 ### Password reset (not applicable)
 
-Since this app uses **magic link authentication** (invite-only), there are no passwords to reset. Instead:
+Since this app uses **passwordless email authentication**, there are no passwords to reset or remember. Instead:
 
-**If user needs new access**:
+**Self-service login** (no admin needed):
 
-1. Admin creates new invite for them
-2. User clicks new invite link
-3. If previous account exists, new tokens issued
-4. Old tokens invalidated
-5. User logged back in
+1. User opens app on new device or after logout
+2. Homepage shows: "Enter your email to log in"
+3. User enters their email
+4. Clicks "Send login link"
+5. Checks email, clicks magic link
+6. Logged in immediately
+
+**If email is lost/changed**:
+
+1. User contacts admin
+2. Admin updates email in user management
+3. User can now request login links to new email
 
 **If device is lost**:
 
-1. User gets new device
-2. Clicks original invite link (if saved) OR admin creates new invite
-3. Logs in on new device
-4. Old device's tokens still valid until they expire or user logs out
+1. User opens app on new device
+2. Uses self-service login (enters email, clicks link)
+3. Logged in - all photos and data available
+4. Old device's tokens still valid until 30-day expiry
 
-**If user accidentally logs out**:
-
-1. User can't log back in (no login page)
-2. User contacts admin
-3. Admin sends them their original invite link (saved in admin panel)
-4. Or admin creates fresh invite
-5. User clicks link, logged back in
-
-**Security consideration**: This is actually more secure than passwords because:
-- No weak passwords
-- No password reuse across sites
-- No phishing attacks for passwords
-- Token-based auth with automatic expiry
-- Admin has full control over access
+**Security benefits over passwords**:
+- ✅ No weak passwords
+- ✅ No password reuse across sites
+- ✅ No password phishing
+- ✅ No password reset vulnerabilities
+- ✅ Email account = authentication (already secured by email provider)
+- ✅ Magic links expire quickly (15 minutes)
+- ✅ Self-service - no admin intervention needed
+- ✅ Token-based auth with automatic expiry
 
 ## Implementation roadmap
 
@@ -817,12 +925,59 @@ Since this app uses **magic link authentication** (invite-only), there are no pa
 - [x] Create user management endpoints
 
 **Infrastructure** ✅
-- [x] Automated setup scripts (dev/prod)
+- [x] Automated setup scripts (dev/prod) - fully config-driven, CI-ready
 - [x] Deployment automation (manual + GitHub Actions)
 - [x] Nix integration for reproducible environments
 - [x] Secret scanning with gitleaks
-- [x] Database migrations
+- [x] Database migrations with Wrangler
 - [x] Teardown scripts
+
+### Phase 1.5: Passwordless Email Authentication (In Progress)
+
+**What was built (previous iteration)**:
+- [x] Invite acceptance page (old token-based system)
+- [x] Simple invite creation UI for admins
+- [x] Routing setup (React Router)
+- [x] Three tabs for admins: Photos, Upload, Invite
+- [x] Database migrations (initial schema)
+- [x] Wrangler config template system
+- [x] Frontend URL configuration
+- [x] Remote D1 and R2 setup for dev environment
+
+**What needs to be rebuilt (email-based authentication)**:
+- [ ] **Schema migration**: Add `magic_link_tokens` table, update `users` table (add email, remove phone/invite_token)
+- [ ] **Cloudflare Email Workers integration**: Set up email sending
+- [ ] **CLI script**: `create-admin-invite` for secure first admin creation
+- [ ] **Backend endpoints**:
+  - [ ] `POST /api/auth/send-invite` - Admin creates invite, sends email
+  - [ ] `POST /api/auth/send-login-link` - Public endpoint for returning users
+  - [ ] `POST /api/auth/verify-magic-link` - Verify token, issue JWT
+  - [ ] Remove old `/api/auth/bootstrap` and `/api/auth/accept-invite` endpoints
+- [ ] **Frontend pages**:
+  - [ ] Landing page with "Enter email to log in" form
+  - [ ] Magic link verification page (`/auth/:token`)
+  - [ ] Update invite creation form to include email field
+- [ ] **Email templates**:
+  - [ ] Invite email template
+  - [ ] Login link email template
+- [ ] **Token cleanup job**: Scheduled Worker to clean expired tokens
+
+**Why this approach is better**:
+- ✅ **Secure**: No public bootstrap endpoint - first admin via CLI only
+- ✅ **Self-service**: Users can request login links without admin
+- ✅ **Production-ready**: Safe to deploy, no race conditions
+- ✅ **Better UX**: Email-based flow is familiar to users
+- ✅ **Simpler**: No phone numbers, no manual link sharing via WhatsApp
+
+**How to test locally** (once implemented):
+1. Run `nix run .#setup-dev` (creates resources, applies migrations)
+2. Run `nix run .#dev` (starts both servers)
+3. Run `nix run .#create-admin-invite -- "Your Name" "your@email.com"` (creates first admin, sends email)
+4. Check email, click magic link
+5. Logged in as first admin
+6. Test invite creation: enter name + email, sends email automatically
+7. Test login flow: logout, enter email on homepage, get login link
+8. Upload photos and test full app
 
 ### Phase 2: PWA features
 
