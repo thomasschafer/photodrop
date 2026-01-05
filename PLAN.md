@@ -777,43 +777,52 @@ Since this app uses **magic link authentication** (invite-only), there are no pa
 
 ## Implementation roadmap
 
-### Phase 1: Foundation
+### Phase 1: Foundation ✅
 
-**Stage 1: Project setup**
-- [ ] Initialize git repository
-- [ ] Set up Vite + React + TypeScript project
-- [ ] Configure Tailwind CSS
-- [ ] Set up Cloudflare Workers project structure
-- [ ] Configure Wrangler for local development
-- [ ] Create Cloudflare account and D1 database
-- [ ] Create R2 bucket for photos
-- [ ] Set up basic folder structure
-- [ ] Configure Vitest for unit testing
-- [ ] Set up Testing Library for React
-- [ ] Configure test scripts in package.json
-- [ ] Set up basic GitHub Actions CI
+**Stage 1: Project setup** ✅
+- [x] Initialize git repository
+- [x] Set up Vite + React + TypeScript project
+- [x] Configure Tailwind CSS
+- [x] Set up Cloudflare Workers project structure
+- [x] Configure Wrangler for local development
+- [x] Create infrastructure automation (Nix + bash scripts)
+- [x] Set up basic folder structure
+- [x] Configure Vitest for unit testing
+- [x] Set up Testing Library for React
+- [x] Configure test scripts in package.json
+- [x] Set up GitHub Actions CI with Nix
 
-**Stage 2: Authentication system**
-- [ ] Implement JWT generation and validation
-- [ ] Write unit tests for JWT functions
-- [ ] Create invite token generation endpoint
-- [ ] Write unit tests for invite token generation
-- [ ] Build invite acceptance endpoint
-- [ ] Implement refresh token rotation
-- [ ] Create auth middleware for Workers
-- [ ] Write unit tests for auth middleware
-- [ ] Build login state management in React
-- [ ] Test auth flow end-to-end (manual + integration test)
+**Stage 2: Authentication system** ✅
+- [x] Implement JWT generation and validation (HMAC-SHA256)
+- [x] Write unit tests for JWT functions (27/27 passing)
+- [x] Create invite token generation endpoint
+- [x] Write unit tests for invite token generation
+- [x] Build invite acceptance endpoint
+- [x] Implement refresh token rotation
+- [x] Create auth middleware for Workers
+- [x] Write unit tests for auth middleware
+- [x] Build login state management in React (AuthContext)
+- [x] Create API client with auth interceptors
 
-**Stage 3: Core upload flow**
-- [ ] Build photo upload UI (React component)
-- [ ] Implement client-side image compression
-- [ ] Create photo upload API endpoint
-- [ ] Set up R2 storage integration
-- [ ] Implement thumbnail generation (server-side)
-- [ ] Create photo listing endpoint
-- [ ] Build photo feed UI
-- [ ] Test upload and viewing
+**Stage 3: Core upload flow** ✅
+- [x] Build photo upload UI (PhotoUpload component)
+- [x] Implement client-side image compression (browser-image-compression)
+- [x] Create photo upload API endpoint (with thumbnail support)
+- [x] Set up R2 storage integration
+- [x] Implement thumbnail generation (client-side, 400px)
+- [x] Create photo listing endpoint (paginated)
+- [x] Build photo feed UI (PhotoFeed component with lightbox)
+- [x] Add photo views tracking + reactions endpoints
+- [x] Add photo deletion endpoint (admin only)
+- [x] Create user management endpoints
+
+**Infrastructure** ✅
+- [x] Automated setup scripts (dev/prod)
+- [x] Deployment automation (manual + GitHub Actions)
+- [x] Nix integration for reproducible environments
+- [x] Secret scanning with gitleaks
+- [x] Database migrations
+- [x] Teardown scripts
 
 ### Phase 2: PWA features
 

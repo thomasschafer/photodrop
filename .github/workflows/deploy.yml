@@ -1,31 +1,29 @@
 name: Deploy
 
 on:
-  # TODO: uncomment when ready
+  workflow_dispatch:
   # push:
-  #   branches: [main]
+  #   branches:
+  #     - main  # TODO: uncomment when ready to deploy
 
 jobs:
   deploy:
     name: Deploy to production
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v19
 
-      - name: Install backend dependencies
-        working-directory: backend
-        run: npm ci
+      - name: Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
-      - name: Run backend tests
-        working-directory: backend
-        run: npm run test:run
+      - name: Run tests
+        run: nix run .#test
 
       - name: Deploy Worker
         working-directory: backend
