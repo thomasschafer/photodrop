@@ -26,9 +26,9 @@ function App() {
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <h1 className="text-4xl font-bold mb-4">photodrop</h1>
-          <p className="text-gray-600 mb-4">Private family photo sharing</p>
+          <p className="text-gray-600 mb-4">Private photo sharing</p>
           <p className="text-sm text-gray-500">
-            You need an invite link to access this app
+            You need an invite to access this app
           </p>
         </div>
       </div>

@@ -12,40 +12,56 @@
 **The codebase currently implements Phase 1**, which uses a basic token-based invite system for testing the photo upload/feed features. Phase 1.5 is migrating this to the production-ready email-based authentication described in this plan.
 
 **For implementation status, see:**
-- `README.md` - Current status and setup instructions
-- `NEXT_STEPS.md` - Detailed implementation checklist for Phase 1.5
+- Phase 1.5 section below contains the detailed implementation checklist
 
 ---
 
 ## Overview
 
-A Progressive Web App (PWA) for privately sharing baby photos with family members. Parents can upload photos with one tap, and family members receive instant push notifications. Built with Cloudflare's free tier to minimize costs while maintaining security and reliability.
+A Progressive Web App (PWA) for privately sharing photos within isolated groups. Each group has its own admins and members, with complete data isolation between groups. Group admins can upload photos with one tap, and group members receive instant push notifications. Built with Cloudflare's free tier to minimize costs while maintaining security and reliability.
+
+**Example use cases:**
+- Share baby photos with family members
+- Share travel photos with friends
+- Share event photos with attendees
+- Multiple separate groups, each with their own private photo collection
+
+**Multi-tenancy model:** The app supports multiple independent groups. Each group is completely isolated - users in one group can never see photos or data from another group. This is like having multiple separate families, each with their own admins (parents) and members, with no cross-group access.
 
 ## Core requirements
 
 ### Functional requirements
 
-- **For parents (admins)**:
-  - Multiple users can be admins (both parents typically)
-  - Upload photos with one tap from mobile devices
+- **For group admins (uploaders)**:
+  - Multiple users can be group admins within a group
+  - Upload photos to their group with one tap from mobile devices
   - Add optional captions to photos
-  - Manage family member invitations
-  - Promote other users to admin role
-  - See delivery status (who has seen what)
-  - Send test notifications
-  - Delete photos if needed
+  - Manage group member invitations
+  - Promote other group members to admin role
+  - See delivery status (which group members have seen what)
+  - Send test notifications to group members
+  - Delete photos from their group
+  - Cannot see or access photos from other groups
 
-- **For family members**:
-  - Each family member has their own view of all photos, sorted chronologically (newest photo at the top, which is there they start in the app)
+- **For group members (viewers)**:
+  - Each member has their own view of all photos in their group, sorted chronologically (newest at top)
   - Ability to react with an emoji to each photo
-  - Receive push notifications when new photos arrive
-  - Simple onboarding via unique invite links
+  - Receive push notifications when new photos arrive in their group
+  - Simple onboarding via email invitation
   - Stay logged in permanently (unless they logout)
   - Work offline and sync when back online
+  - Cannot see or access photos from other groups
+
+- **Group isolation (critical)**:
+  - Each group is completely isolated from all other groups
+  - Users can only belong to one group
+  - All queries are scoped by group_id to prevent cross-group data leakage
+  - Group admins can only manage users and photos within their own group
 
 ### Non-functional requirements
 
-- **Security**: Photos only accessible to invited users
+- **Security**: Photos only accessible to users within the same group
+- **Isolation**: Complete data isolation between groups (multi-tenant security)
 - **Cost**: Stay within Cloudflare free tier (£0/month target)
 - **Performance**: Photos load quickly, notifications arrive within seconds
 - **Reliability**: Work on iOS 16.4+ and modern Android
@@ -102,69 +118,110 @@ A Progressive Web App (PWA) for privately sharing baby photos with family member
 
 ### Data models
 
+**Groups table**:
+```sql
+CREATE TABLE groups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,  -- Display name for the group (e.g., "Smith Family", "Europe Trip 2025")
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL  -- User ID of the creator (first admin)
+);
+```
+
+Notes:
+- Each group is completely isolated
+- Group name is for display/identification purposes
+- First user in group (creator) automatically becomes admin
+- Groups are created via CLI script initially
+
 **Users table**:
 ```sql
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,  -- Which group this user belongs to
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,  -- Required for passwordless auth
-  role TEXT NOT NULL,  -- 'admin' or 'viewer'
+  role TEXT NOT NULL,  -- 'admin' or 'member' (within their group)
   invite_accepted_at INTEGER,
   created_at INTEGER NOT NULL,
-  last_seen_at INTEGER
+  last_seen_at INTEGER,
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 ```
 
 Notes on the schema:
+- `group_id`: Associates user with exactly one group (critical for isolation)
 - `email`: Required for passwordless authentication via magic links
+- `role`: 'admin' or 'member' - role is scoped to their group
 - No `invite_token` stored - magic links are temporary (15 min expiry)
 - Users can request new login links anytime via email
-- First user created via CLI script automatically gets admin role
+- First user in a new group (created via CLI) automatically gets admin role
+- **CRITICAL**: All user queries MUST filter by group_id to prevent cross-group access
 
 **Magic link tokens table**:
 ```sql
 CREATE TABLE magic_link_tokens (
   token TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,  -- Which group this token is for
   email TEXT NOT NULL,
   type TEXT NOT NULL,  -- 'invite' or 'login'
-  invite_role TEXT,  -- Only for type='invite': 'admin' or 'viewer'
+  invite_role TEXT,  -- Only for type='invite': 'admin' or 'member'
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,  -- 15 minute expiry
-  used_at INTEGER  -- Null if not used yet (tokens are single-use)
+  used_at INTEGER,  -- Null if not used yet (tokens are single-use)
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 ```
 
 Notes:
+- `group_id`: Associates the magic link with a specific group
 - Magic links are temporary (15 min expiry) and single-use
-- `type='invite'`: First-time user invitation (creates account)
+- `type='invite'`: First-time user invitation (creates account in the group)
 - `type='login'`: Returning user login (existing account)
+- `invite_role`: 'admin' or 'member' (within the group)
 - Tokens automatically cleaned up after expiry (via scheduled cleanup job)
+- **CRITICAL**: When verifying, validate user's group_id matches token's group_id
 
 **Push subscriptions table**:
 ```sql
 CREATE TABLE push_subscriptions (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
+  group_id TEXT NOT NULL,  -- Inherited from user's group
   endpoint TEXT NOT NULL,
   p256dh TEXT NOT NULL,
   auth TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 ```
+
+Notes:
+- `group_id`: Denormalized for efficient push notification queries
+- When sending push notifications, only notify users in the same group
+- **CRITICAL**: Validate group_id matches when subscribing/unsubscribing
 
 **Photos table**:
 ```sql
 CREATE TABLE photos (
   id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,  -- Which group this photo belongs to
   r2_key TEXT NOT NULL,  -- Key in R2 storage
   caption TEXT,
   uploaded_by TEXT NOT NULL,
   uploaded_at INTEGER NOT NULL,
   thumbnail_r2_key TEXT,  -- Smaller version for feed
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
   FOREIGN KEY (uploaded_by) REFERENCES users(id)
 );
 ```
+
+Notes:
+- `group_id`: Associates photo with a specific group
+- Photos are stored in R2 with group_id as path prefix: `{group_id}/{photo_id}.jpg`
+- **CRITICAL**: All photo queries MUST filter by user's group_id
+- **CRITICAL**: When generating signed URLs, verify user's group_id matches photo's group_id
 
 **Photo views table** (for read receipts):
 ```sql
@@ -194,74 +251,104 @@ CREATE TABLE photo_reactions (
 ### API endpoints
 
 **Authentication** (passwordless email-based):
-- `POST /api/auth/send-invite` - Send invite email with magic link (admin only)
-  - Body: `{ "name": "string", "email": "string", "role": "admin"|"viewer" }`
-  - Creates magic link token (type='invite'), sends email via Cloudflare Email Workers
+- `POST /api/auth/send-invite` - Send invite email with magic link (group admin only)
+  - Body: `{ "name": "string", "email": "string", "role": "admin"|"member" }`
+  - Creates magic link token (type='invite', scoped to admin's group_id)
+  - Sends email via Cloudflare Email Workers
+  - **Isolation**: Invite is scoped to the admin's group only
 - `POST /api/auth/send-login-link` - Send login link to existing user (public)
   - Body: `{ "email": "string" }`
-  - Creates magic link token (type='login'), sends email
+  - Looks up user's group_id from email
+  - Creates magic link token (type='login', scoped to user's group_id)
   - Self-service for users who need to log in on new device
 - `POST /api/auth/verify-magic-link` - Verify magic link token and issue JWT
   - Body: `{ "token": "string" }`
-  - Validates token (not expired, not used)
-  - For type='invite': Creates user account if first time
-  - For type='login': Validates user exists
-  - Marks token as used, issues JWT access + refresh tokens
+  - Validates token (not expired, not used, valid group_id)
+  - For type='invite': Creates user account in the token's group
+  - For type='login': Validates user exists and belongs to token's group
+  - Marks token as used, issues JWT with user's group_id
+  - **Isolation**: JWT contains group_id claim for all subsequent requests
 - `POST /api/auth/refresh` - Refresh JWT token
 - `POST /api/auth/logout` - Invalidate refresh token
 
-**Admin creation** (secure, non-public):
+**Group + Admin creation** (secure, non-public):
 - No public bootstrap endpoint (security risk)
-- Use CLI script: `nix run .#create-admin-invite -- "Admin Name" "admin@example.com"`
-- Script uses wrangler to directly create user + send invite email
-- First admin created via CLI gets admin role
+- Use CLI script: `nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"`
+- Script creates:
+  1. New group record in database
+  2. First user with admin role in that group
+  3. Magic link token for the admin
+  4. Sends invite email to admin
 - Only accessible to those with database/wrangler access
+- Each invocation creates a new isolated group
 
 **Photos**:
-- `GET /api/photos` - List all photos (paginated)
-- `POST /api/photos` - Upload new photo (admin only)
+- `GET /api/photos` - List all photos in user's group (paginated)
+  - **Isolation**: Filtered by current user's group_id
+- `POST /api/photos` - Upload new photo (group admin only)
+  - **Isolation**: Photo assigned to admin's group_id
 - `GET /api/photos/:id` - Get specific photo metadata
+  - **Isolation**: Validates photo belongs to user's group
 - `POST /api/photos/:id/view` - Mark photo as viewed
-- `GET /api/photos/:id/viewers` - Get list of who viewed (admin only)
-- `DELETE /api/photos/:id` - Delete photo (admin only)
+  - **Isolation**: Only works if photo is in user's group
+- `GET /api/photos/:id/viewers` - Get list of who viewed (group admin only)
+  - **Isolation**: Only shows viewers from the same group
+- `DELETE /api/photos/:id` - Delete photo (group admin only)
+  - **Isolation**: Only works if photo is in admin's group
 - `POST /api/photos/:id/react` - Add or update reaction to photo
+  - **Isolation**: Only works if photo is in user's group
 - `DELETE /api/photos/:id/react` - Remove reaction from photo
 - `GET /api/photos/:id/reactions` - Get all reactions for a photo
+  - **Isolation**: Only shows reactions from users in the same group
 
 **Users**:
-- `GET /api/users` - List all users (admin only)
-- `GET /api/users/me` - Get current user info
-- `PATCH /api/users/:id/role` - Update user role (admin only, can promote to admin or demote to viewer)
-- `DELETE /api/users/:id` - Remove user (admin only)
+- `GET /api/users` - List all users in the group (group admin only)
+  - **Isolation**: Only shows users from admin's group
+- `GET /api/users/me` - Get current user info (includes group_id)
+- `PATCH /api/users/:id/role` - Update user role (group admin only)
+  - **Isolation**: Only works if target user is in same group as admin
+  - Can promote to admin or demote to member (within the group)
+- `DELETE /api/users/:id` - Remove user from group (group admin only)
+  - **Isolation**: Only works if target user is in same group as admin
 
 **Push notifications**:
 - `POST /api/push/subscribe` - Register push subscription
+  - **Isolation**: Subscription associated with user's group_id
 - `POST /api/push/unsubscribe` - Remove push subscription
-- `POST /api/push/test` - Send test notification (admin only)
+- `POST /api/push/test` - Send test notification (group admin only)
+  - **Isolation**: Only sends to members of admin's group
 
 **R2 signed URLs**:
 - `GET /api/photos/:id/url` - Get temporary signed URL for photo download
+  - **Isolation**: Validates photo belongs to user's group before generating URL
 - `GET /api/photos/:id/thumbnail-url` - Get temporary signed URL for thumbnail
+  - **Isolation**: Validates photo belongs to user's group before generating URL
 
 ### Security model
 
 **Authentication flow** (passwordless email-based):
 
-1. **First admin creation** (secure, one-time setup):
-   - Developer runs CLI script: `nix run .#create-admin-invite -- "Admin Name" "admin@example.com"`
-   - Script uses wrangler to create user + magic link token directly in D1
-   - Sends invite email via Cloudflare Email Workers with magic link
+1. **First group + admin creation** (secure, one-time setup per group):
+   - Developer runs CLI script: `nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"`
+   - Script uses wrangler to create:
+     - New group record (unique group_id)
+     - First user in that group with admin role
+     - Magic link token scoped to the new group
+   - Sends invite email via Cloudflare Email Workers
    - Email contains: `https://app.com/auth/{token}`
-   - Admin clicks link, account activated with admin role
+   - Admin clicks link, account activated with admin role in their group
    - **Security**: No public endpoint - requires database/wrangler access
+   - **Isolation**: Each group is created independently and completely isolated
 
-2. **Invite generation** (subsequent users):
-   - Admin fills form: name, email, role (admin or viewer)
-   - Frontend calls `/api/auth/send-invite` (admin-only endpoint)
-   - Backend generates cryptographically random token (32 bytes)
-   - Creates magic_link_tokens record (type='invite', 15 min expiry)
-   - Sends email via Cloudflare Email Workers: "Join our photo sharing app!"
+2. **Invite generation** (subsequent users within a group):
+   - Group admin fills form: name, email, role (admin or member)
+   - Frontend calls `/api/auth/send-invite` (group admin-only endpoint)
+   - Backend extracts admin's group_id from JWT
+   - Generates cryptographically random token (32 bytes)
+   - Creates magic_link_tokens record (type='invite', 15 min expiry, with admin's group_id)
+   - Sends email: "You've been invited to join [Group Name]!"
    - Email contains magic link: `https://app.com/auth/{token}`
+   - **Isolation**: Token is permanently bound to the admin's group_id
 
 3. **New user accepting invite**:
    - User clicks magic link in email
@@ -270,35 +357,44 @@ CREATE TABLE photo_reactions (
      - Token exists and not expired
      - Token not already used
      - Type is 'invite'
-   - Creates user account with email and role from token
+   - Creates user account with:
+     - Email from token
+     - Role from token (admin or member)
+     - **group_id from token** (joins the inviting admin's group)
    - Marks token as used
-   - Issues JWT access token (15 min expiry) + refresh token (30 day expiry)
+   - Issues JWT with group_id claim
    - Refresh token stored in httpOnly cookie
-   - Access token returned in response body
    - User redirected to main app
+   - **Isolation**: User permanently assigned to token's group_id
 
 4. **Returning user login** (self-service):
    - User opens app on new device
    - Homepage shows: "Enter your email to log in"
    - User enters email, clicks "Send login link"
    - Frontend calls `/api/auth/send-login-link` (public endpoint)
-   - Backend creates magic_link_tokens record (type='login', 15 min expiry)
+   - Backend looks up user by email, gets their group_id
+   - Creates magic_link_tokens record (type='login', with user's group_id)
    - Sends email: "Click here to log in to photodrop"
-   - User clicks link → same verification flow → logged in
+   - User clicks link → verification flow → logged in with their group_id in JWT
+   - **Isolation**: Login link scoped to user's existing group_id
 
 5. **Ongoing authentication**:
    - Access token stored in memory (not localStorage)
+   - JWT contains group_id claim (used for all authorization checks)
    - All API requests include access token in Authorization header
    - When access token expires, auto-refresh using refresh token cookie
    - Service worker caches access token for offline requests
+   - **Isolation**: Every API request validates user's group_id matches resource's group_id
 
 **Photo access control**:
 
-1. Photos stored in R2 with random UUIDs as keys
+1. Photos stored in R2 with group-scoped keys: `{group_id}/{photo_id}.jpg`
 2. R2 bucket is private (no public access)
 3. All photo access requires authentication
-4. API generates temporary signed URLs (valid 1 hour) for photo downloads
-5. Photos only accessible via signed URLs, not direct R2 URLs
+4. API validates user's group_id matches photo's group_id before any operation
+5. API generates temporary signed URLs (valid 1 hour) only after group validation
+6. Photos only accessible via signed URLs, not direct R2 URLs
+7. **Isolation**: Impossible to access photos from other groups even with valid JWT
 
 **Security measures**:
 
@@ -318,12 +414,19 @@ CREATE TABLE photo_reactions (
 
 **Preventing unauthorized access**:
 
-1. **No public endpoints**: All endpoints require valid JWT
-2. **Token verification middleware**: Every request validates JWT signature and expiry
-3. **Role-based access**: Admin-only endpoints check user role
-4. **Invite-only**: No signup page, only invite links work
-5. **Token rotation**: Refresh tokens rotated on use
-6. **Revocation**: Removing user deletes all their tokens and subscriptions
+1. **No public endpoints**: All endpoints require valid JWT (except public login link request)
+2. **Token verification middleware**: Every request validates JWT signature, expiry, and group_id claim
+3. **Group isolation middleware**: Every data access validates resource's group_id matches user's group_id
+4. **Role-based access**: Admin-only endpoints check user role (within their group)
+5. **Invite-only**: No signup page, only invite links work (scoped to specific group)
+6. **Token rotation**: Refresh tokens rotated on use
+7. **Revocation**: Removing user deletes all their tokens and subscriptions
+8. **Defense in depth**:
+   - Database foreign keys enforce group relationships
+   - Application layer validates group_id on every query
+   - JWT includes group_id claim (tamper-proof via signature)
+   - R2 keys include group_id prefix for additional isolation
+   - All queries use WHERE group_id = ? to prevent cross-group leaks
 
 ### Image processing strategy
 
@@ -377,7 +480,7 @@ Cloudflare Workers have CPU time limits (10ms on free tier, 50ms on paid), which
 - **R2**: 10GB storage, 1M Class A operations/month, 10M Class B operations/month
 - **Pages**: Unlimited bandwidth and requests
 
-**Usage estimates** (10 family members, 50 photos/month):
+**Usage estimates** (10 viewers, 50 photos/month):
 
 - **Storage**: ~500MB/month (10MB avg per photo)
 - **Workers requests**: ~5,000/month (100 photos views + admin actions)
@@ -634,7 +737,7 @@ Create separate workflows for staging vs production:
 
 ## User flows
 
-### Parent uploading a photo
+### Admin uploading a photo
 
 1. Open PWA (already logged in from previous session)
 2. Tap floating "+" button
@@ -645,13 +748,13 @@ Create separate workflows for staging vs production:
 7. Tap "Send"
 8. Photo uploads to R2
 9. Thumbnail generated server-side
-10. Push notifications sent to all family members
+10. Push notifications sent to all group members
 11. Success confirmation shown
 12. Photo appears in feed
 
-### Family member receiving a photo
+### Group member receiving a photo
 
-1. Phone shows push notification: "New photo from Tom & [wife]!"
+1. Phone shows push notification: "New photo shared!"
 2. Tap notification
 3. PWA opens to photo detail view
 4. Full-size image loads (thumbnail shown first)
@@ -660,26 +763,25 @@ Create separate workflows for staging vs production:
 
 ### Invite and onboarding flow
 
-1. **Admin creates invite**:
+1. **Group admin creates invite**:
    - Go to "Invite" tab
    - Tap "Invite someone"
-   - Enter name: "Grandma Smith"
-   - Enter email: "grandma@example.com"
-   - Select role: Admin or Viewer (defaults to Viewer)
+   - Enter name: "Alex Smith"
+   - Enter email: "alex@example.com"
+   - Select role: Admin or Member (defaults to Member)
    - Tap "Send invite"
    - System sends email with magic link automatically
-   - Email preview shown: "Invite sent to grandma@example.com"
-   - Note: Typically only create admin invites for the other parent initially
+   - Email preview shown: "Invite sent to alex@example.com"
 
-2. **Family member receives invite email**:
+2. **User receives invite email**:
    - Email subject: "You've been invited to photodrop!"
    - Email body:
-     - "Hi Grandma! Tom and Sarah want to share baby photos with you."
+     - "Hi Alex! You've been invited to join photodrop to view photos."
      - "Click the link below to get started (link expires in 15 minutes)"
      - Big button: "Join photodrop"
    - Taps button/link
    - Lands on welcome page
-   - Shows: "Hi Grandma! Creating your account..."
+   - Shows: "Hi Alex! Creating your account..."
 
 3. **First-time login** (via invite link):
    - Magic link verified automatically
@@ -690,7 +792,7 @@ Create separate workflows for staging vs production:
 4. **Returning user login** (new device or cleared cookies):
    - User opens app
    - Homepage shows: "Welcome back! Enter your email to log in"
-   - User enters email: "grandma@example.com"
+   - User enters email: "alex@example.com"
    - Taps "Send login link"
    - Email sent: "Click here to log in to photodrop"
    - User checks email, clicks link
@@ -739,34 +841,37 @@ Create separate workflows for staging vs production:
 **Multiple admins support**:
 
 1. **Initial setup**:
-   - First user created (via first invite) is automatically an admin
-   - This is typically one of the parents who sets up the app
-   - They can then promote other users to admin (e.g., the other parent)
+   - First user created (via CLI script) is automatically an admin
+   - This is typically the person who sets up the app
+   - They can then promote other users to admin
 
 2. **Promoting users to admin**:
-   - Any admin can promote a viewer to admin via user management interface
+   - Any group admin can promote a member to admin via user management interface
    - API call: `PATCH /api/users/:id/role` with `{ "role": "admin" }`
-   - Useful for giving both parents full control
-   - Can also promote trusted family members if needed
+   - Promotion is scoped to the admin's group only
+   - Useful for giving multiple people full control within the group
+   - Can promote trusted group members as needed
 
 3. **Demoting admins**:
-   - Any admin can demote another admin to viewer
+   - Any group admin can demote another admin to member (within their group)
    - Safety rule: Cannot demote yourself if you're the last admin (prevents lockout)
    - Prevents accidental loss of all admin access
 
-4. **Admin capabilities**:
-   - Upload photos
-   - Delete photos
-   - Create invites
-   - Manage users (view all users, promote/demote roles, remove users)
-   - View photo analytics (who viewed what)
-   - Send test notifications
+4. **Group admin capabilities**:
+   - Upload photos to their group
+   - Delete photos from their group
+   - Create invites for their group
+   - Manage users in their group (view all users, promote/demote roles, remove users)
+   - View photo analytics for their group (who viewed what)
+   - Send test notifications to their group members
+   - **Cannot** access or see any data from other groups
 
-5. **Viewer capabilities**:
-   - View all photos
-   - React to photos
-   - Receive notifications
+5. **Group member capabilities**:
+   - View all photos in their group
+   - React to photos in their group
+   - Receive notifications for their group
    - Cannot upload, delete, or manage users
+   - **Cannot** access or see any data from other groups
 
 6. **Safety considerations**:
    - Always maintain at least one admin
@@ -804,8 +909,8 @@ Create separate workflows for staging vs production:
 
 5. **Token expiry**:
    - Refresh token expires after 30 days of no use
-   - User must click invite link again to re-authenticate
-   - For family members who check regularly, effectively permanent login
+   - User must request a new login link to re-authenticate
+   - For users who check regularly, effectively permanent login
 
 **Offline behavior**:
 
@@ -824,7 +929,7 @@ Create separate workflows for staging vs production:
    - Confirmation dialog shows: "Delete this photo? This cannot be undone."
    - Upon confirmation, photo and thumbnail removed from R2
    - Database records deleted (cascading to views and reactions)
-   - All family members' cached versions eventually cleared
+   - All users' cached versions eventually cleared
 
 2. **What gets deleted**:
    - Photo record in database
@@ -932,7 +1037,13 @@ Since this app uses **passwordless email authentication**, there are no password
 - [x] Database migrations with Wrangler
 - [x] Teardown scripts
 
-### Phase 1.5: Passwordless Email Authentication (In Progress)
+### Phase 1.5: Passwordless Email Authentication + Multi-Group Architecture (In Progress)
+
+> **Note for Tom**: If you have an existing dev database from before the multi-group migration, run:
+> ```bash
+> nix run .#teardown-dev
+> nix run .#setup-dev
+> ```
 
 **What was built (previous iteration)**:
 - [x] Invite acceptance page (old token-based system)
@@ -944,40 +1055,285 @@ Since this app uses **passwordless email authentication**, there are no password
 - [x] Frontend URL configuration
 - [x] Remote D1 and R2 setup for dev environment
 
-**What needs to be rebuilt (email-based authentication)**:
-- [ ] **Schema migration**: Add `magic_link_tokens` table, update `users` table (add email, remove phone/invite_token)
-- [ ] **Cloudflare Email Workers integration**: Set up email sending
-- [ ] **CLI script**: `create-admin-invite` for secure first admin creation
-- [ ] **Backend endpoints**:
-  - [ ] `POST /api/auth/send-invite` - Admin creates invite, sends email
-  - [ ] `POST /api/auth/send-login-link` - Public endpoint for returning users
-  - [ ] `POST /api/auth/verify-magic-link` - Verify token, issue JWT
-  - [ ] Remove old `/api/auth/bootstrap` and `/api/auth/accept-invite` endpoints
-- [ ] **Frontend pages**:
-  - [ ] Landing page with "Enter email to log in" form
-  - [ ] Magic link verification page (`/auth/:token`)
-  - [ ] Update invite creation form to include email field
-- [ ] **Email templates**:
-  - [ ] Invite email template
-  - [ ] Login link email template
-- [ ] **Token cleanup job**: Scheduled Worker to clean expired tokens
+**Migration overview**:
+- **Old system**: Shareable invite links → user clicks → gets access token
+- **New system**: Group admin sends email → user clicks magic link → joins specific group → gets access token with group_id claim (self-service login for returning users)
 
 **Why this approach is better**:
-- ✅ **Secure**: No public bootstrap endpoint - first admin via CLI only
+- ✅ **Secure**: No public bootstrap endpoint - first group/admin via CLI only
+- ✅ **Multi-tenant**: Complete isolation between groups (like separate families)
 - ✅ **Self-service**: Users can request login links without admin
 - ✅ **Production-ready**: Safe to deploy, no race conditions
 - ✅ **Better UX**: Email-based flow is familiar to users
-- ✅ **Simpler**: No phone numbers, no manual link sharing via WhatsApp
+- ✅ **Simpler**: No phone numbers, no manual link sharing
 
-**How to test locally** (once implemented):
-1. Run `nix run .#setup-dev` (creates resources, applies migrations)
-2. Run `nix run .#dev` (starts both servers)
-3. Run `nix run .#create-admin-invite -- "Your Name" "your@email.com"` (creates first admin, sends email)
-4. Check email, click magic link
-5. Logged in as first admin
-6. Test invite creation: enter name + email, sends email automatically
-7. Test login flow: logout, enter email on homepage, get login link
-8. Upload photos and test full app
+#### Implementation Checklist
+
+**Backend: Email Integration**
+
+- [ ] **Add Cloudflare Email Workers binding**
+  - Update `backend/wrangler.toml.template` to include email sending binding
+  - Documentation: https://developers.cloudflare.com/email-routing/email-workers/
+
+- [ ] **Create email service** (`backend/src/lib/email.ts`)
+  - Function to send invite emails
+  - Function to send login link emails
+  - HTML email templates (inline CSS for compatibility)
+  - Plain text fallback versions
+
+- [ ] **Create magic link service** (`backend/src/lib/magic-links.ts`)
+  - `generateMagicLinkToken()` - create cryptographically random token
+  - `createMagicLink()` - insert token into database
+  - `verifyMagicLink()` - validate token (not expired, not used)
+  - `markTokenUsed()` - mark token as consumed
+  - Token cleanup function (delete expired tokens)
+
+**Backend: Database Layer**
+
+- [ ] **Update User interface** (`backend/src/lib/db.ts`)
+  - Add `group_id: string` field
+  - Change `phone: string | null` to `email: string`
+  - Change `role` to use 'admin' | 'member' (instead of 'viewer')
+  - Remove `invite_token` and `invite_role` fields
+  - Update all references
+
+- [ ] **Add Group and MagicLinkToken interfaces** (`backend/src/lib/db.ts`)
+  ```typescript
+  export interface Group {
+    id: string;
+    name: string;
+    created_at: number;
+    created_by: string;
+  }
+
+  export interface MagicLinkToken {
+    token: string;
+    group_id: string;
+    email: string;
+    type: 'invite' | 'login';
+    invite_role: 'admin' | 'member' | null;
+    created_at: number;
+    expires_at: number;
+    used_at: number | null;
+  }
+  ```
+
+- [ ] **Replace old invite functions** (`backend/src/lib/db.ts`)
+  - Remove: `createInvite()`, `getUserByInviteToken()`, `acceptInvite()`, `isFirstUserInSystem()`
+  - Add: `createGroup()`, `createUser()`, `getUserByEmail()`, `updateUserLastSeen()`
+  - **CRITICAL**: All queries must filter by `group_id` to ensure isolation
+
+**Backend: API Endpoints**
+
+- [ ] **Remove old endpoints** (`backend/src/routes/auth.ts`)
+  - Delete: `/create-invite`, `/accept-invite`
+
+- [ ] **Add new endpoints** (`backend/src/routes/auth.ts`)
+  - `POST /send-invite` (group admin only)
+    - Body: `{ name, email, role }`
+    - Extracts admin's `group_id` from JWT
+    - Creates magic link token scoped to admin's group
+    - Sends invite email
+  - `POST /send-login-link` (public)
+    - Body: `{ email }`
+    - Looks up user's `group_id` from email
+    - Creates magic link token scoped to user's group
+    - Sends login email
+  - `POST /verify-magic-link` (public)
+    - Body: `{ token }`
+    - Validates token (not expired, not used, valid group_id)
+    - For invite: creates user account in token's group
+    - For login: validates user exists in token's group
+    - Issues JWT tokens with `group_id` claim
+    - Returns user data
+
+**Backend: Tests**
+
+- [ ] **Rewrite database tests** (`backend/src/lib/db.test.ts`)
+  - Remove old invite token tests
+  - Add group creation tests
+  - Add email-based user tests
+  - Test magic link token creation/validation
+  - **CRITICAL**: Test group isolation (users in group A cannot access group B data)
+
+- [ ] **Add email service tests** (`backend/src/lib/email.test.ts`)
+  - Mock Cloudflare Email Workers
+  - Test email content generation
+
+- [ ] **Add magic link tests** (`backend/src/lib/magic-links.test.ts`)
+  - Test token generation (randomness, uniqueness)
+  - Test expiry validation
+  - Test single-use enforcement
+  - Test group_id validation
+
+**Frontend: Pages**
+
+- [ ] **Create login page** (`frontend/src/pages/Login.tsx`)
+  - Email input form
+  - "Send login link" button
+  - Success message: "Check your email!"
+  - Error handling
+
+- [ ] **Create magic link verification page** (`frontend/src/pages/MagicLinkVerify.tsx`)
+  - Route: `/auth/:token`
+  - Auto-verifies token on mount
+  - Shows loading state
+  - Success: redirect to main app
+  - Error: show error message with retry option
+
+**Frontend: Components**
+
+- [ ] **Create invite form** (`frontend/src/components/InviteForm.tsx`)
+  - Name input
+  - Email input
+  - Role selector (admin/member)
+  - "Send invite" button
+  - Success/error messages
+  - Note: Invites are automatically scoped to the admin's group
+
+- [ ] **Update App.tsx**
+  - Add React Router (BrowserRouter, Routes, Route)
+  - Route `/` → Login page (if not authenticated) OR Main app (if authenticated)
+  - Route `/auth/:token` → MagicLinkVerify page
+  - Remove old invite UI
+  - Display group name in UI for context
+
+**Frontend: Auth Context**
+
+- [ ] **Update AuthContext** (`frontend/src/contexts/AuthContext.tsx`)
+  - Update to handle email-based flow
+  - Store user's `group_id` from JWT
+  - Remove any references to invite tokens
+  - Add `sendLoginLink()` function
+
+**CLI Script**
+
+- [ ] **Create group creation script** (`scripts/create-group.sh`)
+  - Takes arguments: group name, admin name, admin email
+  - Uses wrangler to:
+    1. Create new group in D1
+    2. Create first user (admin) in that group
+    3. Create magic link token scoped to the new group
+    4. Send invite email via Cloudflare Email Workers
+  - Prints success message with group ID and instructions
+  - Note: Each invocation creates a completely isolated group
+
+- [ ] **Add to flake.nix**
+  - Create `create-group` script wrapper
+  - Add to `apps.create-group`
+  - Add to dev shell `nativeBuildInputs`
+
+**Cloudflare Configuration**
+
+- [ ] **Set up Cloudflare Email Routing**
+  - Configure email routing in Cloudflare dashboard
+  - Verify domain for email sending
+  - Set up SPF/DKIM records
+  - Test email delivery
+
+- [ ] **Update wrangler.toml.template**
+  - Add email sending bindings
+  - Update environment variables list
+
+**Environment Variables**
+
+- [ ] **Add to setup.sh**
+  - No new secrets needed for Cloudflare Email Workers (uses account)
+  - Possibly add `FROM_EMAIL` if customizable sender
+
+#### Testing Plan
+
+**Manual Testing**
+
+- [ ] **Test first group + admin creation**
+  ```bash
+  nix run .#create-group -- "My Group" "Your Name" "your@email.com"
+  # Check email
+  # Click magic link
+  # Verify logged in as admin
+  # Verify group context is set
+  ```
+
+- [ ] **Test admin creates invite**
+  - Log in as admin
+  - Go to Invite tab
+  - Enter name and email
+  - Verify email sent
+  - Check email in test inbox
+  - Click link
+  - Verify new user created in correct group
+
+- [ ] **Test returning user login**
+  - Logout
+  - Go to homepage
+  - Enter email
+  - Click "Send login link"
+  - Check email
+  - Click link
+  - Verify logged in with correct group context
+
+- [ ] **Test token expiry**
+  - Send login link
+  - Wait 16 minutes
+  - Click link
+  - Verify error message
+
+- [ ] **Test token single-use**
+  - Send login link
+  - Click link (success)
+  - Click same link again
+  - Verify error message
+
+- [ ] **Test group isolation**
+  - Create two separate groups with `create-group`
+  - Log in to group A, upload photo
+  - Log in to group B (different browser/incognito)
+  - Verify group B cannot see group A's photos
+  - Verify API calls with group A token cannot access group B data
+
+**Automated Testing**
+
+- [ ] All backend tests pass
+- [ ] All frontend tests pass (if any)
+- [ ] Group isolation tests pass
+
+**Common Issues & Solutions**
+
+**Email Not Sending**
+- Check Cloudflare Email Routing is enabled
+- Verify domain has SPF/DKIM configured
+- Check wrangler.toml has email bindings
+- Look at Cloudflare dashboard logs
+
+**Magic Link Not Working**
+- Check token hasn't expired (15 min limit)
+- Verify token hasn't been used already
+- Check database for token record
+- Ensure frontend extracts token correctly from URL
+
+**Database Errors**
+- Ensure migrations ran successfully: `cd backend && npx wrangler d1 migrations list photodrop-db-dev --remote`
+- Check groups table exists
+- Check users table has group_id and email columns
+- Verify magic_link_tokens table has group_id column
+- Check all foreign key constraints are in place
+
+**Definition of Done**
+
+Phase 1.5 is complete when:
+
+- [ ] Group + admin can be created via CLI script
+- [ ] Admin receives email with magic link
+- [ ] Admin can click link and log in (with group context)
+- [ ] Admin can send invites via email (scoped to their group)
+- [ ] New users receive emails and can join their group
+- [ ] Users can request login links on new devices
+- [ ] Group isolation works (users cannot access other groups' data)
+- [ ] All JWT tokens include group_id claim
+- [ ] All API endpoints validate group_id
+- [ ] All tests pass (including group isolation tests)
+- [ ] Documentation updated
+- [ ] No security vulnerabilities (run `nix run .#secrets-scan`)
 
 ### Phase 2: PWA features
 
@@ -1041,19 +1397,19 @@ Since this app uses **passwordless email authentication**, there are no password
 ### Phase 4: Launch preparation
 
 **Stage 1: Documentation**
-- [ ] Write user guide for family members
+- [ ] Write user guide
 - [ ] Create troubleshooting documentation
 - [ ] Document admin features
 - [ ] Set up monitoring alerts
 
 **Stage 2: Beta testing**
-- [ ] Invite 2-3 family members for beta
+- [ ] Invite 2-3 test users for beta
 - [ ] Collect feedback
 - [ ] Fix critical issues
 - [ ] Refine UI based on feedback
 
 **Stage 3: Full launch**
-- [ ] Send invites to all family members
+- [ ] Send invites to all users
 - [ ] Provide 1-on-1 setup help as needed
 - [ ] Monitor for issues
 - [ ] Celebrate! 🎉
@@ -1068,7 +1424,7 @@ Since this app uses **passwordless email authentication**, there are no password
 - Photo albums/grouping
 - Search and filtering
 - Dark mode
-- Photo download option for family members
+- Photo download option for viewers
 - Comments on photos (opt-in, to maintain simplicity)
 - Reaction emojis (hearts, likes)
 
@@ -1078,15 +1434,15 @@ Since this app uses **passwordless email authentication**, there are no password
 - Automatic face detection and tagging
 - Print ordering integration
 - Export to Google Photos/iCloud
-- Shared family calendar
-- Milestone tracking (first smile, first steps)
+- Shared calendar
+- Custom metadata/tagging
 
 ### Technical improvements
 - Automated image optimization pipeline
 - CDN caching optimization
 - Database query optimization
 - Accessibility improvements (screen reader support)
-- Internationalization (if family speaks multiple languages)
+- Internationalization (if users speak multiple languages)
 - Analytics (privacy-respecting, self-hosted)
 
 ## Testing strategy
@@ -1112,11 +1468,12 @@ Since this app uses **passwordless email authentication**, there are no password
 Tests to write as you build features:
 
 1. **Authentication** (Phase 1, Stage 2):
-   - JWT generation creates valid tokens
+   - JWT generation creates valid tokens with group_id claim
    - JWT validation rejects expired/invalid tokens
-   - Invite token generation is cryptographically random
+   - Invite token generation is cryptographically random and group-scoped
    - Refresh token rotation works correctly
-   - Role-based access control (admin vs viewer)
+   - Role-based access control (group admin vs group member)
+   - Group isolation validation (user can only access their group's data)
 
 2. **Image processing** (Phase 1, Stage 3):
    - Thumbnail generation produces correct dimensions
@@ -1320,11 +1677,11 @@ Before launch:
 
 - **No third-party analytics**: All data stays within Cloudflare
 - **No tracking cookies**: Only auth cookies (functional, not tracking)
-- **Minimal data collection**: Only name, optional phone, photos
+- **Minimal data collection**: Only name, email, and photos
 - **Right to deletion**: Admin can remove users and their data
 - **Data retention**: Photos stored indefinitely unless manually deleted
-- **GDPR compliance**: Since family-only, likely exempt, but respect privacy anyway
-- **Photo ownership**: Clear that parents control all photos
+- **GDPR compliance**: Private groups typically exempt, but respect privacy anyway
+- **Photo ownership**: Clear that admins control all photos
 - **Access logs**: Only stored for debugging, not analyzed
 
 ## Troubleshooting guide
@@ -1374,11 +1731,11 @@ Before launch:
 ## Success metrics
 
 How we'll know it's working:
-- All family members successfully onboarded (100% completion rate)
+- All users successfully onboarded (100% completion rate)
 - Notifications arrive within 60 seconds of upload
 - Zero cost for first 6 months (stay in free tier)
 - Photos load in <2 seconds on 4G
-- Positive feedback from family members
+- Positive feedback from users
 - Used regularly (at least 1-2 uploads per week)
 
 ## Notes
@@ -1386,6 +1743,6 @@ How we'll know it's working:
 - This is a living document - update as features change
 - Keep complexity low - resist feature creep
 - Prioritize reliability over features
-- Family members are the real QA team
+- Users are the real QA team
 - Document all Cloudflare setup steps for reproducibility
-- Keep original invite links saved securely (for re-sharing if needed)
+- Keep admin credentials secure

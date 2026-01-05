@@ -2,7 +2,7 @@
   "name": "photodrop",
   "version": "1.0.0",
   "private": true,
-  "description": "A Progressive Web App for privately sharing baby photos with family members",
+  "description": "A Progressive Web App for privately sharing photos within isolated groups",
   "scripts": {
     "setup:dev": "./scripts/setup.sh dev",
     "setup:prod": "./scripts/setup.sh prod",

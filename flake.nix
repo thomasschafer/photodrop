@@ -1,5 +1,5 @@
 {
-  description = "PhotoDrop - Progressive Web App for privately sharing baby photos";
+  description = "PhotoDrop - Progressive Web App for privately sharing photos with a trusted group";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
