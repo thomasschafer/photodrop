@@ -2,6 +2,7 @@ node_modules/
 .wrangler/
 .dev.vars
 .prod.vars
+.prod.secrets.txt
 wrangler.toml
 dist/
 *.log

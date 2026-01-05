@@ -22,54 +22,12 @@ jobs:
       - name: Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@v13
 
-      - name: Run tests
-        run: nix run .#test
-
-      - name: Deploy Worker
-        working-directory: backend
-        run: npx wrangler deploy --config wrangler.production.toml
+      - name: Deploy to production
+        run: nix run .#deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Set Worker secrets
-        working-directory: backend
-        run: |
-          echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET --config wrangler.production.toml
-          echo "${{ secrets.VAPID_PUBLIC_KEY }}" | npx wrangler secret put VAPID_PUBLIC_KEY --config wrangler.production.toml
-          echo "${{ secrets.VAPID_PRIVATE_KEY }}" | npx wrangler secret put VAPID_PRIVATE_KEY --config wrangler.production.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Apply database migrations
-        working-directory: backend
-        run: |
-          for migration in ../migrations/*.sql; do
-            echo "Applying migration: $migration"
-            npx wrangler d1 execute photodrop-db-prod --file="$migration" || true
-          done
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
-
-      - name: Deploy to Cloudflare Pages
-        working-directory: frontend
-        run: npx wrangler pages deploy dist --project-name=photodrop
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Health check
-        run: |
-          echo "Waiting for deployment to stabilize..."
-          sleep 10
-          curl -f https://photodrop-api.workers.dev/health || echo "Health check failed, but deployment may still be successful"
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}

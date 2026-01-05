@@ -27,14 +27,6 @@ This creates:
 - `.dev.vars` with generated secrets
 - `wrangler.toml` configured for development
 
-**Production setup:**
-
-```bash
-nix run .#setup-prod
-```
-
-Creates production resources and updates `wrangler.production.toml` (commit this file).
-
 ## Local development
 
 ```bash
@@ -47,13 +39,51 @@ cd frontend && npm run dev
 
 Visit http://localhost:5173
 
-## Deploy
+## Production deployment
 
+### One-time setup (run locally)
+
+1. **Create Cloudflare resources and generate secrets:**
+   ```bash
+   nix run .#setup-prod
+   ```
+   This creates:
+   - `photodrop-db-prod` D1 database
+   - `photodrop-photos-prod` R2 bucket
+   - `.prod.vars` with database ID and generated secrets (gitignored)
+   - `.prod.secrets.txt` with all values for GitHub (gitignored)
+
+2. **Add secrets to GitHub:**
+   - View secrets: `cat backend/.prod.secrets.txt`
+   - Go to: Settings → Secrets and variables → Actions → New repository secret
+   - Add the following secrets:
+     - `CLOUDFLARE_API_TOKEN` - Get from https://dash.cloudflare.com/profile/api-tokens
+     - `CLOUDFLARE_ACCOUNT_ID` - Get from Workers & Pages dashboard
+     - `D1_DATABASE_ID` - From `.prod.secrets.txt` (your database UUID)
+     - `JWT_SECRET` - From `.prod.secrets.txt`
+     - `VAPID_PUBLIC_KEY` - From `.prod.secrets.txt`
+     - `VAPID_PRIVATE_KEY` - From `.prod.secrets.txt`
+
+**Note:** All configuration is environment-driven. The repo contains no environment-specific IDs, allowing multiple deployments (staging, prod, etc.) using different secret sets.
+
+### Ongoing deployments (automatic via CI)
+
+Once setup is complete, every push to `main`:
+1. Runs all tests (backend + frontend)
+2. Generates `wrangler.toml` from environment variables
+3. Deploys to production automatically
+
+You can also deploy manually:
 ```bash
 nix run .#deploy
 ```
 
-Or push to main for automated deployment via GitHub Actions.
+### Multiple environments
+
+To deploy to multiple environments (e.g., staging, production):
+1. Run `nix run .#setup-prod` for each environment to create separate databases
+2. Store secrets in different GitHub environments or repositories
+3. Each deployment uses its own database ID and secrets
 
 ## Teardown
 

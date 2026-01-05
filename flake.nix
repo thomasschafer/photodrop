@@ -22,6 +22,7 @@
           nodejs_22
           nodePackages.npm
           openssl
+          jq
         ];
 
         # Security scanning tools
