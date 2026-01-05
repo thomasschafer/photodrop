@@ -10,6 +10,7 @@
     "teardown": "./scripts/teardown.sh all",
     "teardown:dev": "./scripts/teardown.sh dev",
     "teardown:prod": "./scripts/teardown.sh prod",
-    "dev": "echo 'Run: cd backend && npm run dev (in one terminal) and cd frontend && npm run dev (in another)'"
+    "dev": "echo 'Run: cd backend && npm run dev (in one terminal) and cd frontend && npm run dev (in another)'",
+    "secrets:scan": "nix run .#secrets-scan"
   }
 }

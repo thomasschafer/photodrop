@@ -1,0 +1,11 @@
+title = "photodrop Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist for PhotoDrop"
+paths = ['''\.gitignore$''', '''go\.sum$''', '''package-lock\.json$''']
+
+# Add any false positives here
+regexes = []
