@@ -5,7 +5,9 @@ A Progressive Web App (PWA) for privately sharing baby photos with family member
 ## Prerequisites
 
 - [Nix](https://install.determinate.systems/nix) with flakes enabled
-- Cloudflare account (free tier works)
+- Cloudflare account (free tier works) with:
+  - **D1 database** enabled (visit [Cloudflare Dashboard → D1](https://dash.cloudflare.com/d1) and enable)
+  - **R2 storage** enabled (visit [Cloudflare Dashboard → R2](https://dash.cloudflare.com/r2) and enable)
 - [direnv](https://direnv.net/) (optional, for automatic environment setup)
 
 ## Quick start
@@ -30,14 +32,14 @@ This creates:
 ## Local development
 
 ```bash
-# Terminal 1
-cd backend && npm run dev
+# If you're in a direnv shell or ran 'nix develop'
+dev
 
-# Terminal 2
-cd frontend && npm run dev
+# Or run directly without entering the shell
+nix run .#dev
 ```
 
-Visit http://localhost:5173
+Then visit http://localhost:5173
 
 ## Production deployment
 
@@ -88,9 +90,9 @@ To deploy to multiple environments (e.g., staging, production):
 ## Teardown
 
 ```bash
-npm run teardown:dev   # Delete dev only
-npm run teardown:prod  # Delete prod only
-npm run teardown       # Delete everything
+nix run .#teardown-dev   # Delete dev only
+nix run .#teardown-prod  # Delete prod only
+nix run .#teardown       # Delete everything
 ```
 
 ## Tests

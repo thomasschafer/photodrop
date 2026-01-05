@@ -144,10 +144,10 @@ echo "✅ Teardown complete!"
 echo ""
 echo "Next steps:"
 if [ "$ENV" = "all" ]; then
-    echo "1. Run 'npm run setup:dev' to recreate dev environment"
-    echo "2. Run 'npm run setup:prod' to recreate prod environment"
+    echo "1. Run 'nix run .#setup-dev' to recreate dev environment"
+    echo "2. Run 'nix run .#setup-prod' to recreate prod environment"
 elif [ "$ENV" = "dev" ]; then
-    echo "1. Run 'npm run setup:dev' to recreate dev environment"
+    echo "1. Run 'nix run .#setup-dev' to recreate dev environment"
 else
-    echo "1. Run 'npm run setup:prod' to recreate prod environment"
+    echo "1. Run 'nix run .#setup-prod' to recreate prod environment"
 fi

@@ -1,0 +1,21 @@
+# WARNING: This file is a template used by scripts/setup.sh
+# The actual wrangler.toml is auto-generated - do not edit it manually
+# To modify configuration, edit this template and run: setup-dev or setup-prod
+
+name = "photodrop-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-04"
+
+[dev]
+port = 8787
+
+[[d1_databases]]
+binding = "DB"
+database_name = "{{DB_NAME}}"
+database_id = "{{DATABASE_ID}}"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "{{BUCKET_NAME}}"
+preview_bucket_name = "{{BUCKET_NAME}}"

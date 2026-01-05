@@ -40,94 +40,219 @@
 
         # All shell dependencies
         shellDeps = coreDeps ++ securityDeps ++ deployDeps;
+
+        # Create wrapper scripts for dev shell
+        devScript = pkgs.writeShellScriptBin "dev" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          set -e
+
+          cleanup() {
+            echo ""
+            echo "Shutting down dev servers..."
+            kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+            wait $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+            exit 0
+          }
+
+          trap cleanup INT TERM
+
+          echo "Starting PhotoDrop development servers..."
+          echo ""
+
+          echo "Checking backend dependencies..."
+          cd backend
+          if [ ! -d "node_modules" ]; then
+            npm install
+          fi
+          cd ..
+
+          echo "Checking frontend dependencies..."
+          cd frontend
+          if [ ! -d "node_modules" ]; then
+            npm install
+          fi
+          cd ..
+
+          echo ""
+          echo "Starting backend (wrangler dev --remote)..."
+          cd backend
+          npm run dev &
+          BACKEND_PID=$!
+          cd ..
+
+          echo "Starting frontend (vite)..."
+          cd frontend
+          npm run dev &
+          FRONTEND_PID=$!
+          cd ..
+
+          echo ""
+          echo "Both servers are running!"
+          echo "Press Ctrl+C to stop both servers"
+          echo ""
+
+          wait $BACKEND_PID $FRONTEND_PID
+        '';
+
+        secrets-scan = pkgs.writeShellScriptBin "secrets-scan" ''
+          export PATH="${pkgs.lib.makeBinPath securityDeps}:$PATH"
+          echo "🔍 Running secrets scan with gitleaks..."
+          gitleaks detect --verbose --config .gitleaks.toml
+        '';
+
+        test-backend = pkgs.writeShellScriptBin "test-backend" ''
+          export PATH="${pkgs.lib.makeBinPath testDeps}:$PATH"
+          set -e
+          echo "🧪 Running backend tests..."
+          cd backend
+          npm ci
+          npm run test:run
+        '';
+
+        test-frontend = pkgs.writeShellScriptBin "test-frontend" ''
+          export PATH="${pkgs.lib.makeBinPath testDeps}:$PATH"
+          set -e
+          echo "🧪 Running frontend tests..."
+          cd frontend
+          npm ci
+          npm run test:run
+        '';
+
+        test = pkgs.writeShellScriptBin "test" ''
+          export PATH="${pkgs.lib.makeBinPath testDeps}:$PATH"
+          set -e
+
+          echo "🧪 Running all tests..."
+          echo ""
+
+          echo "Backend tests:"
+          cd backend
+          npm ci
+          npm run test:run
+          cd ..
+
+          echo ""
+          echo "Frontend tests:"
+          cd frontend
+          npm ci
+          npm run test:run
+          cd ..
+
+          echo ""
+          echo "✅ All tests passed!"
+        '';
+
+        setup-dev = pkgs.writeShellScriptBin "setup-dev" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          ./scripts/setup.sh dev
+        '';
+
+        setup-prod = pkgs.writeShellScriptBin "setup-prod" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          ./scripts/setup.sh prod
+        '';
+
+        deploy = pkgs.writeShellScriptBin "deploy" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          ./scripts/deploy.sh
+        '';
+
+        dev-kill = pkgs.writeShellScriptBin "dev-kill" ''
+          echo "Stopping all dev servers..."
+          pkill -f "wrangler dev" 2>/dev/null || true
+          pkill -f "vite" 2>/dev/null || true
+          echo "✅ All dev servers stopped"
+        '';
+
+        teardown-dev = pkgs.writeShellScriptBin "teardown-dev" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          ./scripts/teardown.sh dev
+        '';
+
+        teardown-prod = pkgs.writeShellScriptBin "teardown-prod" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          ./scripts/teardown.sh prod
+        '';
+
+        teardown = pkgs.writeShellScriptBin "teardown" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          ./scripts/teardown.sh all
+        '';
       in
       {
         # Security scanning
         apps.secrets-scan = flake-utils.lib.mkApp {
-          drv = pkgs.writeShellScriptBin "run-secrets-scan" ''
-            export PATH="${pkgs.lib.makeBinPath securityDeps}:$PATH"
-            echo "🔍 Running secrets scan with gitleaks..."
-            gitleaks detect --verbose --config .gitleaks.toml
-          '';
+          drv = secrets-scan;
         };
 
         # Run backend tests
         apps.test-backend = flake-utils.lib.mkApp {
-          drv = pkgs.writeShellScriptBin "run-backend-tests" ''
-            export PATH="${pkgs.lib.makeBinPath testDeps}:$PATH"
-            set -e
-            echo "🧪 Running backend tests..."
-            cd backend
-            npm ci
-            npm run test:run
-          '';
+          drv = test-backend;
         };
 
         # Run frontend tests
         apps.test-frontend = flake-utils.lib.mkApp {
-          drv = pkgs.writeShellScriptBin "run-frontend-tests" ''
-            export PATH="${pkgs.lib.makeBinPath testDeps}:$PATH"
-            set -e
-            echo "🧪 Running frontend tests..."
-            cd frontend
-            npm ci
-            npm run test:run
-          '';
+          drv = test-frontend;
         };
 
         # Run all tests
         apps.test = flake-utils.lib.mkApp {
-          drv = pkgs.writeShellScriptBin "run-all-tests" ''
-            export PATH="${pkgs.lib.makeBinPath testDeps}:$PATH"
-            set -e
-
-            echo "🧪 Running all tests..."
-            echo ""
-
-            echo "Backend tests:"
-            cd backend
-            npm ci
-            npm run test:run
-            cd ..
-
-            echo ""
-            echo "Frontend tests:"
-            cd frontend
-            npm ci
-            npm run test:run
-            cd ..
-
-            echo ""
-            echo "✅ All tests passed!"
-          '';
+          drv = test;
         };
 
         # Setup development environment
         apps.setup-dev = flake-utils.lib.mkApp {
-          drv = pkgs.writeShellScriptBin "run-setup-dev" ''
-            export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
-            ./scripts/setup.sh dev
-          '';
+          drv = setup-dev;
         };
 
         # Setup production environment
         apps.setup-prod = flake-utils.lib.mkApp {
-          drv = pkgs.writeShellScriptBin "run-setup-prod" ''
-            export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
-            ./scripts/setup.sh prod
-          '';
+          drv = setup-prod;
         };
 
         # Deploy to production
         apps.deploy = flake-utils.lib.mkApp {
-          drv = pkgs.writeShellScriptBin "run-deploy" ''
-            export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
-            ./scripts/deploy.sh
-          '';
+          drv = deploy;
+        };
+
+        # Stop all dev servers
+        apps.dev-kill = flake-utils.lib.mkApp {
+          drv = dev-kill;
+        };
+
+        # Teardown environments
+        apps.teardown-dev = flake-utils.lib.mkApp {
+          drv = teardown-dev;
+        };
+
+        apps.teardown-prod = flake-utils.lib.mkApp {
+          drv = teardown-prod;
+        };
+
+        apps.teardown = flake-utils.lib.mkApp {
+          drv = teardown;
+        };
+
+        # Run both frontend and backend dev servers
+        apps.dev = flake-utils.lib.mkApp {
+          drv = devScript;
         };
 
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = shellDeps;
+          nativeBuildInputs = shellDeps ++ [
+            devScript
+            secrets-scan
+            test-backend
+            test-frontend
+            test
+            setup-dev
+            setup-prod
+            deploy
+            dev-kill
+            teardown-dev
+            teardown-prod
+            teardown
+          ];
         };
       }
     );

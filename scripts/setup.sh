@@ -177,33 +177,17 @@ else
 fi
 echo ""
 
-# Generate wrangler config
-if [ "$ENV" = "dev" ]; then
-    if [ -f wrangler.toml ]; then
-        echo "⚠️  wrangler.toml already exists, backing up to wrangler.toml.bak"
-        cp wrangler.toml wrangler.toml.bak
-    fi
-    echo "📝 Creating wrangler.toml for development..."
-    cat > wrangler.toml << EOF
-name = "photodrop-api"
-main = "src/index.ts"
-compatibility_date = "2025-01-04"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "$DB_NAME"
-database_id = "$DATABASE_ID"
-migrations_dir = "migrations"
-
-[[r2_buckets]]
-binding = "PHOTOS"
-bucket_name = "$BUCKET_NAME"
-EOF
-    echo "✅ wrangler.toml created for development"
-else
-    echo "✅ Production resources created (database ID saved to .prod.vars)"
-    echo "   wrangler.production.toml remains as a template (not modified)"
+# Generate wrangler config from template
+if [ -f wrangler.toml ]; then
+    echo "⚠️  wrangler.toml already exists, backing up to wrangler.toml.bak"
+    cp wrangler.toml wrangler.toml.bak
 fi
+echo "📝 Creating wrangler.toml from template..."
+sed -e "s|{{DB_NAME}}|$DB_NAME|g" \
+    -e "s|{{DATABASE_ID}}|$DATABASE_ID|g" \
+    -e "s|{{BUCKET_NAME}}|$BUCKET_NAME|g" \
+    wrangler.toml.template > wrangler.toml
+echo "✅ wrangler.toml created for $ENV environment"
 echo ""
 
 # Generate or load secrets
@@ -259,6 +243,7 @@ if [ "$ENV" = "dev" ]; then
 JWT_SECRET=$JWT_SECRET
 VAPID_PUBLIC_KEY=$VAPID_PUBLIC
 VAPID_PRIVATE_KEY=$VAPID_PRIVATE
+FRONTEND_URL=http://localhost:5173
 EOF
         chmod 600 .dev.vars
         echo "✅ .dev.vars created with secure permissions"
@@ -273,9 +258,12 @@ D1_DATABASE_ID=$DATABASE_ID
 JWT_SECRET=$JWT_SECRET
 VAPID_PUBLIC_KEY=$VAPID_PUBLIC
 VAPID_PRIVATE_KEY=$VAPID_PRIVATE
+FRONTEND_URL=https://your-frontend-url.pages.dev
 EOF
         chmod 600 .prod.vars
         echo "✅ .prod.vars created with secure permissions (contains database ID and secrets for deployment)"
+        echo ""
+        echo "⚠️  IMPORTANT: Update FRONTEND_URL in .prod.vars with your actual frontend URL"
     else
         echo "✅ .prod.vars already exists"
     fi
@@ -284,18 +272,8 @@ echo ""
 
 # Run migrations
 echo "🗄️  Running database migrations..."
-
-if [ "$ENV" = "dev" ]; then
-    echo "Applying local migrations..."
-    if ! $WRANGLER_CMD d1 migrations apply "$DB_NAME" --local; then
-        echo "❌ Failed to apply local migrations"
-        exit 1
-    fi
-    echo "✅ Local migrations applied"
-fi
-
 echo "Applying remote migrations to $DB_NAME..."
-if ! $WRANGLER_CMD d1 migrations apply "$DB_NAME"; then
+if ! $WRANGLER_CMD d1 migrations apply "$DB_NAME" --remote; then
     echo "❌ Failed to apply remote migrations"
     exit 1
 fi
@@ -386,9 +364,8 @@ echo ""
 
 if [ "$ENV" = "dev" ]; then
     echo "Next steps:"
-    echo "1. Run 'cd backend && npm run dev' to start backend"
-    echo "2. Run 'cd frontend && npm run dev' to start frontend"
-    echo "3. Visit http://localhost:5173"
+    echo "1. Run 'nix run .#dev' to start both backend and frontend"
+    echo "2. Visit http://localhost:5173"
 else
     echo "Next steps:"
     echo "1. Add secrets from $SECRETS_FILE to GitHub (see instructions above)"
