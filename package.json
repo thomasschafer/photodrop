@@ -1,0 +1,15 @@
+{
+  "name": "photodrop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Progressive Web App for privately sharing baby photos with family members",
+  "scripts": {
+    "setup:dev": "./scripts/setup.sh dev",
+    "setup:prod": "./scripts/setup.sh prod",
+    "deploy:prod": "./scripts/deploy.sh",
+    "teardown": "./scripts/teardown.sh all",
+    "teardown:dev": "./scripts/teardown.sh dev",
+    "teardown:prod": "./scripts/teardown.sh prod",
+    "dev": "echo 'Run: cd backend && npm run dev (in one terminal) and cd frontend && npm run dev (in another)'"
+  }
+}

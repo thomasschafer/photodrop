@@ -1,0 +1,14 @@
+name = "photodrop-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-04"
+
+# Production database and storage
+# Run 'npm run setup:prod' to create resources and update this file with your database_id
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "photodrop-db-prod"
+# database_id = "your-database-id-here"
+
+# [[r2_buckets]]
+# binding = "PHOTOS"
+# bucket_name = "photodrop-photos-prod"

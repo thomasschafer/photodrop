@@ -29,7 +29,7 @@ jobs:
 
       - name: Deploy Worker
         working-directory: backend
-        run: npx wrangler deploy
+        run: npx wrangler deploy --config wrangler.production.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -37,9 +37,9 @@ jobs:
       - name: Set Worker secrets
         working-directory: backend
         run: |
-          echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET
-          echo "${{ secrets.VAPID_PUBLIC_KEY }}" | npx wrangler secret put VAPID_PUBLIC_KEY
-          echo "${{ secrets.VAPID_PRIVATE_KEY }}" | npx wrangler secret put VAPID_PRIVATE_KEY
+          echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET --config wrangler.production.toml
+          echo "${{ secrets.VAPID_PUBLIC_KEY }}" | npx wrangler secret put VAPID_PUBLIC_KEY --config wrangler.production.toml
+          echo "${{ secrets.VAPID_PRIVATE_KEY }}" | npx wrangler secret put VAPID_PRIVATE_KEY --config wrangler.production.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -49,7 +49,7 @@ jobs:
         run: |
           for migration in ../migrations/*.sql; do
             echo "Applying migration: $migration"
-            npx wrangler d1 execute photodrop-db --file="$migration" || true
+            npx wrangler d1 execute photodrop-db-prod --file="$migration" || true
           done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
