@@ -67,11 +67,11 @@ delete_env() {
 
     # Delete R2 bucket
     echo "🗑️  Deleting R2 bucket ($bucket_name)..."
-    if wrangler r2 bucket list | grep -q "$bucket_name"; then
+    if npx wrangler r2 bucket list | grep -q "$bucket_name"; then
         echo "⚠️  Warning: This will delete all photos in $bucket_name"
         read -p "Continue? (y/n): " DELETE_BUCKET
         if [[ "$DELETE_BUCKET" =~ ^[Yy]$ ]]; then
-            wrangler r2 bucket delete "$bucket_name"
+            npx wrangler r2 bucket delete "$bucket_name"
             echo "✅ Bucket deleted"
         else
             echo "⏭️  Skipped bucket deletion"
@@ -83,8 +83,8 @@ delete_env() {
 
     # Delete D1 database
     echo "🗑️  Deleting D1 database ($db_name)..."
-    if wrangler d1 list | grep -q "$db_name"; then
-        wrangler d1 delete "$db_name" --skip-confirmation
+    if npx wrangler d1 list | grep -q "$db_name"; then
+        npx wrangler d1 delete "$db_name" --skip-confirmation
         echo "✅ Database deleted"
     else
         echo "⏭️  Database '$db_name' does not exist"
@@ -117,9 +117,9 @@ if [ "$ENV" = "prod" ] || [ "$ENV" = "all" ]; then
     echo "🔐 Deleting production Worker secrets..."
     read -p "Delete production secrets from Cloudflare Workers? (y/n): " DELETE_SECRETS
     if [[ "$DELETE_SECRETS" =~ ^[Yy]$ ]]; then
-        wrangler secret delete JWT_SECRET --env production --force 2>/dev/null || echo "⏭️  JWT_SECRET not found"
-        wrangler secret delete VAPID_PUBLIC_KEY --env production --force 2>/dev/null || echo "⏭️  VAPID_PUBLIC_KEY not found"
-        wrangler secret delete VAPID_PRIVATE_KEY --env production --force 2>/dev/null || echo "⏭️  VAPID_PRIVATE_KEY not found"
+        npx wrangler secret delete JWT_SECRET --env production --force 2>/dev/null || echo "⏭️  JWT_SECRET not found"
+        npx wrangler secret delete VAPID_PUBLIC_KEY --env production --force 2>/dev/null || echo "⏭️  VAPID_PUBLIC_KEY not found"
+        npx wrangler secret delete VAPID_PRIVATE_KEY --env production --force 2>/dev/null || echo "⏭️  VAPID_PRIVATE_KEY not found"
         echo "✅ Secrets deleted"
     else
         echo "⏭️  Skipped secret deletion"
