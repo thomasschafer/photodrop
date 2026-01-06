@@ -49,17 +49,24 @@ export function PhotoFeed() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-12">
-        <div className="text-gray-500">Loading photos...</div>
+      <div className="flex justify-center py-12" role="status" aria-live="polite">
+        <div className="text-lg text-neutral-600 font-medium">Loading photos...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded text-red-600">
+      <div
+        role="alert"
+        className="p-4 bg-red-50 border-2 border-red-200 rounded-xl text-red-700 font-medium"
+      >
         {error}
-        <button onClick={loadPhotos} className="ml-4 text-sm underline hover:no-underline">
+        <button
+          onClick={loadPhotos}
+          className="ml-4 text-sm font-semibold text-red-800 underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2 rounded"
+          aria-label="Retry loading photos"
+        >
           Retry
         </button>
       </div>
@@ -68,49 +75,84 @@ export function PhotoFeed() {
 
   if (photos.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">No photos yet. Upload the first one!</div>
+      <div className="text-center py-12 px-6">
+        <p className="text-lg text-neutral-600 font-medium">No photos yet.</p>
+        <p className="text-neutral-500 mt-2">Upload the first one!</p>
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {photos.map((photo) => (
-          <div
+          <article
             key={photo.id}
-            className="bg-white rounded-lg shadow overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
+            className="card cursor-pointer focus:outline-none focus:ring-4 focus:ring-primary-200 transition-all duration-200"
             onClick={() => setSelectedPhoto(photo.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setSelectedPhoto(photo.id);
+              }
+            }}
+            tabIndex={0}
+            role="button"
+            aria-label={`View photo${photo.caption ? `: ${photo.caption}` : ''}`}
           >
-            <div className="aspect-square bg-gray-100 flex items-center justify-center">
+            <div className="aspect-square bg-neutral-100 rounded-lg overflow-hidden mb-4">
               <img
                 src={`/api/photos/${photo.id}/thumbnail`}
-                alt={photo.caption || 'Photo'}
+                alt={photo.caption || ''}
                 className="w-full h-full object-cover"
                 loading="lazy"
                 onError={(e) => {
                   e.currentTarget.src =
-                    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EPhoto%3C/text%3E%3C/svg%3E';
+                    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23e7e5e4" width="100" height="100"/%3E%3Ctext fill="%2378716c" x="50%25" y="50%25" text-anchor="middle" dy=".3em" font-family="Inter,sans-serif"%3EPhoto%3C/text%3E%3C/svg%3E';
                 }}
               />
             </div>
-            <div className="p-4">
-              {photo.caption && <p className="text-sm text-gray-900 mb-2">{photo.caption}</p>}
-              <p className="text-xs text-gray-500">{formatDate(photo.uploadedAt)}</p>
+            <div>
+              {photo.caption && (
+                <p className="text-sm text-neutral-800 mb-2 font-medium line-clamp-2">
+                  {photo.caption}
+                </p>
+              )}
+              <p className="text-xs text-neutral-500">
+                <time dateTime={new Date(photo.uploadedAt * 1000).toISOString()}>
+                  {formatDate(photo.uploadedAt)}
+                </time>
+              </p>
             </div>
-          </div>
+          </article>
         ))}
       </div>
 
       {selectedPhoto && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-neutral-900 bg-opacity-90 flex items-center justify-center z-50 p-4"
           onClick={() => setSelectedPhoto(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setSelectedPhoto(null);
+            }
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Photo lightbox"
         >
+          <button
+            onClick={() => setSelectedPhoto(null)}
+            className="absolute top-4 right-4 text-white text-4xl font-light hover:text-neutral-300 focus:outline-none focus:ring-4 focus:ring-primary-200 rounded-lg px-3 py-1 transition-colors"
+            aria-label="Close lightbox"
+          >
+            ×
+          </button>
           <div className="max-w-4xl max-h-full">
             <img
               src={`/api/photos/${selectedPhoto}/download`}
               alt="Full size photo"
-              className="max-w-full max-h-screen object-contain"
+              className="max-w-full max-h-screen object-contain rounded-lg shadow-strong"
               onClick={(e) => e.stopPropagation()}
             />
           </div>

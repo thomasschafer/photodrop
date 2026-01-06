@@ -116,6 +116,286 @@ A Progressive Web App (PWA) for privately sharing photos within isolated groups.
 └───────────┘ └──────────┘
 ```
 
+### Design system & accessibility
+
+**Design philosophy:**
+- Warm, earthy, approachable aesthetic inspired by Gumroad (modern) and Airbnb (playful)
+- Bold, confident typography and spacing
+- High contrast for readability and accessibility
+- Clean, uncluttered interface focused on photos
+- Tactile, inviting feel that encourages daily use
+
+**Color palette (warm & earthy):**
+
+```css
+/* Primary colors - warm terracotta/clay tones */
+--color-primary-50:  #fef6ee;  /* Lightest cream */
+--color-primary-100: #fce9d5;  /* Soft peach */
+--color-primary-200: #f8d0aa;  /* Light terracotta */
+--color-primary-300: #f4ae75;  /* Warm sand */
+--color-primary-400: #ef8a4f;  /* Muted orange */
+--color-primary-500: #e86424;  /* Primary terracotta */
+--color-primary-600: #d4481a;  /* Deep terracotta */
+--color-primary-700: #b03418;  /* Rich clay */
+--color-primary-800: #8f2d1b;  /* Dark clay */
+--color-primary-900: #752819;  /* Deepest earth */
+
+/* Neutral colors - warm grays with slight brown undertone */
+--color-neutral-50:  #fafaf9;  /* Off-white */
+--color-neutral-100: #f5f5f4;  /* Lightest gray */
+--color-neutral-200: #e7e5e4;  /* Light gray */
+--color-neutral-300: #d6d3d1;  /* Medium-light gray */
+--color-neutral-400: #a8a29e;  /* Medium gray */
+--color-neutral-500: #78716c;  /* Dark gray */
+--color-neutral-600: #57534e;  /* Darker gray */
+--color-neutral-700: #44403c;  /* Very dark gray */
+--color-neutral-800: #292524;  /* Almost black */
+--color-neutral-900: #1c1917;  /* True black */
+
+/* Accent colors - forest green for success/positive actions */
+--color-accent-50:  #f0fdf4;
+--color-accent-100: #dcfce7;
+--color-accent-200: #bbf7d0;
+--color-accent-300: #86efac;
+--color-accent-400: #4ade80;
+--color-accent-500: #22c55e;  /* Primary green */
+--color-accent-600: #16a34a;
+--color-accent-700: #15803d;
+--color-accent-800: #166534;
+--color-accent-900: #14532d;
+
+/* Semantic colors */
+--color-error:   #dc2626;  /* Bright red for errors */
+--color-warning: #f59e0b;  /* Amber for warnings */
+--color-success: #22c55e;  /* Forest green for success */
+--color-info:    #3b82f6;  /* Blue for informational */
+```
+
+**Typography:**
+
+```css
+/* Font families */
+--font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+--font-display: 'Cal Sans', 'Inter', sans-serif; /* For headings - bold, playful */
+
+/* Font sizes - generous, bold scale */
+--text-xs:   0.75rem;   /* 12px */
+--text-sm:   0.875rem;  /* 14px */
+--text-base: 1rem;      /* 16px - body text */
+--text-lg:   1.125rem;  /* 18px */
+--text-xl:   1.25rem;   /* 20px */
+--text-2xl:  1.5rem;    /* 24px */
+--text-3xl:  1.875rem;  /* 30px */
+--text-4xl:  2.25rem;   /* 36px - page titles */
+--text-5xl:  3rem;      /* 48px */
+
+/* Font weights */
+--font-normal:  400;
+--font-medium:  500;
+--font-semibold: 600;
+--font-bold:    700;
+--font-black:   900;  /* For display headings */
+
+/* Line heights - generous for readability */
+--leading-tight:  1.25;
+--leading-snug:   1.375;
+--leading-normal: 1.5;
+--leading-relaxed: 1.625;
+--leading-loose:  2;
+```
+
+**Spacing scale:**
+
+```css
+/* Consistent 4px base unit, generous spacing */
+--space-1:  0.25rem;  /* 4px */
+--space-2:  0.5rem;   /* 8px */
+--space-3:  0.75rem;  /* 12px */
+--space-4:  1rem;     /* 16px */
+--space-5:  1.25rem;  /* 20px */
+--space-6:  1.5rem;   /* 24px */
+--space-8:  2rem;     /* 32px */
+--space-10: 2.5rem;   /* 40px */
+--space-12: 3rem;     /* 48px */
+--space-16: 4rem;     /* 64px */
+--space-20: 5rem;     /* 80px */
+--space-24: 6rem;     /* 96px */
+```
+
+**Accessibility requirements (WCAG 2.1 Level AA minimum):**
+
+1. **Color contrast:**
+   - Body text (neutral-800) on light backgrounds: 7:1 minimum (AAA)
+   - Interactive elements: 4.5:1 minimum (AA)
+   - Large text (18px+): 3:1 minimum
+   - All color combinations tested with contrast checker
+   - Never rely on color alone to convey information
+
+2. **Keyboard navigation:**
+   - All interactive elements must be keyboard accessible
+   - Logical tab order (top to bottom, left to right)
+   - Visible focus indicators on all focusable elements
+   - Focus ring: `--focus-ring: 0 0 0 3px var(--color-primary-200)` with `outline: 2px solid var(--color-primary-500)`
+   - Skip links for main content navigation
+   - No keyboard traps
+   - Escape key closes modals/dialogs
+
+3. **Screen reader support:**
+   - Semantic HTML (`<nav>`, `<main>`, `<article>`, `<button>`, etc.)
+   - ARIA labels for all icons and icon-only buttons
+   - ARIA live regions for dynamic content updates
+   - Proper heading hierarchy (h1 → h2 → h3, no skipping)
+   - Alt text for all images (empty alt="" for decorative images)
+   - Form labels associated with inputs
+   - Error messages linked to form fields
+
+4. **Touch targets:**
+   - Minimum 44x44px touch target size (WCAG AAA)
+   - Adequate spacing between interactive elements (8px minimum)
+   - Larger buttons for primary actions (56px+ height)
+
+5. **Visual design:**
+   - Text resizable up to 200% without loss of functionality
+   - No text in images (except logos)
+   - Sufficient line height (1.5 for body text)
+   - Maximum line length ~75 characters for readability
+   - Adequate spacing between paragraphs and sections
+
+6. **Motion & animation:**
+   - Respect `prefers-reduced-motion` media query
+   - Disable non-essential animations when motion preference is reduced
+   - No auto-playing videos or carousels
+   - Timeout warnings for session expiry
+
+7. **Forms:**
+   - Clear, descriptive labels
+   - Inline validation with clear error messages
+   - Error summary at top of form
+   - Required fields clearly marked
+   - Helpful placeholder text (not replacing labels)
+   - Clear focus states on inputs
+
+**Component patterns:**
+
+1. **Buttons:**
+   ```tsx
+   // Primary action - bold, prominent
+   <button className="
+     px-6 py-3
+     bg-primary-500 hover:bg-primary-600 active:bg-primary-700
+     text-white font-semibold text-base
+     rounded-xl
+     shadow-md hover:shadow-lg
+     transition-all duration-200
+     focus:outline-none focus:ring-4 focus:ring-primary-200
+     disabled:opacity-50 disabled:cursor-not-allowed
+   ">
+     Upload Photo
+   </button>
+
+   // Secondary action - outlined, subtle
+   <button className="
+     px-6 py-3
+     border-2 border-neutral-300 hover:border-primary-500
+     text-neutral-700 hover:text-primary-600 font-medium
+     rounded-xl
+     transition-all duration-200
+     focus:outline-none focus:ring-4 focus:ring-primary-200
+   ">
+     Cancel
+   </button>
+   ```
+
+2. **Form inputs:**
+   ```tsx
+   <div className="space-y-2">
+     <label
+       htmlFor="email"
+       className="block text-sm font-medium text-neutral-700"
+     >
+       Email address
+     </label>
+     <input
+       id="email"
+       type="email"
+       className="
+         w-full px-4 py-3
+         border-2 border-neutral-300
+         focus:border-primary-500 focus:ring-4 focus:ring-primary-100
+         rounded-lg
+         text-neutral-900 placeholder:text-neutral-400
+         transition-all duration-200
+         focus:outline-none
+       "
+       placeholder="you@example.com"
+     />
+   </div>
+   ```
+
+3. **Cards:**
+   ```tsx
+   <div className="
+     bg-white
+     rounded-2xl
+     shadow-sm hover:shadow-md
+     border border-neutral-200
+     p-6
+     transition-shadow duration-200
+   ">
+     {/* Card content */}
+   </div>
+   ```
+
+**Design references:**
+- **Gumroad** (circa 2023-2024): Bold headings, warm colors, clear CTAs, generous spacing
+- **Airbnb redesign**: Playful, inviting, warm color palette, tactile feel
+- **Cal.com**: Clean, warm design system (using Cal Sans font)
+
+**Implementation in Tailwind:**
+
+All colors and design tokens should be added to `tailwind.config.js`:
+
+```javascript
+module.exports = {
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: '#fef6ee',
+          // ... (full palette as defined above)
+        },
+        neutral: {
+          // Warm neutral grays
+        },
+        accent: {
+          // Forest green accents
+        }
+      },
+      fontFamily: {
+        sans: ['Inter', ...defaultTheme.fontFamily.sans],
+        display: ['Cal Sans', 'Inter', ...defaultTheme.fontFamily.sans],
+      },
+      fontSize: {
+        // Custom scale as defined
+      },
+      // ... other design tokens
+    },
+  },
+  plugins: [
+    require('@tailwindcss/forms'), // Better form styling out of the box
+  ],
+}
+```
+
+**Going forward:**
+- All new components must follow this design system
+- All interactive elements must meet accessibility requirements
+- Test with keyboard navigation before considering complete
+- Run automated accessibility tests (axe, Lighthouse)
+- Manually test with screen reader (VoiceOver on Mac/iOS)
+- Check color contrast for all text/background combinations
+- Respect user preferences (reduced motion, high contrast, etc.)
+
 ### Data models
 
 **Groups table**:

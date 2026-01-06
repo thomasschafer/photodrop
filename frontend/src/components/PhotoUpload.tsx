@@ -78,22 +78,26 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h2 className="text-xl font-semibold mb-4">Upload a photo</h2>
+    <div className="card">
+      <h2 className="text-2xl font-bold text-neutral-800 mb-6">Upload a photo</h2>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Select photo</label>
+          <label htmlFor="photo-input" className="block text-sm font-medium text-neutral-700 mb-2">
+            Select photo
+          </label>
           <input
+            id="photo-input"
             ref={fileInputRef}
             type="file"
             accept="image/*"
             onChange={handleFileSelect}
             disabled={uploading}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
+            aria-describedby={selectedFile ? 'selected-file-info' : undefined}
+            className="block w-full text-sm text-neutral-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           />
           {selectedFile && (
-            <p className="mt-2 text-sm text-gray-600">
+            <p id="selected-file-info" className="mt-2 text-sm text-neutral-600">
               Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
             </p>
           )}
@@ -101,7 +105,7 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
 
         {selectedFile && (
           <div>
-            <label htmlFor="caption" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="caption" className="block text-sm font-medium text-neutral-700 mb-2">
               Caption (optional)
             </label>
             <textarea
@@ -110,20 +114,27 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
               onChange={(e) => setCaption(e.target.value)}
               disabled={uploading}
               rows={3}
-              className="block w-full rounded border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50"
+              className="block w-full px-4 py-3 border-2 border-neutral-300 rounded-lg text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:ring-4 focus:ring-primary-100 focus:outline-none transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="Add a caption..."
             />
           </div>
         )}
 
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-600">
+          <div
+            role="alert"
+            className="p-4 bg-red-50 border-2 border-red-200 rounded-lg text-sm text-red-700 font-medium"
+          >
             {error}
           </div>
         )}
 
         {progress && (
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-600">
+          <div
+            role="status"
+            aria-live="polite"
+            className="p-4 bg-primary-50 border-2 border-primary-200 rounded-lg text-sm text-primary-700 font-medium"
+          >
             {progress}
           </div>
         )}
@@ -132,16 +143,16 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
           <button
             onClick={handleUpload}
             disabled={!selectedFile || uploading || compressing}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            className="btn-primary flex-1"
+            aria-label={
+              compressing ? 'Compressing image' : uploading ? 'Uploading photo' : 'Upload photo'
+            }
           >
             {compressing ? 'Compressing...' : uploading ? 'Uploading...' : 'Upload'}
           </button>
 
           {selectedFile && !uploading && (
-            <button
-              onClick={handleCancel}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 font-medium"
-            >
+            <button onClick={handleCancel} className="btn-secondary" aria-label="Cancel upload">
               Cancel
             </button>
           )}
