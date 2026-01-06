@@ -10,7 +10,7 @@ function App() {
 
   const handleUploadComplete = () => {
     setActiveTab('feed');
-    setFeedKey(prev => prev + 1);
+    setFeedKey((prev) => prev + 1);
   };
 
   if (loading) {
@@ -27,9 +27,7 @@ function App() {
         <div className="text-center">
           <h1 className="text-4xl font-bold mb-4">photodrop</h1>
           <p className="text-gray-600 mb-4">Private photo sharing</p>
-          <p className="text-sm text-gray-500">
-            You need an invite to access this app
-          </p>
+          <p className="text-sm text-gray-500">You need an invite to access this app</p>
         </div>
       </div>
     );

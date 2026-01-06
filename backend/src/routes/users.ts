@@ -21,8 +21,9 @@ users.get('/me', requireAuth, async (c) => {
 
     return c.json({
       id: user.id,
+      groupId: user.group_id,
       name: user.name,
-      phone: user.phone,
+      email: user.email,
       role: user.role,
       createdAt: user.created_at,
       lastSeenAt: user.last_seen_at,
@@ -35,13 +36,14 @@ users.get('/me', requireAuth, async (c) => {
 
 users.get('/', requireAdmin, async (c) => {
   try {
-    const allUsers = await getAllUsers(c.env.DB);
+    const currentUser = c.get('user');
+    const allUsers = await getAllUsers(c.env.DB, currentUser.groupId);
 
     return c.json({
       users: allUsers.map((user) => ({
         id: user.id,
         name: user.name,
-        phone: user.phone,
+        email: user.email,
         role: user.role,
         createdAt: user.created_at,
         lastSeenAt: user.last_seen_at,
@@ -59,28 +61,32 @@ users.patch('/:id/role', requireAdmin, async (c) => {
     const body = await c.req.json();
     const { role } = body;
 
-    if (!role || (role !== 'admin' && role !== 'viewer')) {
-      return c.json({ error: 'Valid role is required (admin or viewer)' }, 400);
+    if (!role || (role !== 'admin' && role !== 'member')) {
+      return c.json({ error: 'Valid role is required (admin or member)' }, 400);
     }
 
+    const currentUser = c.get('user');
     const user = await getUserById(c.env.DB, userId);
     if (!user) {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    if (user.role === 'admin' && role === 'viewer') {
-      const adminCount = await countAdmins(c.env.DB);
+    if (user.group_id !== currentUser.groupId) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    if (user.role === 'admin' && role === 'member') {
+      const adminCount = await countAdmins(c.env.DB, currentUser.groupId);
       if (adminCount <= 1) {
         return c.json({ error: 'Cannot demote the last admin' }, 400);
       }
     }
 
-    const currentUser = c.get('user');
-    if (currentUser.id === userId && role === 'viewer') {
+    if (currentUser.id === userId && role === 'member') {
       return c.json({ error: 'Cannot demote yourself' }, 400);
     }
 
-    await updateUserRole(c.env.DB, userId, role);
+    await updateUserRole(c.env.DB, userId, role, currentUser.groupId);
 
     const updatedUser = await getUserById(c.env.DB, userId);
 
@@ -98,25 +104,29 @@ users.patch('/:id/role', requireAdmin, async (c) => {
 users.delete('/:id', requireAdmin, async (c) => {
   try {
     const userId = c.req.param('id');
+    const currentUser = c.get('user');
 
     const user = await getUserById(c.env.DB, userId);
     if (!user) {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    const currentUser = c.get('user');
+    if (user.group_id !== currentUser.groupId) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
     if (currentUser.id === userId) {
       return c.json({ error: 'Cannot delete yourself' }, 400);
     }
 
     if (user.role === 'admin') {
-      const adminCount = await countAdmins(c.env.DB);
+      const adminCount = await countAdmins(c.env.DB, currentUser.groupId);
       if (adminCount <= 1) {
         return c.json({ error: 'Cannot delete the last admin' }, 400);
       }
     }
 
-    await deleteUser(c.env.DB, userId);
+    await deleteUser(c.env.DB, userId, currentUser.groupId);
 
     return c.json({ message: 'User deleted successfully' });
   } catch (error) {

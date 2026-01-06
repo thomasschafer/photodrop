@@ -1,6 +1,7 @@
 export interface JWTPayload {
   sub: string; // user ID
-  role: 'admin' | 'viewer';
+  groupId: string; // group ID for multi-tenant isolation
+  role: 'admin' | 'member';
   type: 'access' | 'refresh';
   exp: number; // expiration timestamp
   iat: number; // issued at timestamp
@@ -29,13 +30,10 @@ function base64UrlDecode(str: string): Uint8Array {
 
 async function importKey(secret: string): Promise<CryptoKey> {
   const keyData = encoder.encode(secret);
-  return await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign', 'verify']
-  );
+  return await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+    'verify',
+  ]);
 }
 
 export async function generateJWT(
@@ -62,10 +60,7 @@ export async function generateJWT(
   return `${data}.${signatureB64}`;
 }
 
-export async function verifyJWT(
-  token: string,
-  secret: string
-): Promise<JWTPayload | null> {
+export async function verifyJWT(token: string, secret: string): Promise<JWTPayload | null> {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) {
@@ -77,12 +72,7 @@ export async function verifyJWT(
 
     const key = await importKey(secret);
     const signature = base64UrlDecode(signatureB64);
-    const isValid = await crypto.subtle.verify(
-      'HMAC',
-      key,
-      signature,
-      encoder.encode(data)
-    );
+    const isValid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
 
     if (!isValid) {
       return null;
@@ -97,18 +87,19 @@ export async function verifyJWT(
     }
 
     return payload;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
 
 export function generateAccessToken(
   userId: string,
-  role: 'admin' | 'viewer',
+  groupId: string,
+  role: 'admin' | 'member',
   secret: string
 ): Promise<string> {
   return generateJWT(
-    { sub: userId, role, type: 'access' },
+    { sub: userId, groupId, role, type: 'access' },
     secret,
     15 * 60 // 15 minutes
   );
@@ -116,11 +107,12 @@ export function generateAccessToken(
 
 export function generateRefreshToken(
   userId: string,
-  role: 'admin' | 'viewer',
+  groupId: string,
+  role: 'admin' | 'member',
   secret: string
 ): Promise<string> {
   return generateJWT(
-    { sub: userId, role, type: 'refresh' },
+    { sub: userId, groupId, role, type: 'refresh' },
     secret,
     30 * 24 * 60 * 60 // 30 days
   );

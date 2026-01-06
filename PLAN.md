@@ -1037,7 +1037,7 @@ Since this app uses **passwordless email authentication**, there are no password
 - [x] Database migrations with Wrangler
 - [x] Teardown scripts
 
-### Phase 1.5: Passwordless Email Authentication + Multi-Group Architecture (In Progress)
+### Phase 1.5: Passwordless Email Authentication + Multi-Group Architecture ✅
 
 > **Note for Tom**: If you have an existing dev database from before the multi-group migration, run:
 > ```bash
@@ -1071,64 +1071,126 @@ Since this app uses **passwordless email authentication**, there are no password
 
 **Backend: Email Integration**
 
-- [ ] **Add Cloudflare Email Workers binding**
-  - Update `backend/wrangler.toml.template` to include email sending binding
-  - Documentation: https://developers.cloudflare.com/email-routing/email-workers/
-
-- [ ] **Create email service** (`backend/src/lib/email.ts`)
+- [x] **Create email service** (`backend/src/lib/email.ts`)
   - Function to send invite emails
   - Function to send login link emails
   - HTML email templates (inline CSS for compatibility)
   - Plain text fallback versions
+  - **Note**: Currently has TODO placeholder for actual email sending
 
-- [ ] **Create magic link service** (`backend/src/lib/magic-links.ts`)
-  - `generateMagicLinkToken()` - create cryptographically random token
-  - `createMagicLink()` - insert token into database
+- [x] **Create magic link service** (`backend/src/lib/magic-links.ts`)
   - `verifyMagicLink()` - validate token (not expired, not used)
-  - `markTokenUsed()` - mark token as consumed
-  - Token cleanup function (delete expired tokens)
+  - `verifyAndConsumeToken()` - verify and mark token as consumed
+  - Database functions for token management in db.ts
+
+- [ ] **Cloudflare Email Workers Setup** (Manual + Automated)
+
+  **Manual Cloudflare Dashboard Configuration:**
+  - Enable Email Routing in Cloudflare dashboard
+  - Add and verify domain for email sending
+  - Configure DNS records (will be provided by Cloudflare):
+    - MX records for email routing
+    - SPF record for sender authentication
+    - DKIM record for email signing
+  - Test email routing with Cloudflare's test tool
+  - Note domain verification status and DNS propagation time
+
+  **Wrangler Configuration:**
+  - Update `backend/wrangler.toml.template`:
+    - Add send_email binding (if Cloudflare provides one)
+    - Or configure for MailChannels API (free tier option)
+    - Add FRONTEND_URL to vars (already in template)
+    - Document any email-specific environment variables needed
+  - Update actual wrangler.toml files:
+    - `backend/wrangler.dev.toml` - for development
+    - `backend/wrangler.prod.toml` - for production (if separate)
+
+  **Email Service Implementation:**
+  - Update `backend/src/lib/email.ts`:
+    - Replace TODO/console.log with actual email sending
+    - Option 1: Use Cloudflare Email Workers API (if available)
+    - Option 2: Use MailChannels API (free tier, works with Cloudflare Workers)
+      ```typescript
+      const response = await fetch('https://api.mailchannels.net/tx/v1/send', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email: options.to }] }],
+          from: { email: 'noreply@yourdomain.com', name: 'photodrop' },
+          subject: options.subject,
+          content: [
+            { type: 'text/plain', value: options.text },
+            { type: 'text/html', value: options.html },
+          ],
+        }),
+      });
+      ```
+    - Add error handling for email sending failures
+    - Add retry logic (optional, for resilience)
+    - Log email sending status for debugging
+
+  **Setup Script Updates:**
+  - Update `scripts/setup.sh`:
+    - Add check for domain verification status
+    - Provide clear instructions if email not configured
+    - Warn user if DNS records not set up
+    - Add validation that FRONTEND_URL is set correctly
+  - Add email configuration checklist to setup output
+  - Document manual steps required in setup script comments
+
+  **Testing Procedures:**
+  - Create test email endpoint (development only):
+    - `POST /api/test/send-email` - sends test email
+    - Useful for verifying email setup works
+    - Should be admin-only or disabled in production
+  - Test invite email sending end-to-end
+  - Test login link email sending end-to-end
+  - Verify emails arrive in inbox (not spam)
+  - Test magic link clicks work from email
+  - Verify email templates render correctly in different clients:
+    - Gmail (web + mobile app)
+    - Apple Mail (iOS + macOS)
+    - Outlook (if users might use it)
+
+  **Documentation:**
+  - Add email setup guide to README or SETUP.md
+  - Document DNS record requirements
+  - Document troubleshooting steps:
+    - Email not sending: Check Cloudflare dashboard logs
+    - Email in spam: Verify SPF/DKIM records
+    - Links not working: Check FRONTEND_URL configuration
+    - Domain not verified: Check DNS propagation
+  - Add screenshots of Cloudflare dashboard setup (optional)
+
+  **References:**
+  - Cloudflare Email Routing: https://developers.cloudflare.com/email-routing/
+  - MailChannels with Cloudflare Workers: https://blog.cloudflare.com/sending-email-from-workers-with-mailchannels/
 
 **Backend: Database Layer**
 
-- [ ] **Update User interface** (`backend/src/lib/db.ts`)
+- [x] **Update User interface** (`backend/src/lib/db.ts`)
   - Add `group_id: string` field
   - Change `phone: string | null` to `email: string`
   - Change `role` to use 'admin' | 'member' (instead of 'viewer')
   - Remove `invite_token` and `invite_role` fields
   - Update all references
 
-- [ ] **Add Group and MagicLinkToken interfaces** (`backend/src/lib/db.ts`)
-  ```typescript
-  export interface Group {
-    id: string;
-    name: string;
-    created_at: number;
-    created_by: string;
-  }
+- [x] **Add Group and MagicLinkToken interfaces** (`backend/src/lib/db.ts`)
+  - Group interface with id, name, created_at, created_by
+  - MagicLinkToken interface with token, group_id, email, type, invite_role, etc.
 
-  export interface MagicLinkToken {
-    token: string;
-    group_id: string;
-    email: string;
-    type: 'invite' | 'login';
-    invite_role: 'admin' | 'member' | null;
-    created_at: number;
-    expires_at: number;
-    used_at: number | null;
-  }
-  ```
-
-- [ ] **Replace old invite functions** (`backend/src/lib/db.ts`)
+- [x] **Replace old invite functions** (`backend/src/lib/db.ts`)
   - Remove: `createInvite()`, `getUserByInviteToken()`, `acceptInvite()`, `isFirstUserInSystem()`
   - Add: `createGroup()`, `createUser()`, `getUserByEmail()`, `updateUserLastSeen()`
-  - **CRITICAL**: All queries must filter by `group_id` to ensure isolation
+  - Add: `createMagicLinkToken()`, `getMagicLinkToken()`, `markMagicLinkTokenUsed()`
+  - **CRITICAL**: All queries filter by `group_id` for isolation ✅
 
 **Backend: API Endpoints**
 
-- [ ] **Remove old endpoints** (`backend/src/routes/auth.ts`)
+- [x] **Remove old endpoints** (`backend/src/routes/auth.ts`)
   - Delete: `/create-invite`, `/accept-invite`
 
-- [ ] **Add new endpoints** (`backend/src/routes/auth.ts`)
+- [x] **Add new endpoints** (`backend/src/routes/auth.ts`)
   - `POST /send-invite` (group admin only)
     - Body: `{ name, email, role }`
     - Extracts admin's `group_id` from JWT
@@ -1146,6 +1208,19 @@ Since this app uses **passwordless email authentication**, there are no password
     - For login: validates user exists in token's group
     - Issues JWT tokens with `group_id` claim
     - Returns user data
+
+- [x] **Update all route handlers for group isolation**
+  - `backend/src/routes/photos.ts` - All endpoints validate group_id
+  - `backend/src/routes/users.ts` - All endpoints validate group_id
+
+**Code Quality**
+
+- [x] **Add formatting and linting**
+  - Prettier for code formatting (backend + frontend)
+  - ESLint for linting (backend + frontend)
+  - npm scripts: `format`, `format:fix`, `lint`, `lint:fix`
+  - Nix commands: `lint-and-format`, `lint-backend`, `lint-frontend`, etc.
+  - GitHub Actions workflow for CI
 
 **Backend: Tests**
 
@@ -1300,10 +1375,19 @@ Since this app uses **passwordless email authentication**, there are no password
 **Common Issues & Solutions**
 
 **Email Not Sending**
-- Check Cloudflare Email Routing is enabled
-- Verify domain has SPF/DKIM configured
-- Check wrangler.toml has email bindings
-- Look at Cloudflare dashboard logs
+- Check Cloudflare Email Routing is enabled in dashboard
+- Verify domain has been added and verified for email sending
+- Confirm DNS records are configured (MX, SPF, DKIM)
+  - Run `dig MX yourdomain.com` to verify MX records
+  - Run `dig TXT yourdomain.com` to verify SPF/DKIM records
+  - Wait 24-48 hours for DNS propagation if recently added
+- Check `backend/src/lib/email.ts` has actual email sending code (not just console.log)
+- Verify wrangler.toml has email configuration (if using bindings)
+- Check FRONTEND_URL environment variable is set correctly
+- Look at Cloudflare Workers logs in dashboard for errors
+- Test with MailChannels API directly if using that option
+- Check email sending limits (Cloudflare Email Workers has daily limits)
+- Verify "from" email domain matches verified domain
 
 **Magic Link Not Working**
 - Check token hasn't expired (15 min limit)

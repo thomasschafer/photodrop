@@ -83,9 +83,7 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
 
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Select photo
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Select photo</label>
           <input
             ref={fileInputRef}
             type="file"
@@ -103,10 +101,7 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
 
         {selectedFile && (
           <div>
-            <label
-              htmlFor="caption"
-              className="block text-sm font-medium text-gray-700 mb-2"
-            >
+            <label htmlFor="caption" className="block text-sm font-medium text-gray-700 mb-2">
               Caption (optional)
             </label>
             <textarea

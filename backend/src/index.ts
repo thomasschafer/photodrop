@@ -15,17 +15,17 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-app.use('/*', cors({
-  origin: (origin) => {
-    if (!origin) return '';
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'http://localhost:8787',
-    ];
-    return allowedOrigins.includes(origin) ? origin : '';
-  },
-  credentials: true,
-}));
+app.use(
+  '/*',
+  cors({
+    origin: (origin) => {
+      if (!origin) return '';
+      const allowedOrigins = ['http://localhost:5173', 'http://localhost:8787'];
+      return allowedOrigins.includes(origin) ? origin : '';
+    },
+    credentials: true,
+  })
+);
 
 app.get('/', (c) => {
   return c.json({ message: 'photodrop API' });

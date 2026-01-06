@@ -116,9 +116,7 @@ const createMockDB = () => {
           return null;
         },
         all: async () => {
-          const users = Array.from(storage.values()).filter(
-            (u) => u.invite_accepted_at !== null
-          );
+          const users = Array.from(storage.values()).filter((u) => u.invite_accepted_at !== null);
           return { results: users };
         },
       };

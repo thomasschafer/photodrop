@@ -1,12 +1,12 @@
 import { Context, Next } from 'hono';
-import { verifyJWT, JWTPayload } from '../lib/jwt';
-import { getUserById } from '../lib/db';
+import { verifyJWT } from '../lib/jwt';
 
 export type AuthContext = {
   Variables: {
     user: {
       id: string;
-      role: 'admin' | 'viewer';
+      groupId: string;
+      role: 'admin' | 'member';
     };
   };
 };
@@ -32,9 +32,10 @@ export async function requireAuth(c: Context, next: Next) {
     return c.json({ error: 'Invalid or expired token' }, 401);
   }
 
-  // Attach user info to context
+  // Attach user info to context (including group_id for isolation)
   c.set('user', {
     id: payload.sub,
+    groupId: payload.groupId,
     role: payload.role,
   });
 

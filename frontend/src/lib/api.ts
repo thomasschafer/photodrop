@@ -64,11 +64,7 @@ export const api = {
     },
 
     refresh: async () => {
-      const response = await fetchWithAuth(
-        '/api/auth/refresh',
-        { method: 'POST' },
-        false
-      );
+      const response = await fetchWithAuth('/api/auth/refresh', { method: 'POST' }, false);
       return response.json();
     },
 
@@ -117,9 +113,7 @@ export const api = {
 
   photos: {
     list: async (limit: number = 20, offset: number = 0) => {
-      const response = await fetchWithAuth(
-        `/api/photos?limit=${limit}&offset=${offset}`
-      );
+      const response = await fetchWithAuth(`/api/photos?limit=${limit}&offset=${offset}`);
       return response.json();
     },
 

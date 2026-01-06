@@ -59,10 +59,7 @@ export function PhotoFeed() {
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded text-red-600">
         {error}
-        <button
-          onClick={loadPhotos}
-          className="ml-4 text-sm underline hover:no-underline"
-        >
+        <button onClick={loadPhotos} className="ml-4 text-sm underline hover:no-underline">
           Retry
         </button>
       </div>
@@ -71,9 +68,7 @@ export function PhotoFeed() {
 
   if (photos.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
-        No photos yet. Upload the first one!
-      </div>
+      <div className="text-center py-12 text-gray-500">No photos yet. Upload the first one!</div>
     );
   }
 
@@ -93,14 +88,13 @@ export function PhotoFeed() {
                 className="w-full h-full object-cover"
                 loading="lazy"
                 onError={(e) => {
-                  e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EPhoto%3C/text%3E%3C/svg%3E';
+                  e.currentTarget.src =
+                    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EPhoto%3C/text%3E%3C/svg%3E';
                 }}
               />
             </div>
             <div className="p-4">
-              {photo.caption && (
-                <p className="text-sm text-gray-900 mb-2">{photo.caption}</p>
-              )}
+              {photo.caption && <p className="text-sm text-gray-900 mb-2">{photo.caption}</p>}
               <p className="text-xs text-gray-500">{formatDate(photo.uploadedAt)}</p>
             </div>
           </div>

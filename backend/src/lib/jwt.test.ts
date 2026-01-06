@@ -8,22 +8,14 @@ describe('JWT utilities', () => {
 
   describe('generateJWT', () => {
     it('should generate a valid JWT token', async () => {
-      const token = await generateJWT(
-        { sub: userId, role, type: 'access' },
-        testSecret,
-        60
-      );
+      const token = await generateJWT({ sub: userId, role, type: 'access' }, testSecret, 60);
 
       expect(token).toBeTruthy();
       expect(token.split('.')).toHaveLength(3);
     });
 
     it('should include correct payload data', async () => {
-      const token = await generateJWT(
-        { sub: userId, role, type: 'access' },
-        testSecret,
-        60
-      );
+      const token = await generateJWT({ sub: userId, role, type: 'access' }, testSecret, 60);
 
       const payload = await verifyJWT(token, testSecret);
       expect(payload).toBeTruthy();
@@ -34,11 +26,7 @@ describe('JWT utilities', () => {
 
     it('should set expiration correctly', async () => {
       const expiresIn = 60;
-      const token = await generateJWT(
-        { sub: userId, role, type: 'access' },
-        testSecret,
-        expiresIn
-      );
+      const token = await generateJWT({ sub: userId, role, type: 'access' }, testSecret, expiresIn);
 
       const payload = await verifyJWT(token, testSecret);
       expect(payload).toBeTruthy();
@@ -51,11 +39,7 @@ describe('JWT utilities', () => {
 
   describe('verifyJWT', () => {
     it('should verify a valid token', async () => {
-      const token = await generateJWT(
-        { sub: userId, role, type: 'access' },
-        testSecret,
-        60
-      );
+      const token = await generateJWT({ sub: userId, role, type: 'access' }, testSecret, 60);
 
       const payload = await verifyJWT(token, testSecret);
       expect(payload).toBeTruthy();
@@ -63,11 +47,7 @@ describe('JWT utilities', () => {
     });
 
     it('should reject token with wrong secret', async () => {
-      const token = await generateJWT(
-        { sub: userId, role, type: 'access' },
-        testSecret,
-        60
-      );
+      const token = await generateJWT({ sub: userId, role, type: 'access' }, testSecret, 60);
 
       const payload = await verifyJWT(token, 'wrong-secret');
       expect(payload).toBeNull();

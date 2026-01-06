@@ -142,6 +142,78 @@
           echo "✅ All tests passed!"
         '';
 
+        lint-backend = pkgs.writeShellScriptBin "lint-backend" ''
+          export PATH="${pkgs.lib.makeBinPath coreDeps}:$PATH"
+          set -e
+          echo "🔍 Running backend linting..."
+          cd backend
+          npm ci
+          npm run lint
+        '';
+
+        lint-frontend = pkgs.writeShellScriptBin "lint-frontend" ''
+          export PATH="${pkgs.lib.makeBinPath coreDeps}:$PATH"
+          set -e
+          echo "🔍 Running frontend linting..."
+          cd frontend
+          npm ci
+          npm run lint
+        '';
+
+        format-backend = pkgs.writeShellScriptBin "format-backend" ''
+          export PATH="${pkgs.lib.makeBinPath coreDeps}:$PATH"
+          set -e
+          echo "🎨 Checking backend formatting..."
+          cd backend
+          npm ci
+          npm run format
+        '';
+
+        format-frontend = pkgs.writeShellScriptBin "format-frontend" ''
+          export PATH="${pkgs.lib.makeBinPath coreDeps}:$PATH"
+          set -e
+          echo "🎨 Checking frontend formatting..."
+          cd frontend
+          npm ci
+          npm run format
+        '';
+
+        lint-and-format = pkgs.writeShellScriptBin "lint-and-format" ''
+          export PATH="${pkgs.lib.makeBinPath coreDeps}:$PATH"
+          set -e
+
+          echo "🔍 Running lint and format checks..."
+          echo ""
+
+          echo "Backend formatting:"
+          cd backend
+          npm ci
+          npm run format
+          cd ..
+
+          echo ""
+          echo "Backend linting:"
+          cd backend
+          npm run lint
+          cd ..
+
+          echo ""
+          echo "Frontend formatting:"
+          cd frontend
+          npm ci
+          npm run format
+          cd ..
+
+          echo ""
+          echo "Frontend linting:"
+          cd frontend
+          npm run lint
+          cd ..
+
+          echo ""
+          echo "✅ All lint and format checks passed!"
+        '';
+
         setup-dev = pkgs.writeShellScriptBin "setup-dev" ''
           export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
           ./scripts/setup.sh dev
@@ -200,6 +272,27 @@
           drv = test;
         };
 
+        # Lint and format checks
+        apps.lint-backend = flake-utils.lib.mkApp {
+          drv = lint-backend;
+        };
+
+        apps.lint-frontend = flake-utils.lib.mkApp {
+          drv = lint-frontend;
+        };
+
+        apps.format-backend = flake-utils.lib.mkApp {
+          drv = format-backend;
+        };
+
+        apps.format-frontend = flake-utils.lib.mkApp {
+          drv = format-frontend;
+        };
+
+        apps.lint-and-format = flake-utils.lib.mkApp {
+          drv = lint-and-format;
+        };
+
         # Setup development environment
         apps.setup-dev = flake-utils.lib.mkApp {
           drv = setup-dev;
@@ -245,6 +338,11 @@
             test-backend
             test-frontend
             test
+            lint-backend
+            lint-frontend
+            format-backend
+            format-frontend
+            lint-and-format
             setup-dev
             setup-prod
             deploy

@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             name: userData.name,
             role: userData.role,
           });
-        } catch (error) {
+        } catch {
           try {
             await refreshAuth();
           } catch (refreshError) {
@@ -79,9 +79,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    const interval = setInterval(() => {
-      refreshAuth();
-    }, 14 * 60 * 1000);
+    const interval = setInterval(
+      () => {
+        refreshAuth();
+      },
+      14 * 60 * 1000
+    );
 
     return () => clearInterval(interval);
   }, [user]);

@@ -25,8 +25,9 @@ photos.get('/', requireAuth, async (c) => {
   try {
     const limit = parseInt(c.req.query('limit') || '20');
     const offset = parseInt(c.req.query('offset') || '0');
+    const user = c.get('user');
 
-    const photoList = await listPhotos(c.env.DB, limit, offset);
+    const photoList = await listPhotos(c.env.DB, user.groupId, limit, offset);
 
     return c.json({
       photos: photoList.map((photo) => ({
@@ -80,16 +81,20 @@ photos.post('/', requireAdmin, async (c) => {
 
     const photoId = await createPhoto(
       c.env.DB,
+      currentUser.groupId,
       photoR2Key,
       thumbnailR2Key,
       currentUser.id,
       caption || undefined
     );
 
-    return c.json({
-      id: photoId,
-      message: 'Photo uploaded successfully',
-    }, 201);
+    return c.json(
+      {
+        id: photoId,
+        message: 'Photo uploaded successfully',
+      },
+      201
+    );
   } catch (error) {
     console.error('Error uploading photo:', error);
     return c.json({ error: 'Failed to upload photo' }, 500);
@@ -99,7 +104,8 @@ photos.post('/', requireAdmin, async (c) => {
 photos.get('/:id', requireAuth, async (c) => {
   try {
     const photoId = c.req.param('id');
-    const photo = await getPhoto(c.env.DB, photoId);
+    const user = c.get('user');
+    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
@@ -120,7 +126,8 @@ photos.get('/:id', requireAuth, async (c) => {
 photos.get('/:id/url', requireAuth, async (c) => {
   try {
     const photoId = c.req.param('id');
-    const photo = await getPhoto(c.env.DB, photoId);
+    const user = c.get('user');
+    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
@@ -147,7 +154,8 @@ photos.get('/:id/url', requireAuth, async (c) => {
 photos.get('/:id/download', requireAuth, async (c) => {
   try {
     const photoId = c.req.param('id');
-    const photo = await getPhoto(c.env.DB, photoId);
+    const user = c.get('user');
+    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
@@ -173,7 +181,8 @@ photos.get('/:id/download', requireAuth, async (c) => {
 photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
   try {
     const photoId = c.req.param('id');
-    const photo = await getPhoto(c.env.DB, photoId);
+    const user = c.get('user');
+    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
     if (!photo || !photo.thumbnail_r2_key) {
       return c.json({ error: 'Photo or thumbnail not found' }, 404);
@@ -195,7 +204,8 @@ photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
 photos.get('/:id/thumbnail', requireAuth, async (c) => {
   try {
     const photoId = c.req.param('id');
-    const photo = await getPhoto(c.env.DB, photoId);
+    const user = c.get('user');
+    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
     if (!photo || !photo.thumbnail_r2_key) {
       return c.json({ error: 'Photo or thumbnail not found' }, 404);
@@ -221,7 +231,8 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
 photos.delete('/:id', requireAdmin, async (c) => {
   try {
     const photoId = c.req.param('id');
-    const photo = await getPhoto(c.env.DB, photoId);
+    const user = c.get('user');
+    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
@@ -246,7 +257,7 @@ photos.post('/:id/view', requireAuth, async (c) => {
     const photoId = c.req.param('id');
     const currentUser = c.get('user');
 
-    const photo = await getPhoto(c.env.DB, photoId);
+    const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
     }
@@ -263,8 +274,9 @@ photos.post('/:id/view', requireAuth, async (c) => {
 photos.get('/:id/viewers', requireAdmin, async (c) => {
   try {
     const photoId = c.req.param('id');
+    const user = c.get('user');
 
-    const photo = await getPhoto(c.env.DB, photoId);
+    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
     }
@@ -289,7 +301,7 @@ photos.post('/:id/react', requireAuth, async (c) => {
       return c.json({ error: 'Emoji is required' }, 400);
     }
 
-    const photo = await getPhoto(c.env.DB, photoId);
+    const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
     }
@@ -308,7 +320,7 @@ photos.delete('/:id/react', requireAuth, async (c) => {
     const photoId = c.req.param('id');
     const currentUser = c.get('user');
 
-    const photo = await getPhoto(c.env.DB, photoId);
+    const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
     }
@@ -325,8 +337,9 @@ photos.delete('/:id/react', requireAuth, async (c) => {
 photos.get('/:id/reactions', requireAuth, async (c) => {
   try {
     const photoId = c.req.param('id');
+    const user = c.get('user');
 
-    const photo = await getPhoto(c.env.DB, photoId);
+    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
     }
