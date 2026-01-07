@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { api } from '../lib/api';
 
 interface User {
@@ -21,12 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const login = (accessToken: string, userData: User) => {
+  const login = useCallback((accessToken: string, userData: User) => {
     localStorage.setItem('accessToken', accessToken);
     setUser(userData);
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await api.auth.logout();
     } catch (error) {
@@ -35,18 +35,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem('accessToken');
       setUser(null);
     }
-  };
+  }, []);
 
-  const refreshAuth = async () => {
+  const refreshAuth = useCallback(async () => {
     try {
       const data = await api.auth.refresh();
-      login(data.accessToken, data.user);
+      localStorage.setItem('accessToken', data.accessToken);
+      setUser(data.user);
     } catch (error) {
       console.error('Refresh error:', error);
       localStorage.removeItem('accessToken');
       setUser(null);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -74,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     initAuth();
-  }, []);
+  }, [refreshAuth]);
 
   useEffect(() => {
     if (!user) return;
@@ -87,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
 
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, refreshAuth]);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout, refreshAuth }}>
@@ -96,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

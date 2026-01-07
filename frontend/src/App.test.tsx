@@ -23,6 +23,6 @@ describe('App', () => {
     render(<App />);
 
     expect(screen.getByText('photodrop')).toBeInTheDocument();
-    expect(screen.getByText('You need an invite link to access this app')).toBeInTheDocument();
+    expect(screen.getByText(/You need an invite to access this app/)).toBeInTheDocument();
   });
 });
