@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import App from './App';
 
 vi.mock('./contexts/AuthContext', () => ({
@@ -7,6 +8,7 @@ vi.mock('./contexts/AuthContext', () => ({
     user: null,
     loading: false,
     logout: vi.fn(),
+    login: vi.fn(),
   }),
 }));
 
@@ -19,10 +21,25 @@ vi.mock('./components/PhotoFeed', () => ({
 }));
 
 describe('App', () => {
-  it('renders welcome message when not authenticated', () => {
-    render(<App />);
+  it('redirects to login page when not authenticated', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>
+    );
 
     expect(screen.getByText('photodrop')).toBeInTheDocument();
-    expect(screen.getByText(/You need an invite to access this app/)).toBeInTheDocument();
+    expect(screen.getByText('Log in to your account')).toBeInTheDocument();
+  });
+
+  it('shows login page at /login route', () => {
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Log in to your account')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument();
   });
 });

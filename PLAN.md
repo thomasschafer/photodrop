@@ -252,17 +252,36 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 - [ ] Cloudflare Email Workers setup (dashboard + DNS)
 - [ ] Implement actual email sending (MailChannels API)
 - [ ] Test email delivery end-to-end
+- [x] Mock email delivery for local testing (writes links to `.dev-magic-links.txt`)
 
 **Frontend:**
-- [ ] Login page (email input → send link)
-- [ ] Magic link verification page (`/auth/:token`)
-- [ ] Invite form component
-- [ ] Update App.tsx with routing
-- [ ] Update AuthContext for email flow
+- [x] Login page (email input → send link)
+- [x] Magic link verification page (`/auth/:token`)
+- [x] Invite form component
+- [x] Update App.tsx with routing (React Router)
+- [x] Update AuthContext for email flow
 
 **CLI script:**
 - [ ] `scripts/create-group.sh` (creates group + admin + sends email)
 - [ ] Add to flake.nix
+
+**Local testing:**
+```bash
+# Standard dev (local DB - console output visible):
+nix run .#dev  # auto-runs migrations, starts both servers
+
+# Optional: seed test users first
+nix run .#db-seed  # creates admin@test.com and member@test.com
+
+# Test auth flow:
+# 1. Go to http://localhost:5173/login
+# 2. Enter email (e.g., admin@test.com if seeded)
+# 3. Copy magic link from backend console output
+# 4. Paste in browser to complete login
+
+# For remote DB testing (uses Cloudflare D1):
+cd backend && npm run dev:remote
+```
 
 **Tests:**
 - [ ] Database tests (group isolation critical)

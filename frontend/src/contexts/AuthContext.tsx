@@ -1,10 +1,10 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { api } from '../lib/api';
 
 interface User {
   id: string;
   name: string;
-  role: 'admin' | 'viewer';
+  role: 'admin' | 'member';
 }
 
 interface AuthContextType {

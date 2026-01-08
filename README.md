@@ -43,6 +43,16 @@ nix run .#dev
 
 Then visit http://localhost:5173
 
+### Testing with seed data
+
+To test the auth flow locally with pre-created users:
+
+```bash
+nix run .#db-seed  # Creates admin@test.com and member@test.com
+```
+
+Then login at http://localhost:5173/login - magic links appear in the backend console.
+
 ## Production deployment
 
 ### One-time setup (run locally)

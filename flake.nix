@@ -64,6 +64,9 @@
           if [ ! -d "node_modules" ]; then
             npm install
           fi
+
+          echo "Running database migrations (local)..."
+          npx wrangler d1 migrations apply photodrop-db-dev --local
           cd ..
 
           echo "Checking frontend dependencies..."
@@ -92,6 +95,27 @@
           echo ""
 
           wait $BACKEND_PID $FRONTEND_PID
+        '';
+
+        db-seed = pkgs.writeShellScriptBin "db-seed" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          set -e
+
+          echo "Setting up local database with test data..."
+          cd backend
+
+          echo "Running migrations (local)..."
+          npx wrangler d1 migrations apply photodrop-db-dev --local
+
+          echo "Seeding test data..."
+          npx wrangler d1 execute photodrop-db-dev --local --file=scripts/seed-test-data.sql
+
+          echo ""
+          echo "Local database ready with test users:"
+          echo "  - admin@test.com (admin)"
+          echo "  - member@test.com (member)"
+          echo ""
+          echo "To use local DB, run backend with: cd backend && npx wrangler dev"
         '';
 
         secrets-scan = pkgs.writeShellScriptBin "secrets-scan" ''
@@ -331,9 +355,15 @@
           drv = devScript;
         };
 
+        # Seed local database with test data
+        apps.db-seed = flake-utils.lib.mkApp {
+          drv = db-seed;
+        };
+
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = shellDeps ++ [
             devScript
+            db-seed
             secrets-scan
             test-backend
             test-frontend

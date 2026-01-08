@@ -1,13 +1,14 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
 class ApiError extends Error {
-  constructor(
-    public status: number,
-    public statusText: string,
-    message: string
-  ) {
+  status: number;
+  statusText: string;
+
+  constructor(status: number, statusText: string, message: string) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
+    this.statusText = statusText;
   }
 }
 
@@ -16,9 +17,12 @@ async function fetchWithAuth(
   options: RequestInit = {},
   includeAuth: boolean = true
 ): Promise<Response> {
-  const headers: HeadersInit = {
-    ...options.headers,
-  };
+  const headers: Record<string, string> = {};
+
+  if (options.headers) {
+    const existingHeaders = options.headers as Record<string, string>;
+    Object.assign(headers, existingHeaders);
+  }
 
   if (includeAuth) {
     const token = localStorage.getItem('accessToken');
@@ -51,12 +55,32 @@ async function fetchWithAuth(
 
 export const api = {
   auth: {
-    acceptInvite: async (inviteToken: string) => {
+    sendLoginLink: async (email: string) => {
       const response = await fetchWithAuth(
-        '/api/auth/accept-invite',
+        '/api/auth/send-login-link',
         {
           method: 'POST',
-          body: JSON.stringify({ inviteToken }),
+          body: JSON.stringify({ email }),
+        },
+        false
+      );
+      return response.json();
+    },
+
+    sendInvite: async (name: string, email: string, role: 'admin' | 'member' = 'member') => {
+      const response = await fetchWithAuth('/api/auth/send-invite', {
+        method: 'POST',
+        body: JSON.stringify({ name, email, role }),
+      });
+      return response.json();
+    },
+
+    verifyMagicLink: async (token: string) => {
+      const response = await fetchWithAuth(
+        '/api/auth/verify-magic-link',
+        {
+          method: 'POST',
+          body: JSON.stringify({ token }),
         },
         false
       );
@@ -71,14 +95,6 @@ export const api = {
     logout: async () => {
       const response = await fetchWithAuth('/api/auth/logout', {
         method: 'POST',
-      });
-      return response.json();
-    },
-
-    createInvite: async (name: string, role: 'admin' | 'viewer' = 'viewer', phone?: string) => {
-      const response = await fetchWithAuth('/api/auth/create-invite', {
-        method: 'POST',
-        body: JSON.stringify({ name, role, phone }),
       });
       return response.json();
     },

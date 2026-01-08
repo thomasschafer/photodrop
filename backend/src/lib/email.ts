@@ -127,14 +127,26 @@ This login link was sent to ${toEmail}. If you didn't request this, you can safe
  * TODO: Implement using Cloudflare Email Workers
  */
 async function sendEmail(options: SendEmailOptions): Promise<void> {
-  // TODO: Implement email sending via Cloudflare Email Workers
-  // For now, just log to console for development
-  console.log('📧 Email would be sent:', {
-    to: options.to,
-    subject: options.subject,
-  });
+  // Extract magic link from email content for dev logging
+  const magicLinkMatch = options.text.match(/(https?:\/\/[^\s]+\/auth\/[^\s]+)/);
+  const magicLink = magicLinkMatch ? magicLinkMatch[1] : null;
 
-  // In production, this will use Cloudflare Email Workers:
+  // Use console.warn for visibility (less likely to be buffered)
+  const output = [
+    '',
+    '═'.repeat(60),
+    '📧 DEV EMAIL (not actually sent)',
+    '═'.repeat(60),
+    `To: ${options.to}`,
+    `Subject: ${options.subject}`,
+    ...(magicLink ? ['', '🔗 Magic Link:', magicLink] : []),
+    '═'.repeat(60),
+    '',
+  ].join('\n');
+
+  console.warn(output);
+
+  // TODO: In production, use Cloudflare Email Workers:
   // const response = await fetch('https://api.mailchannels.net/tx/v1/send', {
   //   method: 'POST',
   //   headers: { 'content-type': 'application/json' },
