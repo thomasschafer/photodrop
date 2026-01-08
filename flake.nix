@@ -48,50 +48,39 @@
 
           cleanup() {
             echo ""
-            echo "Shutting down dev servers..."
+            echo "Shutting down..."
             kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
             wait $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
             exit 0
           }
-
           trap cleanup INT TERM
 
-          echo "Starting PhotoDrop development servers..."
-          echo ""
-
-          echo "Checking backend dependencies..."
-          cd backend
-          if [ ! -d "node_modules" ]; then
-            npm install
+          # Auto-setup if needed
+          if [ ! -f backend/.dev.vars ]; then
+            echo "First run - generating secrets..."
+            ./scripts/setup.sh dev
+            echo ""
           fi
 
-          echo "Running database migrations (local)..."
-          npx wrangler d1 migrations apply photodrop-db-dev --local
-          cd ..
+          # Install dependencies if needed
+          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
+          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
 
-          echo "Checking frontend dependencies..."
-          cd frontend
-          if [ ! -d "node_modules" ]; then
-            npm install
-          fi
-          cd ..
-
+          # Run migrations
+          echo "Running migrations..."
+          (cd backend && npx wrangler d1 migrations apply photodrop-db --local)
           echo ""
-          echo "Starting backend (wrangler dev --remote)..."
-          cd backend
-          npm run dev &
+
+          # Start servers
+          echo "Starting servers..."
+          (cd backend && npm run dev) &
           BACKEND_PID=$!
-          cd ..
-
-          echo "Starting frontend (vite)..."
-          cd frontend
-          npm run dev &
+          (cd frontend && npm run dev) &
           FRONTEND_PID=$!
-          cd ..
 
           echo ""
-          echo "Both servers are running!"
-          echo "Press Ctrl+C to stop both servers"
+          echo "Ready: http://localhost:5173"
+          echo "Press Ctrl+C to stop"
           echo ""
 
           wait $BACKEND_PID $FRONTEND_PID
@@ -101,21 +90,18 @@
           export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
           set -e
 
-          echo "Setting up local database with test data..."
           cd backend
 
-          echo "Running migrations (local)..."
-          npx wrangler d1 migrations apply photodrop-db-dev --local
+          echo "Running migrations..."
+          npx wrangler d1 migrations apply photodrop-db --local
 
           echo "Seeding test data..."
-          npx wrangler d1 execute photodrop-db-dev --local --file=scripts/seed-test-data.sql
+          npx wrangler d1 execute photodrop-db --local --file=scripts/seed-test-data.sql
 
           echo ""
-          echo "Local database ready with test users:"
-          echo "  - admin@test.com (admin)"
-          echo "  - member@test.com (member)"
-          echo ""
-          echo "To use local DB, run backend with: cd backend && npx wrangler dev"
+          echo "Test users created:"
+          echo "  admin@test.com (admin)"
+          echo "  member@test.com (member)"
         '';
 
         secrets-scan = pkgs.writeShellScriptBin "secrets-scan" ''

@@ -1,0 +1,21 @@
+# Wrangler configuration for local development
+# For production deployment, see scripts/deploy.sh which generates config from environment variables
+
+name = "photodrop-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-04"
+
+[dev]
+port = 8787
+
+# D1 Database - locally simulated by Miniflare, ID is ignored for local dev
+[[d1_databases]]
+binding = "DB"
+database_name = "photodrop-db"
+database_id = "local-dev-placeholder"
+migrations_dir = "migrations"
+
+# R2 Bucket - locally simulated by Miniflare
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "photodrop-photos"

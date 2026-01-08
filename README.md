@@ -2,123 +2,72 @@
 
 A Progressive Web App (PWA) for privately sharing photos within isolated groups.
 
-See [PLAN.md](PLAN.md) for complete architecture details and implementation status.
-
-## Prerequisites
-
-- [Nix](https://install.determinate.systems/nix) with flakes enabled
-- Cloudflare account (free tier works) with:
-  - **D1 database** enabled (visit [Cloudflare Dashboard → D1](https://dash.cloudflare.com/d1) and enable)
-  - **R2 storage** enabled (visit [Cloudflare Dashboard → R2](https://dash.cloudflare.com/r2) and enable)
-- [direnv](https://direnv.net/) (optional, for automatic environment setup)
+See [PLAN.md](PLAN.md) for architecture details and implementation status.
 
 ## Quick start
 
 ```bash
-# Enter development shell
-nix develop  # or use direnv
+# Enter nix shell (or use direnv)
+nix develop
 
-# Login to Cloudflare
-wrangler login
-
-# Set up development environment
-nix run .#setup-dev
-```
-
-This creates:
-- `photodrop-db-dev` D1 database
-- `photodrop-photos-dev` R2 bucket
-- `.dev.vars` with generated secrets
-- `wrangler.toml` configured for development
-
-## Local development
-
-```bash
-# If you're in a direnv shell or ran 'nix develop'
-dev
-
-# Or run directly without entering the shell
+# Start development - everything auto-configures on first run
 nix run .#dev
 ```
 
-Then visit http://localhost:5173
+That's it! Visit http://localhost:5173
 
-### Testing with seed data
+No Cloudflare account needed for local development - D1 and R2 are simulated locally.
 
-To test the auth flow locally with pre-created users:
+## Testing the auth flow
 
 ```bash
-nix run .#db-seed  # Creates admin@test.com and member@test.com
+nix run .#db-seed  # Create test users (one time)
+nix run .#dev      # Start servers
 ```
 
-Then login at http://localhost:5173/login - magic links appear in the backend console.
+Then:
+1. Go to http://localhost:5173/login
+2. Enter `admin@test.com`
+3. Copy magic link from backend console
+4. Paste in browser to login
+
+## Available commands
+
+| Command | Description |
+|---------|-------------|
+| `nix run .#dev` | Start development servers |
+| `nix run .#db-seed` | Seed local DB with test users |
+| `nix run .#test` | Run all tests |
+| `nix run .#setup-dev` | Regenerate dev secrets |
+| `nix run .#setup-prod` | Create production Cloudflare resources |
+| `nix run .#deploy` | Deploy to production |
+| `nix run .#teardown-dev` | Clean local dev files |
+| `nix run .#teardown-prod` | Delete production resources |
 
 ## Production deployment
 
-### One-time setup (run locally)
+### One-time setup
 
-1. **Create Cloudflare resources and generate secrets:**
-   ```bash
-   nix run .#setup-prod
-   ```
-   This creates:
-   - `photodrop-db-prod` D1 database
-   - `photodrop-photos-prod` R2 bucket
-   - `.prod.vars` with database ID and generated secrets (gitignored)
-   - `.prod.secrets.txt` with all values for GitHub (gitignored)
+```bash
+# Requires Cloudflare account
+wrangler login
+nix run .#setup-prod
+```
 
-2. **Add secrets to GitHub:**
-   - View secrets: `cat backend/.prod.secrets.txt`
-   - Go to: Settings → Secrets and variables → Actions → New repository secret
-   - Add the following secrets:
-     - `CLOUDFLARE_API_TOKEN` - Get from https://dash.cloudflare.com/profile/api-tokens
-     - `CLOUDFLARE_ACCOUNT_ID` - Get from Workers & Pages dashboard
-     - `D1_DATABASE_ID` - From `.prod.secrets.txt` (your database UUID)
-     - `JWT_SECRET` - From `.prod.secrets.txt`
-     - `VAPID_PUBLIC_KEY` - From `.prod.secrets.txt`
-     - `VAPID_PRIVATE_KEY` - From `.prod.secrets.txt`
+This creates D1 database, R2 bucket, and generates secrets. Add the secrets from `backend/.prod.secrets.txt` to GitHub Actions.
 
-**Note:** All configuration is environment-driven. The repo contains no environment-specific IDs, allowing multiple deployments (staging, prod, etc.) using different secret sets.
+### Deploy
 
-### Ongoing deployments (automatic via CI)
+Push to `main` for automatic deployment, or:
 
-Once setup is complete, every push to `main`:
-1. Runs all tests (backend + frontend)
-2. Generates `wrangler.toml` from environment variables
-3. Deploys to production automatically
-
-You can also deploy manually:
 ```bash
 nix run .#deploy
 ```
 
-### Multiple environments
+## Architecture
 
-To deploy to multiple environments (e.g., staging, production):
-1. Run `nix run .#setup-prod` for each environment to create separate databases
-2. Store secrets in different GitHub environments or repositories
-3. Each deployment uses its own database ID and secrets
-
-## Teardown
-
-```bash
-nix run .#teardown-dev   # Delete dev only
-nix run .#teardown-prod  # Delete prod only
-nix run .#teardown       # Delete everything
-```
-
-## Tests
-
-```bash
-nix run .#test            # All tests
-nix run .#test-backend    # Backend only
-nix run .#test-frontend   # Frontend only
-```
-
-## Security
-
-Scan for secrets before committing:
-
-```bash
-nix run .#secrets-scan
-```
+- **Frontend**: React + Vite PWA
+- **Backend**: Cloudflare Workers + Hono
+- **Database**: D1 (SQLite)
+- **Storage**: R2 (S3-compatible)
+- **Auth**: Passwordless magic links

@@ -267,20 +267,10 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 
 **Local testing:**
 ```bash
-# Standard dev (local DB - console output visible):
-nix run .#dev  # auto-runs migrations, starts both servers
+nix run .#db-seed  # Create test users (one time)
+nix run .#dev      # Start servers (auto-setup on first run)
 
-# Optional: seed test users first
-nix run .#db-seed  # creates admin@test.com and member@test.com
-
-# Test auth flow:
-# 1. Go to http://localhost:5173/login
-# 2. Enter email (e.g., admin@test.com if seeded)
-# 3. Copy magic link from backend console output
-# 4. Paste in browser to complete login
-
-# For remote DB testing (uses Cloudflare D1):
-cd backend && npm run dev:remote
+# Test: Go to /login, enter admin@test.com, copy magic link from console
 ```
 
 **Tests:**
