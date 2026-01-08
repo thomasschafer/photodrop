@@ -6,6 +6,66 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* Backgrounds */
+    --color-bg-primary: #fdfcfa;
+    --color-bg-secondary: #f9f6f3;
+    --color-bg-tertiary: #f0ebe6;
+
+    /* Text */
+    --color-text-primary: #3a3632;
+    --color-text-secondary: #8a8078;
+    --color-text-muted: #b8afa5;
+
+    /* Borders */
+    --color-border: #f0ebe6;
+    --color-border-hover: #e2dbd3;
+    --color-border-strong: #b8afa5;
+
+    /* Accent (terracotta) */
+    --color-accent: #b56a4a;
+    --color-accent-hover: #a55d3d;
+    --color-accent-light: rgba(198, 125, 90, 0.1);
+
+    /* Surfaces */
+    --color-surface: white;
+    --color-surface-elevated: white;
+
+    /* Status colors */
+    --color-error: #c45454;
+    --color-success: #6a9a72;
+  }
+
+  .dark {
+    /* Backgrounds */
+    --color-bg-primary: #1a1918;
+    --color-bg-secondary: #252320;
+    --color-bg-tertiary: #2d2a27;
+
+    /* Text */
+    --color-text-primary: #f0ebe6;
+    --color-text-secondary: #b8afa5;
+    --color-text-muted: #8a8078;
+
+    /* Borders */
+    --color-border: #3a3632;
+    --color-border-hover: #524c46;
+    --color-border-strong: #6b635b;
+
+    /* Accent (same as light mode) */
+    --color-accent: #b56a4a;
+    --color-accent-hover: #a55d3d;
+    --color-accent-light: rgba(217, 166, 142, 0.15);
+
+    /* Surfaces */
+    --color-surface: #252320;
+    --color-surface-elevated: #2d2a27;
+
+    /* Status colors */
+    --color-error: #e07070;
+    --color-success: #8aba92;
+  }
+
   *,
   *::before,
   *::after {
@@ -27,8 +87,8 @@
       BlinkMacSystemFont,
       'Segoe UI',
       sans-serif;
-    background-color: #fdfcfa;
-    color: #3a3632;
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -38,7 +98,7 @@
   }
 
   *:focus-visible {
-    outline: 2px solid #c67d5a;
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
 
@@ -55,7 +115,7 @@
     align-items: center;
     justify-content: center;
     padding: 0.75rem 1.5rem;
-    background-color: #c67d5a;
+    background-color: var(--color-accent);
     color: white;
     font-size: 1rem;
     font-weight: 500;
@@ -67,7 +127,7 @@
   }
 
   .btn-primary:hover {
-    background-color: #b56a4a;
+    background-color: var(--color-accent-hover);
     text-decoration: none;
   }
 
@@ -81,9 +141,9 @@
     align-items: center;
     justify-content: center;
     padding: 0.75rem 1.5rem;
-    background-color: white;
-    border: 1px solid #e2dbd3;
-    color: #524c46;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border-hover);
+    color: var(--color-text-primary);
     font-size: 1rem;
     font-weight: 500;
     border-radius: 0.5rem;
@@ -93,7 +153,7 @@
   }
 
   .btn-secondary:hover {
-    border-color: #b8afa5;
+    border-color: var(--color-border-strong);
     text-decoration: none;
   }
 
@@ -102,7 +162,7 @@
     align-items: center;
     justify-content: center;
     padding: 0.5rem 1rem;
-    color: #c67d5a;
+    color: var(--color-accent);
     font-size: 1rem;
     font-weight: 500;
     border-radius: 0.375rem;
@@ -114,7 +174,7 @@
   }
 
   .btn-text:hover {
-    color: #97553c;
+    color: var(--color-accent-hover);
     text-decoration: none;
     background-color: transparent;
   }
@@ -123,30 +183,55 @@
   .input-field {
     width: 100%;
     padding: 0.75rem 1rem;
-    background-color: white;
-    border: 1px solid #e2dbd3;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border-hover);
     border-radius: 0.5rem;
     font-size: 1rem;
-    color: #3a3632;
+    color: var(--color-text-primary);
     transition: border-color 0.15s ease;
   }
 
   .input-field::placeholder {
-    color: #b8afa5;
+    color: var(--color-text-muted);
   }
 
   .input-field:hover {
-    border-color: #b8afa5;
+    border-color: var(--color-border-strong);
   }
 
   .input-field:focus {
-    border-color: #c67d5a;
-    box-shadow: 0 0 0 3px rgba(198, 125, 90, 0.1);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-light);
   }
 
   .input-field:disabled {
-    background-color: #f9f6f3;
+    background-color: var(--color-bg-secondary);
     cursor: not-allowed;
+  }
+
+  /* File input */
+  .file-input {
+    display: block;
+    width: 100%;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+  }
+
+  .file-input::file-selector-button {
+    margin-right: 0.75rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+
+  .file-input::file-selector-button:hover {
+    background-color: var(--color-bg-tertiary);
   }
 
   /* Input with icon */
@@ -159,7 +244,7 @@
     left: 0.875rem;
     top: 50%;
     transform: translateY(-50%);
-    color: #b8afa5;
+    color: var(--color-text-muted);
     pointer-events: none;
   }
 
@@ -168,16 +253,20 @@
   }
 
   .input-with-icon:focus-within .input-icon {
-    color: #c67d5a;
+    color: var(--color-accent);
   }
 
   /* Card styles */
   .card {
-    background-color: white;
+    background-color: var(--color-surface);
     border-radius: 0.75rem;
-    border: 1px solid #f0ebe6;
+    border: 1px solid var(--color-border);
     padding: 1.5rem;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  .dark .card {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   }
 
   /* Skip link */
@@ -205,7 +294,7 @@
     overflow: visible;
     clip: auto;
     white-space: normal;
-    background-color: #c67d5a;
+    background-color: var(--color-accent);
     color: white;
     font-weight: 500;
     border-radius: 0.5rem;
@@ -215,8 +304,8 @@
   .spinner {
     width: 1.5rem;
     height: 1.5rem;
-    border: 2px solid #f0ebe6;
-    border-top-color: #c67d5a;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-accent);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
   }

@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 export function LoginPage() {
   const { user } = useAuth();
@@ -37,7 +38,26 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50 flex flex-col justify-center px-6 py-12">
+    <div
+      style={{
+        minHeight: '100vh',
+        backgroundColor: 'var(--color-bg-primary)',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        padding: '3rem 1.5rem',
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          top: '1rem',
+          right: '1rem',
+        }}
+      >
+        <ThemeToggle />
+      </div>
+
       <div className="w-full mx-auto" style={{ maxWidth: '440px' }}>
         <div className="mb-8">
           <Logo />
@@ -80,15 +100,37 @@ function LoginForm({
 }) {
   return (
     <div className="card">
-      <h2 className="text-lg font-medium text-neutral-800 mb-1">Sign in</h2>
-      <p className="text-sm text-neutral-500 mb-6">Enter your email to receive a sign-in link</p>
+      <h2
+        style={{
+          fontSize: '1.125rem',
+          fontWeight: 500,
+          color: 'var(--color-text-primary)',
+          marginBottom: '0.25rem',
+        }}
+      >
+        Sign in
+      </h2>
+      <p
+        style={{
+          fontSize: '0.875rem',
+          color: 'var(--color-text-secondary)',
+          marginBottom: '1.5rem',
+        }}
+      >
+        Enter your email to receive a sign-in link
+      </p>
 
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
           <label
             htmlFor="email"
-            className="text-sm font-medium text-neutral-700"
-            style={{ display: 'block', marginBottom: '0.3rem' }}
+            style={{
+              display: 'block',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              color: 'var(--color-text-primary)',
+              marginBottom: '0.3rem',
+            }}
           >
             Email
           </label>
@@ -107,7 +149,7 @@ function LoginForm({
         </div>
 
         {status === 'error' && (
-          <p className="text-sm text-red-600" role="alert">
+          <p style={{ fontSize: '0.875rem', color: 'var(--color-error)' }} role="alert">
             {errorMessage}
           </p>
         )}
@@ -126,7 +168,14 @@ function LoginForm({
         </div>
       </form>
 
-      <p className="text-sm text-neutral-500 mt-6 text-center">
+      <p
+        style={{
+          fontSize: '0.875rem',
+          color: 'var(--color-text-secondary)',
+          marginTop: '1.5rem',
+          textAlign: 'center',
+        }}
+      >
         Don't have an account? Ask your group admin for an invite.
       </p>
     </div>
@@ -136,11 +185,22 @@ function LoginForm({
 function SuccessState({ email, onReset }: { email: string; onReset: () => void }) {
   return (
     <div className="card text-center">
-      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-accent-100 flex items-center justify-center">
+      <div
+        style={{
+          width: '3rem',
+          height: '3rem',
+          margin: '0 auto 1rem',
+          borderRadius: '50%',
+          backgroundColor: 'var(--color-accent-light)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <svg
           width="24"
           height="24"
-          className="text-accent-600"
+          style={{ color: 'var(--color-accent)' }}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -154,13 +214,22 @@ function SuccessState({ email, onReset }: { email: string; onReset: () => void }
         </svg>
       </div>
 
-      <h2 className="text-lg font-medium text-neutral-800 mb-2">Check your email</h2>
-      <p className="text-sm text-neutral-600 mb-4">
-        If <strong className="text-neutral-800">{email}</strong> has an account, we've sent a
-        sign-in link.
+      <h2
+        style={{
+          fontSize: '1.125rem',
+          fontWeight: 500,
+          color: 'var(--color-text-primary)',
+          marginBottom: '0.5rem',
+        }}
+      >
+        Check your email
+      </h2>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
+        If <strong style={{ color: 'var(--color-text-primary)' }}>{email}</strong> has an account,
+        we've sent a sign-in link.
       </p>
 
-      <p className="text-sm text-neutral-500 mb-6">
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: '1.5rem' }}>
         The link expires in 15 minutes. Check spam if you don't see it.
       </p>
 

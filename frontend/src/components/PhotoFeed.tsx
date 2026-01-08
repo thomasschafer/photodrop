@@ -94,7 +94,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   if (error) {
     return (
       <div className="text-center py-12">
-        <p className="text-neutral-600 mb-4">{error}</p>
+        <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>{error}</p>
         <button onClick={loadPhotos} className="btn-primary">
           Try again
         </button>
@@ -105,8 +105,8 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   if (photos.length === 0) {
     return (
       <div className="text-center py-16">
-        <p style={{ color: '#6b635b', marginBottom: '0.5rem' }}>No photos yet</p>
-        <p style={{ fontSize: '0.875rem', color: '#8a8078' }}>
+        <p style={{ color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>No photos yet</p>
+        <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
           Upload your first photo to get started.
         </p>
       </div>
@@ -131,14 +131,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               role="button"
               style={{
                 cursor: 'pointer',
-                backgroundColor: 'white',
+                backgroundColor: 'var(--color-surface)',
                 borderRadius: '0.75rem',
                 overflow: 'hidden',
-                border: '1px solid #f0ebe6',
+                border: '1px solid var(--color-border)',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
               }}
             >
-              <div style={{ position: 'relative', backgroundColor: '#f5f4f1' }}>
+              <div style={{ position: 'relative', backgroundColor: 'var(--color-bg-secondary)' }}>
                 <img
                   src={`/api/photos/${photo.id}/thumbnail?token=${token}`}
                   alt={photo.caption || ''}
@@ -154,14 +154,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               </div>
               <div style={{ padding: '1rem 1.25rem' }}>
                 {photo.caption && (
-                  <p style={{ color: '#3a3632', marginBottom: '0.5rem', lineHeight: 1.5 }}>
+                  <p style={{ color: 'var(--color-text-primary)', marginBottom: '0.5rem', lineHeight: 1.5 }}>
                     {photo.caption}
                   </p>
                 )}
                 <div
                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                 >
-                  <p style={{ fontSize: '0.75rem', color: '#b8afa5', margin: 0 }}>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: 0 }}>
                     {formatDate(photo.uploadedAt)}
                   </p>
                   {isAdmin && (
@@ -170,7 +170,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                       disabled={deleting === photo.id}
                       style={{
                         fontSize: '0.75rem',
-                        color: '#c45454',
+                        color: 'var(--color-error)',
                         background: 'none',
                         border: 'none',
                         cursor: deleting === photo.id ? 'not-allowed' : 'pointer',

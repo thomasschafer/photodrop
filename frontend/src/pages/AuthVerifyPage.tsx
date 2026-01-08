@@ -58,7 +58,16 @@ export function AuthVerifyPage() {
   }, [token, login, navigate]);
 
   return (
-    <div className="min-h-screen bg-neutral-50 flex flex-col justify-center px-6 py-12">
+    <div
+      style={{
+        minHeight: '100vh',
+        backgroundColor: 'var(--color-bg-primary)',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        padding: '3rem 1.5rem',
+      }}
+    >
       <div className="w-full mx-auto" style={{ maxWidth: '440px' }}>
         <div className="mb-8">
           <Logo />
@@ -86,7 +95,7 @@ function VerifyingContent() {
       <div className="flex justify-center mb-4">
         <div className="spinner" />
       </div>
-      <p className="text-neutral-600">Verifying your link...</p>
+      <p style={{ color: 'var(--color-text-secondary)' }}>Verifying your link...</p>
     </>
   );
 }
@@ -94,11 +103,22 @@ function VerifyingContent() {
 function SuccessContent() {
   return (
     <>
-      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-accent-100 flex items-center justify-center">
+      <div
+        style={{
+          width: '3rem',
+          height: '3rem',
+          margin: '0 auto 1rem',
+          borderRadius: '50%',
+          backgroundColor: 'var(--color-accent-light)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <svg
           width="24"
           height="24"
-          className="text-accent-600"
+          style={{ color: 'var(--color-accent)' }}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -106,8 +126,17 @@ function SuccessContent() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
         </svg>
       </div>
-      <h2 className="text-lg font-medium text-neutral-800 mb-2">You're signed in</h2>
-      <p className="text-sm text-neutral-500">Redirecting...</p>
+      <h2
+        style={{
+          fontSize: '1.125rem',
+          fontWeight: 500,
+          color: 'var(--color-text-primary)',
+          marginBottom: '0.5rem',
+        }}
+      >
+        You're signed in
+      </h2>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>Redirecting...</p>
     </>
   );
 }
@@ -115,11 +144,22 @@ function SuccessContent() {
 function ErrorContent({ message }: { message: string }) {
   return (
     <>
-      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+      <div
+        style={{
+          width: '3rem',
+          height: '3rem',
+          margin: '0 auto 1rem',
+          borderRadius: '50%',
+          backgroundColor: 'rgba(196, 84, 84, 0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <svg
           width="24"
           height="24"
-          className="text-red-600"
+          style={{ color: 'var(--color-error)' }}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -132,8 +172,25 @@ function ErrorContent({ message }: { message: string }) {
           />
         </svg>
       </div>
-      <h2 className="text-lg font-medium text-neutral-800 mb-2">Link not valid</h2>
-      <p className="text-sm text-neutral-500 mb-6">{message}</p>
+      <h2
+        style={{
+          fontSize: '1.125rem',
+          fontWeight: 500,
+          color: 'var(--color-text-primary)',
+          marginBottom: '0.5rem',
+        }}
+      >
+        Link not valid
+      </h2>
+      <p
+        style={{
+          fontSize: '0.875rem',
+          color: 'var(--color-text-secondary)',
+          marginBottom: '1.5rem',
+        }}
+      >
+        {message}
+      </p>
       <Link to="/login" className="btn-primary">
         Request a new link
       </Link>

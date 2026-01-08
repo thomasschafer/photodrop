@@ -6,18 +6,33 @@ interface LogoProps {
   size?: LogoSize;
 }
 
-const sizeClasses: Record<LogoSize, string> = {
-  sm: 'text-xl',
-  md: 'text-2xl',
-  lg: 'text-4xl',
+const sizeStyles: Record<LogoSize, string> = {
+  sm: '1.25rem',
+  md: '1.5rem',
+  lg: '2.25rem',
 };
 
 export function Logo({ size = 'md' }: LogoProps) {
-  const textClasses = `${sizeClasses[size]} font-semibold text-neutral-800 tracking-tight`;
-
   return (
-    <Link to="/" className="block text-center no-underline hover:no-underline text-inherit">
-      <h1 className={textClasses}>photodrop</h1>
+    <Link
+      to="/"
+      style={{
+        display: 'block',
+        textAlign: 'center',
+        textDecoration: 'none',
+      }}
+    >
+      <h1
+        style={{
+          fontSize: sizeStyles[size],
+          fontWeight: 600,
+          color: 'var(--color-text-primary)',
+          letterSpacing: '-0.025em',
+          margin: 0,
+        }}
+      >
+        photodrop
+      </h1>
     </Link>
   );
 }

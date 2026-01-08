@@ -77,7 +77,16 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
   return (
     <div style={{ maxWidth: '480px' }}>
       <div className="card">
-        <h2 className="text-lg font-medium text-neutral-800 mb-4">Upload photo</h2>
+        <h2
+          style={{
+            fontSize: '1.125rem',
+            fontWeight: 500,
+            color: 'var(--color-text-primary)',
+            marginBottom: '1rem',
+          }}
+        >
+          Upload photo
+        </h2>
 
         {!selectedFile ? (
           <div>
@@ -88,7 +97,7 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
               accept="image/*"
               onChange={handleFileSelect}
               disabled={uploading}
-              className="block w-full text-sm text-neutral-600 file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-neutral-100 file:text-neutral-700 hover:file:bg-neutral-200"
+              className="file-input"
             />
           </div>
         ) : (
@@ -97,8 +106,13 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
               <img
                 src={preview || ''}
                 alt="Preview"
-                className="w-full rounded-lg bg-neutral-100"
-                style={{ maxHeight: '240px', objectFit: 'contain' }}
+                style={{
+                  width: '100%',
+                  borderRadius: '0.5rem',
+                  backgroundColor: 'var(--color-bg-secondary)',
+                  maxHeight: '240px',
+                  objectFit: 'contain',
+                }}
               />
               {!uploading && (
                 <button
@@ -117,14 +131,20 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
               )}
             </div>
 
-            <p className="text-sm text-neutral-500">
+            <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
               {selectedFile.name} ({formatFileSize(selectedFile.size)})
             </p>
 
             <div>
               <label
                 htmlFor="caption"
-                className="block text-sm font-medium text-neutral-700 mb-1.5"
+                style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: 'var(--color-text-primary)',
+                  marginBottom: '0.375rem',
+                }}
               >
                 Caption (optional)
               </label>
@@ -140,12 +160,16 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
             </div>
 
             {error && (
-              <p className="text-sm text-red-600" role="alert">
+              <p style={{ fontSize: '0.875rem', color: 'var(--color-error)' }} role="alert">
                 {error}
               </p>
             )}
 
-            {progress && <p className="text-sm text-neutral-500">{progress}</p>}
+            {progress && (
+              <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
+                {progress}
+              </p>
+            )}
 
             <button onClick={handleUpload} disabled={uploading} className="btn-primary w-full">
               {uploading ? (

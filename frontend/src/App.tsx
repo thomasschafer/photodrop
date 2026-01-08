@@ -5,6 +5,7 @@ import { PhotoUpload } from './components/PhotoUpload';
 import { PhotoFeed } from './components/PhotoFeed';
 import { InviteForm } from './components/InviteForm';
 import { Logo } from './components/Logo';
+import { ThemeToggle } from './components/ThemeToggle';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
@@ -30,15 +31,15 @@ function MainApp() {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#fdfcfa' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: 'var(--color-bg-primary)' }}>
       <a href="#main-content" className="skip-to-main">
         Skip to main content
       </a>
 
       <header
         style={{
-          backgroundColor: 'white',
-          borderBottom: '1px solid #f0ebe6',
+          backgroundColor: 'var(--color-surface)',
+          borderBottom: '1px solid var(--color-border)',
           position: 'sticky',
           top: 0,
           zIndex: 40,
@@ -56,12 +57,15 @@ function MainApp() {
             <Logo size="sm" />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <span style={{ fontSize: '0.875rem', color: '#8a8078' }}>{user.name}</span>
+              <ThemeToggle />
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
+                {user.name}
+              </span>
               <button
                 onClick={logout}
                 style={{
                   fontSize: '0.875rem',
-                  color: '#c67d5a',
+                  color: 'var(--color-accent)',
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
@@ -83,11 +87,16 @@ function MainApp() {
                     paddingBottom: '0.875rem',
                     fontSize: '0.875rem',
                     fontWeight: 500,
-                    color: activeTab === tab.id ? '#3a3632' : '#8a8078',
+                    color:
+                      activeTab === tab.id
+                        ? 'var(--color-text-primary)'
+                        : 'var(--color-text-secondary)',
                     background: 'none',
                     border: 'none',
                     borderBottom:
-                      activeTab === tab.id ? '2px solid #c67d5a' : '2px solid transparent',
+                      activeTab === tab.id
+                        ? '2px solid var(--color-accent)'
+                        : '2px solid transparent',
                     marginBottom: '-1px',
                     cursor: 'pointer',
                   }}
@@ -131,7 +140,7 @@ function App() {
           alignItems: 'center',
           justifyContent: 'center',
           minHeight: '100vh',
-          backgroundColor: '#fdfcfa',
+          backgroundColor: 'var(--color-bg-primary)',
         }}
       >
         <div className="spinner" />
