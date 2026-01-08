@@ -11,25 +11,38 @@ export type AuthContext = {
   };
 };
 
-export async function requireAuth(c: Context, next: Next) {
+async function authenticateUser(c: Context): Promise<boolean> {
   const authHeader = c.req.header('Authorization');
+  const queryToken = c.req.query('token');
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json({ error: 'Unauthorized' }, 401);
+  let token: string | null = null;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (queryToken) {
+    token = queryToken;
   }
 
-  const token = authHeader.substring(7); // Remove 'Bearer '
+  if (!token) {
+    c.status(401);
+    c.res = c.json({ error: 'Unauthorized' });
+    return false;
+  }
   const secret = c.env.JWT_SECRET;
 
   if (!secret) {
     console.error('JWT_SECRET not configured');
-    return c.json({ error: 'Server configuration error' }, 500);
+    c.status(500);
+    c.res = c.json({ error: 'Server configuration error' });
+    return false;
   }
 
   const payload = await verifyJWT(token, secret);
 
   if (!payload || payload.type !== 'access') {
-    return c.json({ error: 'Invalid or expired token' }, 401);
+    c.status(401);
+    c.res = c.json({ error: 'Invalid or expired token' });
+    return false;
   }
 
   // Attach user info to context (including group_id for isolation)
@@ -39,11 +52,22 @@ export async function requireAuth(c: Context, next: Next) {
     role: payload.role,
   });
 
+  return true;
+}
+
+export async function requireAuth(c: Context, next: Next) {
+  const authenticated = await authenticateUser(c);
+  if (!authenticated) {
+    return;
+  }
   await next();
 }
 
 export async function requireAdmin(c: Context, next: Next) {
-  await requireAuth(c, next);
+  const authenticated = await authenticateUser(c);
+  if (!authenticated) {
+    return;
+  }
 
   const user = c.get('user');
   if (!user || user.role !== 'admin') {

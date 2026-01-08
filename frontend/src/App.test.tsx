@@ -21,7 +21,7 @@ vi.mock('./components/PhotoFeed', () => ({
 }));
 
 describe('App', () => {
-  it('redirects to login page when not authenticated', () => {
+  it('shows landing page when not authenticated', () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <App />
@@ -29,7 +29,10 @@ describe('App', () => {
     );
 
     expect(screen.getByText('photodrop')).toBeInTheDocument();
-    expect(screen.getByText('Log in to your account')).toBeInTheDocument();
+    expect(
+      screen.getByText('Private photo sharing for families and close friends.')
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign in' })).toBeInTheDocument();
   });
 
   it('shows login page at /login route', () => {
@@ -39,7 +42,8 @@ describe('App', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Log in to your account')).toBeInTheDocument();
-    expect(screen.getByLabelText('Email address')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send sign-in link' })).toBeInTheDocument();
   });
 });

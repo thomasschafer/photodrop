@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api } from '../lib/api';
+
+function useAuthToken() {
+  return useMemo(() => localStorage.getItem('accessToken') || '', []);
+}
 
 interface Photo {
   id: string;
@@ -8,11 +12,17 @@ interface Photo {
   uploadedAt: number;
 }
 
-export function PhotoFeed() {
+interface PhotoFeedProps {
+  isAdmin?: boolean;
+}
+
+export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const token = useAuthToken();
 
   const loadPhotos = async () => {
     try {
@@ -30,6 +40,32 @@ export function PhotoFeed() {
   useEffect(() => {
     loadPhotos();
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedPhoto) {
+        setSelectedPhoto(null);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedPhoto]);
+
+  const handleDelete = async (photoId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this photo?')) {
+      return;
+    }
+    setDeleting(photoId);
+    try {
+      await api.photos.delete(photoId);
+      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+    } catch {
+      alert('Failed to delete photo');
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
@@ -49,25 +85,18 @@ export function PhotoFeed() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-12" role="status" aria-live="polite">
-        <div className="text-lg text-neutral-600 font-medium">Loading photos...</div>
+      <div className="flex justify-center py-12">
+        <div className="spinner" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div
-        role="alert"
-        className="p-4 bg-red-50 border-2 border-red-200 rounded-xl text-red-700 font-medium"
-      >
-        {error}
-        <button
-          onClick={loadPhotos}
-          className="ml-4 text-sm font-semibold text-red-800 underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2 rounded"
-          aria-label="Retry loading photos"
-        >
-          Retry
+      <div className="text-center py-12">
+        <p className="text-neutral-600 mb-4">{error}</p>
+        <button onClick={loadPhotos} className="btn-primary">
+          Try again
         </button>
       </div>
     );
@@ -75,89 +104,158 @@ export function PhotoFeed() {
 
   if (photos.length === 0) {
     return (
-      <div className="text-center py-12 px-6">
-        <p className="text-lg text-neutral-600 font-medium">No photos yet.</p>
-        <p className="text-neutral-500 mt-2">Upload the first one!</p>
+      <div className="text-center py-16">
+        <p style={{ color: '#6b635b', marginBottom: '0.5rem' }}>No photos yet</p>
+        <p style={{ fontSize: '0.875rem', color: '#8a8078' }}>
+          Upload your first photo to get started.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {photos.map((photo) => (
-          <article
-            key={photo.id}
-            className="card cursor-pointer focus:outline-none focus:ring-4 focus:ring-primary-200 transition-all duration-200"
-            onClick={() => setSelectedPhoto(photo.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setSelectedPhoto(photo.id);
-              }
-            }}
-            tabIndex={0}
-            role="button"
-            aria-label={`View photo${photo.caption ? `: ${photo.caption}` : ''}`}
-          >
-            <div className="aspect-square bg-neutral-100 rounded-lg overflow-hidden mb-4">
-              <img
-                src={`/api/photos/${photo.id}/thumbnail`}
-                alt={photo.caption || ''}
-                className="w-full h-full object-cover"
-                loading="lazy"
-                onError={(e) => {
-                  e.currentTarget.src =
-                    'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23e7e5e4" width="100" height="100"/%3E%3Ctext fill="%2378716c" x="50%25" y="50%25" text-anchor="middle" dy=".3em" font-family="Inter,sans-serif"%3EPhoto%3C/text%3E%3C/svg%3E';
-                }}
-              />
-            </div>
-            <div>
-              {photo.caption && (
-                <p className="text-sm text-neutral-800 mb-2 font-medium line-clamp-2">
-                  {photo.caption}
-                </p>
-              )}
-              <p className="text-xs text-neutral-500">
-                <time dateTime={new Date(photo.uploadedAt * 1000).toISOString()}>
-                  {formatDate(photo.uploadedAt)}
-                </time>
-              </p>
-            </div>
-          </article>
-        ))}
+    <>
+      <div style={{ maxWidth: '540px', margin: '0 auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {photos.map((photo) => (
+            <article
+              key={photo.id}
+              onClick={() => setSelectedPhoto(photo)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setSelectedPhoto(photo);
+                }
+              }}
+              tabIndex={0}
+              role="button"
+              style={{
+                cursor: 'pointer',
+                backgroundColor: 'white',
+                borderRadius: '0.75rem',
+                overflow: 'hidden',
+                border: '1px solid #f0ebe6',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+              }}
+            >
+              <div style={{ position: 'relative', backgroundColor: '#f5f4f1' }}>
+                <img
+                  src={`/api/photos/${photo.id}/thumbnail?token=${token}`}
+                  alt={photo.caption || ''}
+                  style={{
+                    width: '100%',
+                    height: 'auto',
+                    display: 'block',
+                    maxHeight: '400px',
+                    objectFit: 'cover',
+                  }}
+                  loading="lazy"
+                />
+              </div>
+              <div style={{ padding: '1rem 1.25rem' }}>
+                {photo.caption && (
+                  <p style={{ color: '#3a3632', marginBottom: '0.5rem', lineHeight: 1.5 }}>
+                    {photo.caption}
+                  </p>
+                )}
+                <div
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <p style={{ fontSize: '0.75rem', color: '#b8afa5', margin: 0 }}>
+                    {formatDate(photo.uploadedAt)}
+                  </p>
+                  {isAdmin && (
+                    <button
+                      onClick={(e) => handleDelete(photo.id, e)}
+                      disabled={deleting === photo.id}
+                      style={{
+                        fontSize: '0.75rem',
+                        color: '#c45454',
+                        background: 'none',
+                        border: 'none',
+                        cursor: deleting === photo.id ? 'not-allowed' : 'pointer',
+                        opacity: deleting === photo.id ? 0.5 : 1,
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '0.25rem',
+                      }}
+                    >
+                      {deleting === photo.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
       </div>
 
       {selectedPhoto && (
-        <div
-          className="fixed inset-0 bg-neutral-900 bg-opacity-90 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedPhoto(null)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setSelectedPhoto(null);
-            }
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Photo lightbox"
-        >
-          <button
-            onClick={() => setSelectedPhoto(null)}
-            className="absolute top-4 right-4 text-white text-4xl font-light hover:text-neutral-300 focus:outline-none focus:ring-4 focus:ring-primary-200 rounded-lg px-3 py-1 transition-colors"
-            aria-label="Close lightbox"
-          >
-            ×
-          </button>
-          <div className="max-w-4xl max-h-full">
-            <img
-              src={`/api/photos/${selectedPhoto}/download`}
-              alt="Full size photo"
-              className="max-w-full max-h-screen object-contain rounded-lg shadow-strong"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        </div>
+        <Lightbox photo={selectedPhoto} token={token} onClose={() => setSelectedPhoto(null)} />
       )}
+    </>
+  );
+}
+
+function Lightbox({ photo, token, onClose }: { photo: Photo; token: string; onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+      }}
+    >
+      <button
+        onClick={onClose}
+        style={{
+          position: 'absolute',
+          top: '1rem',
+          right: '1rem',
+          width: '2.5rem',
+          height: '2.5rem',
+          borderRadius: '50%',
+          backgroundColor: 'rgba(255, 255, 255, 0.1)',
+          border: 'none',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'white',
+        }}
+      >
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M6 18L18 6M6 6l12 12"
+          />
+        </svg>
+      </button>
+
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ margin: '0 1rem', maxWidth: '896px', maxHeight: '90vh' }}
+      >
+        <img
+          src={`/api/photos/${photo.id}/download?token=${token}`}
+          alt={photo.caption || 'Photo'}
+          style={{
+            maxWidth: '100%',
+            maxHeight: '90vh',
+            objectFit: 'contain',
+            borderRadius: '0.5rem',
+          }}
+        />
+      </div>
     </div>
   );
 }

@@ -14,10 +14,11 @@ export async function compressImage(file: File): Promise<CompressionResult> {
   };
 
   const thumbnailOptions = {
-    maxSizeMB: 0.05,
-    maxWidthOrHeight: 400,
+    maxSizeMB: 0.2,
+    maxWidthOrHeight: 800,
     useWebWorker: true,
     fileType: 'image/jpeg' as const,
+    initialQuality: 0.85,
   };
 
   const [fullSize, thumbnail] = await Promise.all([

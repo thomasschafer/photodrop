@@ -4,7 +4,8 @@
 
 **Current implementation:**
 - ✅ Phase 1 (Foundation): Complete - photo upload/feed, JWT auth, user management
-- 🚧 Phase 1.5 (Email Auth): In Progress - migrating to email-based authentication
+- ✅ Phase 1.5 (Email Auth): Complete - frontend done, magic links working, mock email for local dev
+- ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout, admin features
 - ❌ Phase 2+ (PWA, Notifications): Not started
 
 ---
@@ -193,8 +194,8 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 ### Image processing
 
 **Client-side approach** (avoids Worker CPU limits):
-- Generate 400px thumbnail on client using Canvas API
-- Compress aggressively for thumbnails (~50KB)
+- Generate 800px thumbnail on client using Canvas API
+- Compress thumbnails to ~200KB at 85% quality
 - Upload both full-size and thumbnail to R2 in parallel
 - Use `browser-image-compression` library
 
@@ -237,33 +238,25 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 - [x] User management endpoints
 - [x] Infrastructure automation (Nix, GitHub Actions, migrations)
 
-### Phase 1.5: Email auth + multi-group ✅ (partial)
+### Phase 1.5: Email auth + multi-group ✅
 
 **Completed:**
-- [x] Email service scaffolding (templates ready, sending TODO)
+- [x] Email service scaffolding (templates ready)
 - [x] Magic link service
 - [x] Database layer updated for groups
 - [x] API endpoints updated for group isolation
 - [x] Formatting/linting setup
-
-**Remaining:**
-
-**Email integration:**
-- [ ] Cloudflare Email Workers setup (dashboard + DNS)
-- [ ] Implement actual email sending (MailChannels API)
-- [ ] Test email delivery end-to-end
-- [x] Mock email delivery for local testing (writes links to `.dev-magic-links.txt`)
-
-**Frontend:**
+- [x] Mock email delivery for local testing (magic links logged to console)
 - [x] Login page (email input → send link)
 - [x] Magic link verification page (`/auth/:token`)
 - [x] Invite form component
 - [x] Update App.tsx with routing (React Router)
 - [x] Update AuthContext for email flow
 
-**CLI script:**
-- [ ] `scripts/create-group.sh` (creates group + admin + sends email)
-- [ ] Add to flake.nix
+**Remaining for production:**
+- [ ] Cloudflare Email Workers setup (dashboard + DNS)
+- [ ] Implement actual email sending (MailChannels API)
+- [ ] `scripts/create-group.sh` CLI script
 
 **Local testing:**
 ```bash
@@ -273,17 +266,20 @@ nix run .#dev      # Start servers (auto-setup on first run)
 # Test: Go to /login, enter admin@test.com, copy magic link from console
 ```
 
-**Tests:**
-- [ ] Database tests (group isolation critical)
-- [ ] Email service tests
-- [ ] Magic link tests
+### Phase 1.6: UI polish ✅
 
-**Definition of done:**
-- Groups created via CLI
-- Invites sent via email
-- Self-service login works
-- Group isolation enforced everywhere
-- All tests pass
+**Completed:**
+- [x] Warm terracotta color palette (#c67d5a primary, warm cream background)
+- [x] Landing page with centered sign-in
+- [x] Login page with responsive form layout
+- [x] Consistent button styles across app
+- [x] Photo feed with single-column card layout
+- [x] Lightbox for full-size image viewing
+- [x] Sticky header with tabs
+- [x] Admin delete button for photos
+- [x] Improved thumbnail quality (800px, 85% quality)
+- [x] Auth middleware support for query param tokens (for image URLs)
+- [x] Atomic photo upload with R2 cleanup on failure
 
 ### Phase 2: PWA features
 
@@ -293,8 +289,9 @@ nix run .#dev      # Start servers (auto-setup on first run)
 
 ### Phase 3: Polish
 
-- [ ] Admin features (user management, role promotion, photo deletion UI)
-- [ ] UX improvements (photo detail view, gallery navigation, reactions UI)
+- [x] Admin photo deletion UI
+- [ ] Admin user management UI (role promotion, user removal)
+- [ ] UX improvements (gallery navigation, reactions UI)
 - [ ] Domain setup and production deployment
 - [ ] Multi-device testing
 
@@ -312,13 +309,13 @@ nix run .#dev      # Start servers (auto-setup on first run)
 
 ## Testing strategy
 
-**Tools:** Vitest, Testing Library, MSW, Miniflare
+**Tools:** Vitest, Testing Library
 
 **Priority tests:**
-1. JWT generation/validation with group_id
-2. Group isolation (critical)
-3. Image processing
-4. Push notifications
+1. JWT generation/validation with group_id ✅
+2. Auth middleware (Bearer tokens, query params)
+3. Group isolation (critical)
+4. Image compression utilities
 
 **Manual checklist:**
 - [ ] Install PWA on iOS/Android

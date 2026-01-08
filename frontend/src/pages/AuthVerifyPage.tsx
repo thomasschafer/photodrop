@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { Logo } from '../components/Logo';
 
 type VerifyStatus = 'verifying' | 'success' | 'error';
 
@@ -56,67 +57,86 @@ export function AuthVerifyPage() {
     verifyToken();
   }, [token, login, navigate]);
 
-  if (!token) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary-50 to-neutral-50">
-        <div className="text-center px-6 max-w-md">
-          <h1 className="text-5xl font-black text-primary-600 mb-4 tracking-tight">photodrop</h1>
-          <div className="card">
-            <div className="text-4xl mb-4" aria-hidden="true">
-              ✗
-            </div>
-            <h2 className="text-xl font-bold text-neutral-800 mb-2">Link not valid</h2>
-            <p className="text-neutral-600 mb-6">Invalid link. No token provided.</p>
-            <Link to="/login" className="btn-primary inline-block">
-              Request a new link
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary-50 to-neutral-50">
-      <div className="text-center px-6 max-w-md">
-        <h1 className="text-5xl font-black text-primary-600 mb-4 tracking-tight">photodrop</h1>
+    <div className="min-h-screen bg-neutral-50 flex flex-col justify-center px-6 py-12">
+      <div className="w-full mx-auto" style={{ maxWidth: '440px' }}>
+        <div className="mb-8">
+          <Logo />
+        </div>
 
-        <div className="card">
-          {status === 'verifying' && (
-            <>
-              <div
-                className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"
-                role="status"
-                aria-label="Verifying your login link"
-              />
-              <p className="text-neutral-600">Verifying your link...</p>
-            </>
-          )}
-
-          {status === 'success' && (
-            <>
-              <div className="text-4xl mb-4" aria-hidden="true">
-                ✓
-              </div>
-              <h2 className="text-xl font-bold text-neutral-800 mb-2">You're in!</h2>
-              <p className="text-neutral-600">Redirecting you to the app...</p>
-            </>
-          )}
-
-          {status === 'error' && (
-            <>
-              <div className="text-4xl mb-4" aria-hidden="true">
-                ✗
-              </div>
-              <h2 className="text-xl font-bold text-neutral-800 mb-2">Link not valid</h2>
-              <p className="text-neutral-600 mb-6">{errorMessage}</p>
-              <Link to="/login" className="btn-primary inline-block">
-                Request a new link
-              </Link>
-            </>
+        <div className="card text-center">
+          {!token ? (
+            <ErrorContent message="Invalid link. No token provided." />
+          ) : status === 'verifying' ? (
+            <VerifyingContent />
+          ) : status === 'success' ? (
+            <SuccessContent />
+          ) : (
+            <ErrorContent message={errorMessage} />
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function VerifyingContent() {
+  return (
+    <>
+      <div className="flex justify-center mb-4">
+        <div className="spinner" />
+      </div>
+      <p className="text-neutral-600">Verifying your link...</p>
+    </>
+  );
+}
+
+function SuccessContent() {
+  return (
+    <>
+      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-accent-100 flex items-center justify-center">
+        <svg
+          width="24"
+          height="24"
+          className="text-accent-600"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+      <h2 className="text-lg font-medium text-neutral-800 mb-2">You're signed in</h2>
+      <p className="text-sm text-neutral-500">Redirecting...</p>
+    </>
+  );
+}
+
+function ErrorContent({ message }: { message: string }) {
+  return (
+    <>
+      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+        <svg
+          width="24"
+          height="24"
+          className="text-red-600"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M6 18L18 6M6 6l12 12"
+          />
+        </svg>
+      </div>
+      <h2 className="text-lg font-medium text-neutral-800 mb-2">Link not valid</h2>
+      <p className="text-sm text-neutral-500 mb-6">{message}</p>
+      <Link to="/login" className="btn-primary">
+        Request a new link
+      </Link>
+    </>
   );
 }

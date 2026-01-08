@@ -46,6 +46,9 @@ photos.get('/', requireAuth, async (c) => {
 });
 
 photos.post('/', requireAdmin, async (c) => {
+  let photoR2Key: string | null = null;
+  let thumbnailR2Key: string | null = null;
+
   try {
     const formData = await c.req.formData();
     const photo = formData.get('photo') as File | null;
@@ -62,9 +65,10 @@ photos.post('/', requireAdmin, async (c) => {
 
     const currentUser = c.get('user');
 
-    const photoR2Key = `photos/${generateId()}-${Date.now()}.jpg`;
-    const thumbnailR2Key = `thumbnails/${generateId()}-${Date.now()}.jpg`;
+    photoR2Key = `photos/${generateId()}-${Date.now()}.jpg`;
+    thumbnailR2Key = `thumbnails/${generateId()}-${Date.now()}.jpg`;
 
+    // Upload photo to R2
     const photoBuffer = await photo.arrayBuffer();
     await c.env.PHOTOS.put(photoR2Key, photoBuffer, {
       httpMetadata: {
@@ -72,6 +76,7 @@ photos.post('/', requireAdmin, async (c) => {
       },
     });
 
+    // Upload thumbnail to R2
     const thumbnailBuffer = await thumbnail.arrayBuffer();
     await c.env.PHOTOS.put(thumbnailR2Key, thumbnailBuffer, {
       httpMetadata: {
@@ -79,6 +84,7 @@ photos.post('/', requireAdmin, async (c) => {
       },
     });
 
+    // Create DB entry - if this fails, we'll clean up R2 in catch block
     const photoId = await createPhoto(
       c.env.DB,
       currentUser.groupId,
@@ -97,6 +103,19 @@ photos.post('/', requireAdmin, async (c) => {
     );
   } catch (error) {
     console.error('Error uploading photo:', error);
+
+    // Clean up any R2 files that were uploaded before the failure
+    try {
+      if (photoR2Key) {
+        await c.env.PHOTOS.delete(photoR2Key);
+      }
+      if (thumbnailR2Key) {
+        await c.env.PHOTOS.delete(thumbnailR2Key);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up R2 files:', cleanupError);
+    }
+
     return c.json({ error: 'Failed to upload photo' }, 500);
   }
 });
@@ -243,7 +262,7 @@ photos.delete('/:id', requireAdmin, async (c) => {
       await c.env.PHOTOS.delete(photo.thumbnail_r2_key);
     }
 
-    await dbDeletePhoto(c.env.DB, photoId);
+    await dbDeletePhoto(c.env.DB, photoId, user.groupId);
 
     return c.json({ message: 'Photo deleted successfully' });
   } catch (error) {

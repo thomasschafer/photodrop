@@ -4,8 +4,10 @@ import { useAuth } from './contexts/AuthContext';
 import { PhotoUpload } from './components/PhotoUpload';
 import { PhotoFeed } from './components/PhotoFeed';
 import { InviteForm } from './components/InviteForm';
+import { Logo } from './components/Logo';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
+import { LandingPage } from './pages/LandingPage';
 
 function MainApp() {
   const { user, logout } = useAuth();
@@ -18,109 +20,98 @@ function MainApp() {
   };
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <LandingPage />;
   }
 
+  const tabs = [
+    { id: 'feed' as const, label: 'Photos' },
+    { id: 'upload' as const, label: 'Upload' },
+    { id: 'invite' as const, label: 'Invite' },
+  ];
+
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div style={{ minHeight: '100vh', backgroundColor: '#fdfcfa' }}>
       <a href="#main-content" className="skip-to-main">
         Skip to main content
       </a>
 
-      <nav
-        className="bg-white border-b border-neutral-200 sticky top-0 z-10 shadow-sm"
-        aria-label="Main navigation"
+      <header
+        style={{
+          backgroundColor: 'white',
+          borderBottom: '1px solid #f0ebe6',
+          position: 'sticky',
+          top: 0,
+          zIndex: 40,
+        }}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-black text-primary-600 tracking-tight">photodrop</h1>
-            </div>
+        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '0 1.5rem' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              height: '4rem',
+            }}
+          >
+            <Logo size="sm" />
 
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-neutral-600">
-                <span className="font-medium text-neutral-800">{user.name}</span>
-                <span className="mx-2 text-neutral-400">·</span>
-                <span className="capitalize text-neutral-600">{user.role}</span>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span style={{ fontSize: '0.875rem', color: '#8a8078' }}>{user.name}</span>
               <button
                 onClick={logout}
-                className="btn-text text-sm"
-                aria-label="Log out of your account"
+                style={{
+                  fontSize: '0.875rem',
+                  color: '#c67d5a',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
               >
-                Logout
+                Sign out
               </button>
             </div>
           </div>
-        </div>
-      </nav>
 
-      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {user.role === 'admin' && (
-          <div className="mb-8" role="tablist" aria-label="Photo management tabs">
-            <div className="flex gap-2 border-b-2 border-neutral-200">
-              <button
-                role="tab"
-                aria-selected={activeTab === 'feed'}
-                aria-controls="feed-panel"
-                id="feed-tab"
-                onClick={() => setActiveTab('feed')}
-                className={`px-6 py-3 font-semibold transition-all duration-200 -mb-0.5 ${
-                  activeTab === 'feed'
-                    ? 'border-b-2 border-primary-500 text-primary-600'
-                    : 'text-neutral-600 hover:text-neutral-900 focus:text-neutral-900'
-                }`}
-              >
-                Photos
-              </button>
-              <button
-                role="tab"
-                aria-selected={activeTab === 'upload'}
-                aria-controls="upload-panel"
-                id="upload-tab"
-                onClick={() => setActiveTab('upload')}
-                className={`px-6 py-3 font-semibold transition-all duration-200 -mb-0.5 ${
-                  activeTab === 'upload'
-                    ? 'border-b-2 border-primary-500 text-primary-600'
-                    : 'text-neutral-600 hover:text-neutral-900 focus:text-neutral-900'
-                }`}
-              >
-                Upload
-              </button>
-              <button
-                role="tab"
-                aria-selected={activeTab === 'invite'}
-                aria-controls="invite-panel"
-                id="invite-tab"
-                onClick={() => setActiveTab('invite')}
-                className={`px-6 py-3 font-semibold transition-all duration-200 -mb-0.5 ${
-                  activeTab === 'invite'
-                    ? 'border-b-2 border-primary-500 text-primary-600'
-                    : 'text-neutral-600 hover:text-neutral-900 focus:text-neutral-900'
-                }`}
-              >
-                Invite
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div>
-          {activeTab === 'feed' && (
-            <div role="tabpanel" id="feed-panel" aria-labelledby="feed-tab">
-              <PhotoFeed key={feedKey} />
-            </div>
+          {user.role === 'admin' && (
+            <nav style={{ display: 'flex', gap: '2rem' }}>
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    paddingBottom: '0.875rem',
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    color: activeTab === tab.id ? '#3a3632' : '#8a8078',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom:
+                      activeTab === tab.id ? '2px solid #c67d5a' : '2px solid transparent',
+                    marginBottom: '-1px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
           )}
+        </div>
+      </header>
+
+      <main
+        id="main-content"
+        style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem 1.5rem' }}
+      >
+        <div>
+          {activeTab === 'feed' && <PhotoFeed key={feedKey} isAdmin={user.role === 'admin'} />}
           {activeTab === 'upload' && user.role === 'admin' && (
-            <div role="tabpanel" id="upload-panel" aria-labelledby="upload-tab">
-              <PhotoUpload onUploadComplete={handleUploadComplete} />
-            </div>
+            <PhotoUpload onUploadComplete={handleUploadComplete} />
           )}
           {activeTab === 'invite' && user.role === 'admin' && (
-            <div role="tabpanel" id="invite-panel" aria-labelledby="invite-tab">
-              <div className="max-w-md">
-                <InviteForm />
-              </div>
+            <div style={{ maxWidth: '420px' }}>
+              <InviteForm />
             </div>
           )}
         </div>
@@ -135,11 +126,15 @@ function App() {
   if (loading) {
     return (
       <div
-        className="flex items-center justify-center min-h-screen"
-        role="status"
-        aria-live="polite"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          backgroundColor: '#fdfcfa',
+        }}
       >
-        <div className="text-lg text-neutral-600">Loading...</div>
+        <div className="spinner" />
       </div>
     );
   }
