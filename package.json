@@ -11,6 +11,13 @@
     "teardown:dev": "./scripts/teardown.sh dev",
     "teardown:prod": "./scripts/teardown.sh prod",
     "dev": "echo 'Run: cd backend && npm run dev (in one terminal) and cd frontend && npm run dev (in another)'",
-    "secrets:scan": "nix run .#secrets-scan"
+    "secrets:scan": "nix run .#secrets-scan",
+    "create-group": "./scripts/create-group.sh",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
   }
 }

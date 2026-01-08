@@ -309,13 +309,25 @@ nix run .#dev      # Start servers (auto-setup on first run)
 
 ## Testing strategy
 
-**Tools:** Vitest, Testing Library
+**Tools:** Vitest (unit), Playwright (E2E)
 
-**Priority tests:**
+**Unit tests (Vitest):**
 1. JWT generation/validation with group_id ✅
-2. Auth middleware (Bearer tokens, query params)
-3. Group isolation (critical)
-4. Image compression utilities
+2. Crypto utilities ✅
+3. Image compression utilities ✅
+
+**E2E tests (Playwright):**
+1. Admin workflow (login, upload, delete, invite) ✅
+2. Member workflow (view-only permissions) ✅
+3. Tenant isolation (critical security tests) ✅
+4. Auth edge cases (expiry, reuse, persistence) ✅
+
+**Running tests:**
+```bash
+nix run .#test           # Unit tests
+nix run .#test-e2e       # E2E tests (starts servers automatically)
+nix run .#test-e2e-ui    # E2E with Playwright UI
+```
 
 **Manual checklist:**
 - [ ] Install PWA on iOS/Android

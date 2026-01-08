@@ -38,6 +38,9 @@
         # Test dependencies
         testDeps = coreDeps;
 
+        # E2E test dependencies (Playwright browsers installed via npx playwright install)
+        e2eDeps = coreDeps ++ deployDeps;
+
         # All shell dependencies
         shellDeps = coreDeps ++ securityDeps ++ deployDeps;
 
@@ -260,6 +263,58 @@
           export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
           ./scripts/teardown.sh all
         '';
+
+        create-group = pkgs.writeShellScriptBin "create-group" ''
+          export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
+          if [ "$#" -lt 3 ]; then
+            echo "Usage: nix run .#create-group -- <group_name> <admin_name> <admin_email> [--remote]"
+            echo "Example: nix run .#create-group -- \"Family Photos\" \"Tom\" \"tom@example.com\""
+            exit 1
+          fi
+          ./scripts/create-group.sh "$@"
+        '';
+
+        test-e2e = pkgs.writeShellScriptBin "test-e2e" ''
+          export PATH="${pkgs.lib.makeBinPath e2eDeps}:$PATH"
+          set -e
+
+          echo "🧪 Running E2E tests..."
+          echo ""
+
+          # Install dependencies if needed
+          [ ! -d "node_modules" ] && npm install
+          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
+          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+
+          # Ensure Playwright browsers are installed
+          if [ ! -d "$HOME/.cache/ms-playwright" ]; then
+            echo "📥 Installing Playwright browsers..."
+            npx playwright install chromium
+            echo ""
+          fi
+
+          # Run Playwright tests
+          npx playwright test "$@"
+        '';
+
+        test-e2e-ui = pkgs.writeShellScriptBin "test-e2e-ui" ''
+          export PATH="${pkgs.lib.makeBinPath e2eDeps}:$PATH"
+          set -e
+
+          # Install dependencies if needed
+          [ ! -d "node_modules" ] && npm install
+          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
+          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+
+          # Ensure Playwright browsers are installed
+          if [ ! -d "$HOME/.cache/ms-playwright" ]; then
+            echo "📥 Installing Playwright browsers..."
+            npx playwright install chromium
+            echo ""
+          fi
+
+          npx playwright test --ui
+        '';
       in
       {
         # Security scanning
@@ -336,6 +391,21 @@
           drv = teardown;
         };
 
+        # Create a new group with admin user
+        apps.create-group = flake-utils.lib.mkApp {
+          drv = create-group;
+        };
+
+        # Run E2E tests
+        apps.test-e2e = flake-utils.lib.mkApp {
+          drv = test-e2e;
+        };
+
+        # Run E2E tests with UI
+        apps.test-e2e-ui = flake-utils.lib.mkApp {
+          drv = test-e2e-ui;
+        };
+
         # Run both frontend and backend dev servers
         apps.dev = flake-utils.lib.mkApp {
           drv = devScript;
@@ -354,6 +424,8 @@
             test-backend
             test-frontend
             test
+            test-e2e
+            test-e2e-ui
             lint-backend
             lint-frontend
             format-backend
@@ -366,7 +438,13 @@
             teardown-dev
             teardown-prod
             teardown
+            create-group
           ];
+
+          shellHook = ''
+            # Playwright will use browsers from ~/.cache/ms-playwright
+            # Run 'npx playwright install chromium' if needed
+          '';
         };
       }
     );
