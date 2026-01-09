@@ -25,15 +25,24 @@ export function AuthVerifyPage() {
       try {
         const data = await api.auth.verifyMagicLink(token);
 
-        login(data.accessToken, {
-          id: data.user.id,
-          name: data.user.name,
-          role: data.user.role,
-        });
+        // Login with the new multi-group format
+        login(
+          data.accessToken,
+          {
+            id: data.user.id,
+            name: data.user.name,
+            email: data.user.email,
+          },
+          data.currentGroup || null,
+          data.groups || [],
+          data.needsGroupSelection || false
+        );
 
         setStatus('success');
 
         setTimeout(() => {
+          // If user needs to select a group, they'll be redirected by App.tsx
+          // based on the needsGroupSelection state
           navigate('/', { replace: true });
         }, 1500);
       } catch (error) {

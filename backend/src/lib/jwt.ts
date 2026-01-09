@@ -10,8 +10,9 @@ export interface JWTPayload {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-function base64UrlEncode(data: ArrayBuffer): string {
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(data)));
+function base64UrlEncode(data: ArrayBuffer | Uint8Array): string {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const base64 = btoa(String.fromCharCode(...bytes));
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 

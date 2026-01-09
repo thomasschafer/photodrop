@@ -23,4 +23,4 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Run lint and format checks
-        run: nix run .#lint-and-format
+        run: nix run .#check

@@ -7,9 +7,15 @@ import { ThemeProvider } from './contexts/ThemeContext';
 vi.mock('./contexts/AuthContext', () => ({
   useAuth: () => ({
     user: null,
+    currentGroup: null,
+    groups: [],
+    needsGroupSelection: false,
     loading: false,
     logout: vi.fn(),
     login: vi.fn(),
+    refreshAuth: vi.fn(),
+    switchGroup: vi.fn(),
+    selectGroup: vi.fn(),
   }),
 }));
 

@@ -32,9 +32,9 @@ export function createTestGroup(name: string): TestGroup {
     { stdio: 'pipe' }
   );
 
-  // Create magic link token (user will be created when token is verified)
+  // Create magic link token (user + membership will be created when token is verified)
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at) VALUES ('${token}', '${groupId}', '${adminEmail}', 'invite', 'admin', ${now}, ${expiresAt});"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, invite_name, created_at, expires_at) VALUES ('${token}', '${groupId}', '${adminEmail}', 'invite', 'admin', '${adminName}', ${now}, ${expiresAt});"`,
     { stdio: 'pipe' }
   );
 
@@ -58,9 +58,9 @@ export function createTestMember(
 
   const email = `member-${uniqueId}@test.local`;
 
-  // Create magic link token (user will be created when token is verified)
+  // Create magic link token (user + membership will be created when token is verified)
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at) VALUES ('${token}', '${groupId}', '${email}', 'invite', 'member', ${now}, ${expiresAt});"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, invite_name, created_at, expires_at) VALUES ('${token}', '${groupId}', '${email}', 'invite', 'member', '${name}', ${now}, ${expiresAt});"`,
     { stdio: 'pipe' }
   );
 
@@ -104,8 +104,15 @@ export function cleanupTestGroup(groupId: string): void {
     `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM magic_link_tokens WHERE group_id = '${groupId}';"`,
     { stdio: 'pipe' }
   );
+  // Delete users who are members of this group (and only this group)
+  // First get user IDs that are ONLY in this group
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM users WHERE group_id = '${groupId}';"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM users WHERE id IN (SELECT user_id FROM memberships WHERE group_id = '${groupId}') AND id NOT IN (SELECT user_id FROM memberships WHERE group_id != '${groupId}');"`,
+    { stdio: 'pipe' }
+  );
+  // Delete memberships for this group
+  execSync(
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM memberships WHERE group_id = '${groupId}';"`,
     { stdio: 'pipe' }
   );
   execSync(

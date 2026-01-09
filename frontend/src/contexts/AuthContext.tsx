@@ -4,27 +4,72 @@ import { api } from '../lib/api';
 interface User {
   id: string;
   name: string;
+  email: string;
+}
+
+interface Group {
+  id: string;
+  name: string;
   role: 'admin' | 'member';
+}
+
+interface AuthState {
+  user: User | null;
+  currentGroup: Group | null;
+  groups: Group[];
+  needsGroupSelection: boolean;
 }
 
 interface AuthContextType {
   user: User | null;
+  currentGroup: Group | null;
+  groups: Group[];
+  needsGroupSelection: boolean;
   loading: boolean;
-  login: (accessToken: string, user: User) => void;
+  login: (
+    accessToken: string | null,
+    user: User,
+    currentGroup: Group | null,
+    groups: Group[],
+    needsGroupSelection: boolean
+  ) => void;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  switchGroup: (groupId: string) => Promise<void>;
+  selectGroup: (groupId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [authState, setAuthState] = useState<AuthState>({
+    user: null,
+    currentGroup: null,
+    groups: [],
+    needsGroupSelection: false,
+  });
   const [loading, setLoading] = useState(true);
 
-  const login = useCallback((accessToken: string, userData: User) => {
-    localStorage.setItem('accessToken', accessToken);
-    setUser(userData);
-  }, []);
+  const login = useCallback(
+    (
+      accessToken: string | null,
+      user: User,
+      currentGroup: Group | null,
+      groups: Group[],
+      needsGroupSelection: boolean
+    ) => {
+      if (accessToken) {
+        localStorage.setItem('accessToken', accessToken);
+      }
+      setAuthState({
+        user,
+        currentGroup,
+        groups,
+        needsGroupSelection,
+      });
+    },
+    []
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -33,7 +78,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Logout error:', error);
     } finally {
       localStorage.removeItem('accessToken');
-      setUser(null);
+      setAuthState({
+        user: null,
+        currentGroup: null,
+        groups: [],
+        needsGroupSelection: false,
+      });
     }
   }, []);
 
@@ -41,13 +91,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const data = await api.auth.refresh();
       localStorage.setItem('accessToken', data.accessToken);
-      setUser(data.user);
+      setAuthState({
+        user: data.user,
+        currentGroup: data.currentGroup,
+        groups: data.groups,
+        needsGroupSelection: false,
+      });
     } catch (error) {
       console.error('Refresh error:', error);
       localStorage.removeItem('accessToken');
-      setUser(null);
+      setAuthState({
+        user: null,
+        currentGroup: null,
+        groups: [],
+        needsGroupSelection: false,
+      });
     }
   }, []);
+
+  const switchGroup = useCallback(async (groupId: string) => {
+    try {
+      const data = await api.auth.switchGroup(groupId);
+      localStorage.setItem('accessToken', data.accessToken);
+      setAuthState({
+        user: data.user,
+        currentGroup: data.currentGroup,
+        groups: data.groups,
+        needsGroupSelection: false,
+      });
+    } catch (error) {
+      console.error('Switch group error:', error);
+      throw error;
+    }
+  }, []);
+
+  const selectGroup = useCallback(
+    async (groupId: string) => {
+      if (!authState.user) {
+        throw new Error('No user logged in');
+      }
+
+      try {
+        const data = await api.auth.selectGroup(authState.user.id, groupId);
+        localStorage.setItem('accessToken', data.accessToken);
+        setAuthState({
+          user: data.user,
+          currentGroup: data.currentGroup,
+          groups: data.groups,
+          needsGroupSelection: false,
+        });
+      } catch (error) {
+        console.error('Select group error:', error);
+        throw error;
+      }
+    },
+    [authState.user]
+  );
 
   useEffect(() => {
     const initAuth = async () => {
@@ -55,13 +154,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (token) {
         try {
+          // Try to get current user data
           const userData = await api.users.getMe();
-          setUser({
-            id: userData.id,
-            name: userData.name,
-            role: userData.role,
+          setAuthState({
+            user: {
+              id: userData.id,
+              name: userData.name,
+              email: userData.email,
+            },
+            currentGroup: userData.currentGroup,
+            groups: userData.groups,
+            needsGroupSelection: !userData.currentGroup,
           });
         } catch {
+          // Token invalid, try to refresh
           try {
             await refreshAuth();
           } catch (refreshError) {
@@ -77,21 +183,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, [refreshAuth]);
 
+  // Auto-refresh token before expiry
   useEffect(() => {
-    if (!user) return;
+    if (!authState.user || !authState.currentGroup) return;
 
     const interval = setInterval(
       () => {
         refreshAuth();
       },
-      14 * 60 * 1000
+      14 * 60 * 1000 // 14 minutes
     );
 
     return () => clearInterval(interval);
-  }, [user, refreshAuth]);
+  }, [authState.user, authState.currentGroup, refreshAuth]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshAuth }}>
+    <AuthContext.Provider
+      value={{
+        user: authState.user,
+        currentGroup: authState.currentGroup,
+        groups: authState.groups,
+        needsGroupSelection: authState.needsGroupSelection,
+        loading,
+        login,
+        logout,
+        refreshAuth,
+        switchGroup,
+        selectGroup,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -19,7 +19,15 @@ type Bindings = {
   JWT_SECRET: string;
 };
 
-const photos = new Hono<{ Bindings: Bindings }>();
+type Variables = {
+  user: {
+    id: string;
+    groupId: string;
+    role: 'admin' | 'member';
+  };
+};
+
+const photos = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 photos.get('/', requireAuth, async (c) => {
   try {

@@ -1,0 +1,152 @@
+import { Hono } from 'hono';
+import {
+  getUserMemberships,
+  getGroupMembers,
+  getMembership,
+  updateMembershipRole,
+  deleteMembership,
+  countGroupAdmins,
+} from '../lib/db';
+import { requireAuth, requireAdmin } from '../middleware/auth';
+
+type Bindings = {
+  DB: D1Database;
+  JWT_SECRET: string;
+};
+
+type Variables = {
+  user: {
+    id: string;
+    groupId: string;
+    role: 'admin' | 'member';
+  };
+};
+
+const groups = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+// Get all groups the current user is a member of
+groups.get('/', requireAuth, async (c) => {
+  try {
+    const user = c.get('user');
+    const memberships = await getUserMemberships(c.env.DB, user.id);
+
+    return c.json({
+      groups: memberships.map((m) => ({
+        id: m.group_id,
+        name: m.group_name,
+        role: m.role,
+        joinedAt: m.joined_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching groups:', error);
+    return c.json({ error: 'Failed to fetch groups' }, 500);
+  }
+});
+
+// Get members of the current group (admin only)
+groups.get('/:groupId/members', requireAdmin, async (c) => {
+  try {
+    const groupId = c.req.param('groupId');
+    const user = c.get('user');
+
+    // Ensure the requested group matches the user's current group context
+    if (groupId !== user.groupId) {
+      return c.json({ error: 'Cannot access members of a different group' }, 403);
+    }
+
+    const members = await getGroupMembers(c.env.DB, groupId);
+
+    return c.json({
+      members: members.map((m) => ({
+        userId: m.user_id,
+        name: m.user_name,
+        email: m.user_email,
+        role: m.role,
+        joinedAt: m.joined_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching members:', error);
+    return c.json({ error: 'Failed to fetch members' }, 500);
+  }
+});
+
+// Update a member's role (admin only)
+groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
+  try {
+    const groupId = c.req.param('groupId');
+    const userId = c.req.param('userId');
+    const user = c.get('user');
+
+    // Ensure the requested group matches the user's current group context
+    if (groupId !== user.groupId) {
+      return c.json({ error: 'Cannot modify members of a different group' }, 403);
+    }
+
+    const body = await c.req.json();
+    const { role } = body;
+
+    if (role !== 'admin' && role !== 'member') {
+      return c.json({ error: 'Invalid role' }, 400);
+    }
+
+    // Check if membership exists
+    const membership = await getMembership(c.env.DB, userId, groupId);
+    if (!membership) {
+      return c.json({ error: 'User is not a member of this group' }, 404);
+    }
+
+    // Prevent demoting yourself if you're the last admin
+    if (userId === user.id && role === 'member') {
+      const adminCount = await countGroupAdmins(c.env.DB, groupId);
+      if (adminCount <= 1) {
+        return c.json({ error: 'Cannot demote yourself - you are the last admin' }, 400);
+      }
+    }
+
+    await updateMembershipRole(c.env.DB, userId, groupId, role);
+
+    return c.json({ message: 'Role updated successfully' });
+  } catch (error) {
+    console.error('Error updating member role:', error);
+    return c.json({ error: 'Failed to update member role' }, 500);
+  }
+});
+
+// Remove a member from the group (admin only)
+groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
+  try {
+    const groupId = c.req.param('groupId');
+    const userId = c.req.param('userId');
+    const user = c.get('user');
+
+    // Ensure the requested group matches the user's current group context
+    if (groupId !== user.groupId) {
+      return c.json({ error: 'Cannot modify members of a different group' }, 403);
+    }
+
+    // Check if membership exists
+    const membership = await getMembership(c.env.DB, userId, groupId);
+    if (!membership) {
+      return c.json({ error: 'User is not a member of this group' }, 404);
+    }
+
+    // Prevent removing yourself if you're the last admin
+    if (userId === user.id) {
+      const adminCount = await countGroupAdmins(c.env.DB, groupId);
+      if (membership.role === 'admin' && adminCount <= 1) {
+        return c.json({ error: 'Cannot remove yourself - you are the last admin' }, 400);
+      }
+    }
+
+    await deleteMembership(c.env.DB, userId, groupId);
+
+    return c.json({ message: 'Member removed successfully' });
+  } catch (error) {
+    console.error('Error removing member:', error);
+    return c.json({ error: 'Failed to remove member' }, 500);
+  }
+});
+
+export default groups;

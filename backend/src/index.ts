@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import auth from './routes/auth';
 import users from './routes/users';
 import photos from './routes/photos';
+import groups from './routes/groups';
 
 type Bindings = {
   DB: D1Database;
@@ -38,5 +39,6 @@ app.get('/health', (c) => {
 app.route('/api/auth', auth);
 app.route('/api/users', users);
 app.route('/api/photos', photos);
+app.route('/api/groups', groups);
 
 export default app;

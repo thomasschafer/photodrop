@@ -98,6 +98,53 @@ export const api = {
       });
       return response.json();
     },
+
+    switchGroup: async (groupId: string) => {
+      const response = await fetchWithAuth('/api/auth/switch-group', {
+        method: 'POST',
+        body: JSON.stringify({ groupId }),
+      });
+      return response.json();
+    },
+
+    selectGroup: async (userId: string, groupId: string) => {
+      const response = await fetchWithAuth(
+        '/api/auth/select-group',
+        {
+          method: 'POST',
+          body: JSON.stringify({ userId, groupId }),
+        },
+        false
+      );
+      return response.json();
+    },
+  },
+
+  groups: {
+    list: async () => {
+      const response = await fetchWithAuth('/api/groups');
+      return response.json();
+    },
+
+    getMembers: async (groupId: string) => {
+      const response = await fetchWithAuth(`/api/groups/${groupId}/members`);
+      return response.json();
+    },
+
+    updateMemberRole: async (groupId: string, userId: string, role: 'admin' | 'member') => {
+      const response = await fetchWithAuth(`/api/groups/${groupId}/members/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      });
+      return response.json();
+    },
+
+    removeMember: async (groupId: string, userId: string) => {
+      const response = await fetchWithAuth(`/api/groups/${groupId}/members/${userId}`, {
+        method: 'DELETE',
+      });
+      return response.json();
+    },
   },
 
   users: {

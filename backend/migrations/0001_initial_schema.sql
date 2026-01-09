@@ -1,6 +1,5 @@
 -- Initial schema for Photodrop
--- Created: 2026-01-05
--- Updated: Multi-group architecture with complete isolation
+-- Multi-group architecture: users can belong to multiple groups with different roles
 
 -- Groups table: each group is completely isolated
 CREATE TABLE IF NOT EXISTS groups (
@@ -10,16 +9,23 @@ CREATE TABLE IF NOT EXISTS groups (
   created_by TEXT NOT NULL
 );
 
--- Users table: stores all users (each belongs to exactly one group)
+-- Users table: stores all users (group membership is separate)
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  group_id TEXT NOT NULL,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL CHECK(role IN ('admin', 'member')),
-  invite_accepted_at INTEGER,
   created_at INTEGER NOT NULL,
-  last_seen_at INTEGER,
+  last_seen_at INTEGER
+);
+
+-- Memberships table: junction table for user-group relationships
+CREATE TABLE IF NOT EXISTS memberships (
+  user_id TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('admin', 'member')),
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, group_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
@@ -30,6 +36,7 @@ CREATE TABLE IF NOT EXISTS magic_link_tokens (
   email TEXT NOT NULL,
   type TEXT NOT NULL CHECK(type IN ('invite', 'login')),
   invite_role TEXT CHECK(invite_role IN ('admin', 'member')),
+  invite_name TEXT,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at INTEGER,
@@ -70,10 +77,10 @@ CREATE TABLE IF NOT EXISTS photo_reactions (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Indexes for common queries (group-scoped for isolation)
+-- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_group ON users(group_id);
-CREATE INDEX IF NOT EXISTS idx_users_invite_accepted ON users(invite_accepted_at);
+CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
+CREATE INDEX IF NOT EXISTS idx_memberships_group ON memberships(group_id);
 CREATE INDEX IF NOT EXISTS idx_magic_link_email ON magic_link_tokens(email);
 CREATE INDEX IF NOT EXISTS idx_magic_link_group ON magic_link_tokens(group_id);
 CREATE INDEX IF NOT EXISTS idx_magic_link_expires ON magic_link_tokens(expires_at);

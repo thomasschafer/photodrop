@@ -343,63 +343,63 @@ CREATE INDEX idx_users_email ON users(email);
 
 **Backend changes:**
 
-- [ ] New `Membership` type and DB functions:
+- [x] New `Membership` type and DB functions:
   - `getUserMemberships(db, userId): Membership[]`
   - `getMembership(db, userId, groupId): Membership | null`
   - `createMembership(db, userId, groupId, role)`
   - `updateMembershipRole(db, userId, groupId, role)`
   - `deleteMembership(db, userId, groupId)`
-- [ ] Update `User` type: remove `group_id` and `role` fields
-- [ ] Update `createUser()`: no longer takes groupId/role
-- [ ] Update `getUserByEmail()`: returns user without group context
-- [ ] New auth endpoint `POST /api/auth/switch-group`:
+- [x] Update `User` type: remove `group_id` and `role` fields
+- [x] Update `createUser()`: no longer takes groupId/role
+- [x] Update `getUserByEmail()`: returns user without group context
+- [x] New auth endpoint `POST /api/auth/switch-group`:
   - Verify user has membership in requested group
   - Issue new access/refresh tokens with that groupId
   - Return new tokens + group info
-- [ ] New endpoint `GET /api/groups`:
+- [x] New endpoint `GET /api/groups`:
   - Return all groups the current user is a member of
   - Include role for each group
-- [ ] New endpoint `GET /api/groups/:groupId/members`:
+- [x] New endpoint `GET /api/groups/:groupId/members`:
   - Admin only - list all members of a group with their roles
-- [ ] New endpoint `PATCH /api/groups/:groupId/members/:userId`:
+- [x] New endpoint `PATCH /api/groups/:groupId/members/:userId`:
   - Admin only - update member role
   - Cannot demote yourself if you're the last admin
-- [ ] New endpoint `DELETE /api/groups/:groupId/members/:userId`:
+- [x] New endpoint `DELETE /api/groups/:groupId/members/:userId`:
   - Admin only - remove a user from the group
   - Deletes membership record (user account remains)
   - Cannot remove yourself if you're the last admin
-- [ ] Update magic link verification:
+- [x] Update magic link verification:
   - For invites: create user (if needed) + create membership
   - For login: look up user, get their memberships
   - If single group → issue token for that group
   - If multiple groups → issue token with `groupId: null`, frontend shows picker
-- [ ] Update `requireAuth` middleware:
+- [x] Update `requireAuth` middleware:
   - Validate groupId in token against memberships table
   - Populate `c.get('membership')` with role from memberships table
-- [ ] Update invite flow:
+- [x] Update invite flow:
   - Check if email already exists as user
   - If yes: just create membership (user joins another group)
   - If no: create user + membership
 
 **Frontend changes:**
 
-- [ ] New `GroupSwitcher` component (header dropdown):
+- [x] New `GroupSwitcher` component (header dropdown):
   - Reuse keyboard navigation pattern from `ThemeToggle` (Arrow keys, Home/End, Escape)
   - Show current group name with dropdown indicator
   - List all user's groups with role badges
   - Call switch-group API on selection
   - Refresh app state after switch
-- [ ] Update `AuthContext`:
+- [x] Update `AuthContext`:
   - Store `currentGroup` and `groups` list
   - Add `switchGroup(groupId)` function
   - Handle multi-group login flow (show picker if needed)
-- [ ] New `GroupPickerPage` for post-login group selection:
+- [x] New `GroupPickerPage` for post-login group selection:
   - Shown when user has multiple groups and no current selection
   - Grid/list of group cards
   - Selecting a group calls switch-group and redirects to feed
   - Empty state for users with no groups: "You're not a member of any groups yet. Ask someone to invite you."
-- [ ] Update header to include `GroupSwitcher` next to `ThemeToggle`
-- [ ] Update `InviteForm`:
+- [x] Update header to include `GroupSwitcher` next to `ThemeToggle`
+- [x] Update `InviteForm`:
   - Handle case where invited email already has an account
   - Show appropriate success message ("Invite sent" vs "User added to group")
 - [ ] New `MembersPage` or `MembersList` component (admin only):

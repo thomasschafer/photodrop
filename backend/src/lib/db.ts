@@ -9,13 +9,26 @@ export interface Group {
 
 export interface User {
   id: string;
-  group_id: string;
   name: string;
   email: string;
-  role: 'admin' | 'member';
-  invite_accepted_at: number | null;
   created_at: number;
   last_seen_at: number | null;
+}
+
+export interface Membership {
+  user_id: string;
+  group_id: string;
+  role: 'admin' | 'member';
+  joined_at: number;
+}
+
+export interface MembershipWithGroup extends Membership {
+  group_name: string;
+}
+
+export interface MembershipWithUser extends Membership {
+  user_name: string;
+  user_email: string;
 }
 
 export interface MagicLinkToken {
@@ -24,6 +37,7 @@ export interface MagicLinkToken {
   email: string;
   type: 'invite' | 'login';
   invite_role: 'admin' | 'member' | null;
+  invite_name: string | null;
   created_at: number;
   expires_at: number;
   used_at: number | null;
@@ -79,25 +93,122 @@ export async function getGroup(db: D1Database, groupId: string): Promise<Group |
 }
 
 // User functions
-export async function createUser(
-  db: D1Database,
-  groupId: string,
-  name: string,
-  email: string,
-  role: 'admin' | 'member'
-): Promise<string> {
+export async function createUser(db: D1Database, name: string, email: string): Promise<string> {
   const userId = generateId();
   const now = Math.floor(Date.now() / 1000);
 
   await db
     .prepare(
-      `INSERT INTO users (id, group_id, name, email, role, invite_accepted_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO users (id, name, email, created_at)
+       VALUES (?, ?, ?, ?)`
     )
-    .bind(userId, groupId, name, email, role, now, now)
+    .bind(userId, name, email, now)
     .run();
 
   return userId;
+}
+
+// Membership functions
+export async function createMembership(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  role: 'admin' | 'member'
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare(
+      `INSERT INTO memberships (user_id, group_id, role, joined_at)
+       VALUES (?, ?, ?, ?)`
+    )
+    .bind(userId, groupId, role, now)
+    .run();
+}
+
+export async function getMembership(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<Membership | null> {
+  const result = await db
+    .prepare('SELECT * FROM memberships WHERE user_id = ? AND group_id = ?')
+    .bind(userId, groupId)
+    .first<Membership>();
+
+  return result;
+}
+
+export async function getUserMemberships(
+  db: D1Database,
+  userId: string
+): Promise<MembershipWithGroup[]> {
+  const result = await db
+    .prepare(
+      `SELECT m.user_id, m.group_id, m.role, m.joined_at, g.name as group_name
+       FROM memberships m
+       JOIN groups g ON m.group_id = g.id
+       WHERE m.user_id = ?
+       ORDER BY m.joined_at DESC`
+    )
+    .bind(userId)
+    .all<MembershipWithGroup>();
+
+  return result.results || [];
+}
+
+export async function getGroupMembers(
+  db: D1Database,
+  groupId: string
+): Promise<MembershipWithUser[]> {
+  const result = await db
+    .prepare(
+      `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email
+       FROM memberships m
+       JOIN users u ON m.user_id = u.id
+       WHERE m.group_id = ?
+       ORDER BY m.joined_at ASC`
+    )
+    .bind(groupId)
+    .all<MembershipWithUser>();
+
+  return result.results || [];
+}
+
+export async function updateMembershipRole(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  role: 'admin' | 'member'
+): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE memberships SET role = ? WHERE user_id = ? AND group_id = ?')
+    .bind(role, userId, groupId)
+    .run();
+
+  return result.success;
+}
+
+export async function deleteMembership(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM memberships WHERE user_id = ? AND group_id = ?')
+    .bind(userId, groupId)
+    .run();
+
+  return result.success;
+}
+
+export async function countGroupAdmins(db: D1Database, groupId: string): Promise<number> {
+  const result = await db
+    .prepare('SELECT COUNT(*) as count FROM memberships WHERE group_id = ? AND role = ?')
+    .bind(groupId, 'admin')
+    .first<{ count: number }>();
+
+  return result?.count || 0;
 }
 
 export async function getUserById(db: D1Database, userId: string): Promise<User | null> {
@@ -124,7 +235,8 @@ export async function createMagicLinkToken(
   groupId: string,
   email: string,
   type: 'invite' | 'login',
-  inviteRole?: 'admin' | 'member'
+  inviteRole?: 'admin' | 'member',
+  inviteName?: string
 ): Promise<string> {
   const token = generateInviteToken(); // Reuse this for cryptographically random tokens
   const now = Math.floor(Date.now() / 1000);
@@ -132,10 +244,10 @@ export async function createMagicLinkToken(
 
   await db
     .prepare(
-      `INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, invite_name, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(token, groupId, email, type, inviteRole || null, now, expiresAt)
+    .bind(token, groupId, email, type, inviteRole || null, inviteName || null, now, expiresAt)
     .run();
 
   return token;
@@ -160,53 +272,6 @@ export async function markMagicLinkTokenUsed(db: D1Database, token: string): Pro
     .prepare('UPDATE magic_link_tokens SET used_at = ? WHERE token = ?')
     .bind(now, token)
     .run();
-}
-
-export async function getAllUsers(db: D1Database, groupId: string): Promise<User[]> {
-  const result = await db
-    .prepare('SELECT * FROM users WHERE group_id = ? ORDER BY created_at DESC')
-    .bind(groupId)
-    .all<User>();
-
-  return result.results || [];
-}
-
-export async function updateUserRole(
-  db: D1Database,
-  userId: string,
-  groupId: string,
-  role: 'admin' | 'member'
-): Promise<boolean> {
-  // Ensure user belongs to the group before updating
-  const result = await db
-    .prepare('UPDATE users SET role = ? WHERE id = ? AND group_id = ?')
-    .bind(role, userId, groupId)
-    .run();
-
-  return result.success;
-}
-
-export async function deleteUser(
-  db: D1Database,
-  userId: string,
-  groupId: string
-): Promise<boolean> {
-  // Ensure user belongs to the group before deleting
-  const result = await db
-    .prepare('DELETE FROM users WHERE id = ? AND group_id = ?')
-    .bind(userId, groupId)
-    .run();
-
-  return result.success;
-}
-
-export async function countAdmins(db: D1Database, groupId: string): Promise<number> {
-  const result = await db
-    .prepare('SELECT COUNT(*) as count FROM users WHERE role = ? AND group_id = ?')
-    .bind('admin', groupId)
-    .first<{ count: number }>();
-
-  return result?.count || 0;
 }
 
 export async function createPhoto(

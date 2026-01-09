@@ -51,18 +51,26 @@ VALUES ('$GROUP_ID', '$GROUP_NAME', $NOW, 'cli');
 
 echo "✓ Group created (ID: $GROUP_ID)"
 
-# Insert admin user
+# Insert user (without group_id/role - those are now in memberships table)
 wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
-INSERT INTO users (id, group_id, name, email, role, invite_accepted_at, created_at)
-VALUES ('$USER_ID', '$GROUP_ID', '$ADMIN_NAME', '$ADMIN_EMAIL', 'admin', NULL, $NOW);
+INSERT INTO users (id, name, email, created_at)
+VALUES ('$USER_ID', '$ADMIN_NAME', '$ADMIN_EMAIL', $NOW);
 "
 
-echo "✓ Admin user created (ID: $USER_ID)"
+echo "✓ User created (ID: $USER_ID)"
+
+# Insert membership (links user to group with role)
+wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
+INSERT INTO memberships (user_id, group_id, role, joined_at)
+VALUES ('$USER_ID', '$GROUP_ID', 'admin', $NOW);
+"
+
+echo "✓ Admin membership created"
 
 # Create magic link token for initial login
 wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
 INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at)
-VALUES ('$TOKEN', '$GROUP_ID', '$ADMIN_EMAIL', 'login', NULL, $NOW, $EXPIRES_AT);
+VALUES ('$TOKEN', '$GROUP_ID', '$ADMIN_EMAIL', 'invite', 'admin', $NOW, $EXPIRES_AT);
 "
 
 echo "✓ Magic link token created"
