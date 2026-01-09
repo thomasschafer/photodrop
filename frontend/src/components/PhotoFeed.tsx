@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 
 function useAuthToken() {
@@ -20,9 +20,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const token = useAuthToken();
+  const photoRefs = useRef<(HTMLElement | null)[]>([]);
+
+  const selectedPhoto = selectedPhotoIndex !== null ? photos[selectedPhotoIndex] : null;
 
   const loadPhotos = async () => {
     try {
@@ -41,15 +44,59 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     loadPhotos();
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && selectedPhoto) {
-        setSelectedPhoto(null);
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPhoto]);
+  const focusPhoto = useCallback(
+    (index: number) => {
+      const clampedIndex = Math.max(0, Math.min(index, photos.length - 1));
+      photoRefs.current[clampedIndex]?.focus();
+    },
+    [photos.length]
+  );
+
+  const handlePhotoKeyDown = (e: React.KeyboardEvent, index: number) => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        focusPhoto(index + 1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        focusPhoto(index - 1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        focusPhoto(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        focusPhoto(photos.length - 1);
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        setSelectedPhotoIndex(index);
+        break;
+    }
+  };
+
+  const handleLightboxNav = useCallback(
+    (direction: 'prev' | 'next') => {
+      if (selectedPhotoIndex === null) return;
+      const newIndex =
+        direction === 'next'
+          ? Math.min(selectedPhotoIndex + 1, photos.length - 1)
+          : Math.max(selectedPhotoIndex - 1, 0);
+      setSelectedPhotoIndex(newIndex);
+    },
+    [selectedPhotoIndex, photos.length]
+  );
+
+  const handleLightboxClose = useCallback(() => {
+    const indexToFocus = selectedPhotoIndex;
+    setSelectedPhotoIndex(null);
+    if (indexToFocus !== null) {
+      setTimeout(() => focusPhoto(indexToFocus), 0);
+    }
+  }, [selectedPhotoIndex, focusPhoto]);
 
   const handleDelete = async (photoId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -94,7 +141,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   if (error) {
     return (
       <div className="text-center py-12">
-        <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>{error}</p>
+        <p className="text-text-secondary mb-4">{error}</p>
         <button onClick={loadPhotos} className="btn-primary">
           Try again
         </button>
@@ -105,79 +152,52 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   if (photos.length === 0) {
     return (
       <div className="text-center py-16">
-        <p style={{ color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>No photos yet</p>
-        <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-          Upload your first photo to get started.
-        </p>
+        <p className="text-text-secondary mb-2">No photos yet</p>
+        <p className="text-sm text-text-muted">Upload your first photo to get started.</p>
       </div>
     );
   }
 
   return (
     <>
-      <div style={{ maxWidth: '540px', margin: '0 auto' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          {photos.map((photo) => (
+      <div className="max-w-[540px] mx-auto">
+        <div className="flex flex-col gap-6" role="list" aria-label="Photo feed">
+          {photos.map((photo, index) => (
             <article
               key={photo.id}
-              onClick={() => setSelectedPhoto(photo)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setSelectedPhoto(photo);
-                }
+              ref={(el) => {
+                photoRefs.current[index] = el;
               }}
+              onClick={() => setSelectedPhotoIndex(index)}
+              onKeyDown={(e) => handlePhotoKeyDown(e, index)}
               tabIndex={0}
-              role="button"
-              style={{
-                cursor: 'pointer',
-                backgroundColor: 'var(--color-surface)',
-                borderRadius: '0.75rem',
-                overflow: 'hidden',
-                border: '1px solid var(--color-border)',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
-              }}
+              role="listitem"
+              aria-label={photo.caption || `Photo ${index + 1}`}
+              className="cursor-pointer bg-surface rounded-xl overflow-hidden border border-border shadow-card transition-shadow hover:shadow-elevated"
             >
-              <div style={{ position: 'relative', backgroundColor: 'var(--color-bg-secondary)' }}>
+              <div className="relative bg-bg-secondary">
                 <img
                   src={`/api/photos/${photo.id}/thumbnail?token=${token}`}
                   alt={photo.caption || ''}
-                  style={{
-                    width: '100%',
-                    height: 'auto',
-                    display: 'block',
-                    maxHeight: '400px',
-                    objectFit: 'cover',
-                  }}
+                  className="w-full h-auto block max-h-[400px] object-cover"
                   loading="lazy"
                 />
               </div>
-              <div style={{ padding: '1rem 1.25rem' }}>
+              <div className="p-4 px-5">
                 {photo.caption && (
-                  <p style={{ color: 'var(--color-text-primary)', marginBottom: '0.5rem', lineHeight: 1.5 }}>
-                    {photo.caption}
-                  </p>
+                  <p className="text-text-primary mb-2 leading-normal">{photo.caption}</p>
                 )}
-                <div
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                >
-                  <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                    {formatDate(photo.uploadedAt)}
-                  </p>
+                <div className="flex justify-between items-center">
+                  <p className="text-xs text-text-muted">{formatDate(photo.uploadedAt)}</p>
                   {isAdmin && (
                     <button
                       onClick={(e) => handleDelete(photo.id, e)}
                       disabled={deleting === photo.id}
-                      style={{
-                        fontSize: '0.75rem',
-                        color: 'var(--color-error)',
-                        background: 'none',
-                        border: 'none',
-                        cursor: deleting === photo.id ? 'not-allowed' : 'pointer',
-                        opacity: deleting === photo.id ? 0.5 : 1,
-                        padding: '0.25rem 0.5rem',
-                        borderRadius: '0.25rem',
-                      }}
+                      className={`text-xs text-error bg-transparent border-none py-1 px-2 rounded transition-colors ${
+                        deleting === photo.id
+                          ? 'cursor-not-allowed opacity-50'
+                          : 'cursor-pointer hover:bg-error/10'
+                      }`}
                     >
                       {deleting === photo.id ? 'Deleting...' : 'Delete'}
                     </button>
@@ -189,47 +209,77 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
         </div>
       </div>
 
-      {selectedPhoto && (
-        <Lightbox photo={selectedPhoto} token={token} onClose={() => setSelectedPhoto(null)} />
+      {selectedPhoto && selectedPhotoIndex !== null && (
+        <Lightbox
+          photo={selectedPhoto}
+          token={token}
+          onClose={handleLightboxClose}
+          onPrev={selectedPhotoIndex > 0 ? () => handleLightboxNav('prev') : undefined}
+          onNext={selectedPhotoIndex < photos.length - 1 ? () => handleLightboxNav('next') : undefined}
+          currentIndex={selectedPhotoIndex}
+          totalCount={photos.length}
+        />
       )}
     </>
   );
 }
 
-function Lightbox({ photo, token, onClose }: { photo: Photo; token: string; onClose: () => void }) {
+function Lightbox({
+  photo,
+  token,
+  onClose,
+  onPrev,
+  onNext,
+  currentIndex,
+  totalCount,
+}: {
+  photo: Photo;
+  token: string;
+  onClose: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  currentIndex: number;
+  totalCount: number;
+}) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'Escape':
+          onClose();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          onPrev?.();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          onNext?.();
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, onPrev, onNext]);
+
   return (
     <div
       onClick={onClose}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 50,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      role="dialog"
+      aria-label={`Photo ${currentIndex + 1} of ${totalCount}`}
     >
       <button
+        ref={closeButtonRef}
         onClick={onClose}
-        style={{
-          position: 'absolute',
-          top: '1rem',
-          right: '1rem',
-          width: '2.5rem',
-          height: '2.5rem',
-          borderRadius: '50%',
-          backgroundColor: 'rgba(255, 255, 255, 0.1)',
-          border: 'none',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'white',
-        }}
+        aria-label="Close"
+        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer flex items-center justify-center text-white transition-colors hover:bg-white/20"
       >
         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
@@ -241,20 +291,46 @@ function Lightbox({ photo, token, onClose }: { photo: Photo; token: string; onCl
         </svg>
       </button>
 
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ margin: '0 1rem', maxWidth: '896px', maxHeight: '90vh' }}
-      >
+      {onPrev && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPrev();
+          }}
+          aria-label="Previous photo"
+          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer flex items-center justify-center text-white transition-colors hover:bg-white/20"
+        >
+          <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
+
+      {onNext && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNext();
+          }}
+          aria-label="Next photo"
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer flex items-center justify-center text-white transition-colors hover:bg-white/20"
+        >
+          <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+
+      <div onClick={(e) => e.stopPropagation()} className="mx-16 max-w-4xl max-h-[90vh]">
         <img
           src={`/api/photos/${photo.id}/download?token=${token}`}
           alt={photo.caption || 'Photo'}
-          style={{
-            maxWidth: '100%',
-            maxHeight: '90vh',
-            objectFit: 'contain',
-            borderRadius: '0.5rem',
-          }}
+          className="max-w-full max-h-[90vh] object-contain rounded-lg"
         />
+      </div>
+
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/70 text-sm">
+        {currentIndex + 1} / {totalCount}
       </div>
     </div>
   );

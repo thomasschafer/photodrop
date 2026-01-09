@@ -5,47 +5,33 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Warm terracotta palette
-        primary: {
-          50: '#fdf8f6',
-          100: '#faefeb',
-          200: '#f5ddd4',
-          300: '#e8c4b4',
-          400: '#d9a68e',
-          500: '#c67d5a', // Terracotta
-          600: '#b56a4a',
-          700: '#97553c',
-          800: '#7c4735',
-          900: '#673d30',
+        // Semantic colors using CSS variables (auto dark mode)
+        bg: {
+          primary: 'var(--color-bg-primary)',
+          secondary: 'var(--color-bg-secondary)',
+          tertiary: 'var(--color-bg-tertiary)',
         },
-        neutral: {
-          50: '#fdfcfa', // Warm cream background
-          100: '#f9f6f3',
-          200: '#f0ebe6',
-          300: '#e2dbd3',
-          400: '#b8afa5',
-          500: '#8a8078',
-          600: '#6b635b',
-          700: '#524c46',
-          800: '#3a3632',
-          900: '#252320',
+        text: {
+          primary: 'var(--color-text-primary)',
+          secondary: 'var(--color-text-secondary)',
+          muted: 'var(--color-text-muted)',
+        },
+        border: {
+          DEFAULT: 'var(--color-border)',
+          hover: 'var(--color-border-hover)',
+          strong: 'var(--color-border-strong)',
+        },
+        surface: {
+          DEFAULT: 'var(--color-surface)',
+          elevated: 'var(--color-surface-elevated)',
         },
         accent: {
-          50: '#fdf7f5',
-          100: '#faeee9',
-          200: '#f2d9d0',
-          300: '#e5baa8',
-          400: '#d4967a',
-          500: '#bf7354', // Warm sienna
-          600: '#a85f43',
-          700: '#8c4d38',
-          800: '#744132',
-          900: '#61382c',
+          DEFAULT: 'var(--color-accent)',
+          hover: 'var(--color-accent-hover)',
+          light: 'var(--color-accent-light)',
         },
-        error: '#c45454',
-        warning: '#c4864a',
-        success: '#6a9a72',
-        info: '#6a7a8a',
+        error: 'var(--color-error)',
+        success: 'var(--color-success)',
       },
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],

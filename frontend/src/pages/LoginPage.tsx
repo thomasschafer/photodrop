@@ -38,28 +38,13 @@ export function LoginPage() {
   };
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor: 'var(--color-bg-primary)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        padding: '3rem 1.5rem',
-      }}
-    >
-      <div
-        style={{
-          position: 'absolute',
-          top: '1rem',
-          right: '1rem',
-        }}
-      >
+    <div className="min-h-screen bg-bg-primary flex flex-col justify-center py-12 px-6">
+      <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
 
-      <div className="w-full mx-auto" style={{ maxWidth: '440px' }}>
-        <div className="mb-8">
+      <div className="w-full max-w-[440px] mx-auto">
+        <div className="mb-4">
           <Logo />
         </div>
 
@@ -100,38 +85,12 @@ function LoginForm({
 }) {
   return (
     <div className="card">
-      <h2
-        style={{
-          fontSize: '1.125rem',
-          fontWeight: 500,
-          color: 'var(--color-text-primary)',
-          marginBottom: '0.25rem',
-        }}
-      >
-        Sign in
-      </h2>
-      <p
-        style={{
-          fontSize: '0.875rem',
-          color: 'var(--color-text-secondary)',
-          marginBottom: '1.5rem',
-        }}
-      >
-        Enter your email to receive a sign-in link
-      </p>
+      <h2 className="text-lg font-medium text-text-primary mb-1">Sign in</h2>
+      <p className="text-sm text-text-secondary mb-6">Enter your email to receive a sign-in link</p>
 
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
-          <label
-            htmlFor="email"
-            style={{
-              display: 'block',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              color: 'var(--color-text-primary)',
-              marginBottom: '0.3rem',
-            }}
-          >
+          <label htmlFor="email" className="block text-sm font-medium text-text-primary mb-1">
             Email
           </label>
           <input
@@ -149,12 +108,12 @@ function LoginForm({
         </div>
 
         {status === 'error' && (
-          <p style={{ fontSize: '0.875rem', color: 'var(--color-error)' }} role="alert">
+          <p className="text-sm text-error" role="alert">
             {errorMessage}
           </p>
         )}
 
-        <div style={{ paddingTop: '0.5rem' }}>
+        <div className="pt-2">
           <button type="submit" disabled={status === 'loading'} className="btn-primary w-full">
             {status === 'loading' ? (
               <span className="flex items-center gap-2">
@@ -168,14 +127,7 @@ function LoginForm({
         </div>
       </form>
 
-      <p
-        style={{
-          fontSize: '0.875rem',
-          color: 'var(--color-text-secondary)',
-          marginTop: '1.5rem',
-          textAlign: 'center',
-        }}
-      >
+      <p className="text-sm text-text-secondary mt-6 text-center">
         Don't have an account? Ask your group admin for an invite.
       </p>
     </div>
@@ -185,22 +137,11 @@ function LoginForm({
 function SuccessState({ email, onReset }: { email: string; onReset: () => void }) {
   return (
     <div className="card text-center">
-      <div
-        style={{
-          width: '3rem',
-          height: '3rem',
-          margin: '0 auto 1rem',
-          borderRadius: '50%',
-          backgroundColor: 'var(--color-accent-light)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+      <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-accent-light flex items-center justify-center">
         <svg
           width="24"
           height="24"
-          style={{ color: 'var(--color-accent)' }}
+          className="text-accent"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -214,22 +155,13 @@ function SuccessState({ email, onReset }: { email: string; onReset: () => void }
         </svg>
       </div>
 
-      <h2
-        style={{
-          fontSize: '1.125rem',
-          fontWeight: 500,
-          color: 'var(--color-text-primary)',
-          marginBottom: '0.5rem',
-        }}
-      >
-        Check your email
-      </h2>
-      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
-        If <strong style={{ color: 'var(--color-text-primary)' }}>{email}</strong> has an account,
-        we've sent a sign-in link.
+      <h2 className="text-lg font-medium text-text-primary mb-2">Check your email</h2>
+      <p className="text-sm text-text-secondary mb-4">
+        If <strong className="text-text-primary">{email}</strong> has an account, we've sent a
+        sign-in link.
       </p>
 
-      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', marginBottom: '1.5rem' }}>
+      <p className="text-sm text-text-muted mb-6">
         The link expires in 15 minutes. Check spam if you don't see it.
       </p>
 

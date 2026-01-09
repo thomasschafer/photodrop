@@ -286,6 +286,11 @@
           [ ! -d "backend/node_modules" ] && (cd backend && npm install)
           [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
 
+          # Run database migrations
+          echo "📦 Running database migrations..."
+          (cd backend && npx wrangler d1 migrations apply photodrop-db --local)
+          echo ""
+
           # Ensure Playwright browsers are installed
           if [ ! -d "$HOME/.cache/ms-playwright" ]; then
             echo "📥 Installing Playwright browsers..."

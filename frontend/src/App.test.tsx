@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import App from './App';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 vi.mock('./contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -23,9 +24,11 @@ vi.mock('./components/PhotoFeed', () => ({
 describe('App', () => {
   it('shows landing page when not authenticated', () => {
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <App />
+        </MemoryRouter>
+      </ThemeProvider>
     );
 
     expect(screen.getByText('photodrop')).toBeInTheDocument();
@@ -37,9 +40,11 @@ describe('App', () => {
 
   it('shows login page at /login route', () => {
     render(
-      <MemoryRouter initialEntries={['/login']}>
-        <App />
-      </MemoryRouter>
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/login']}>
+          <App />
+        </MemoryRouter>
+      </ThemeProvider>
     );
 
     expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();

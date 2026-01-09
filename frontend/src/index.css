@@ -1,16 +1,15 @@
 /* Inter font from Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@config "../tailwind.config.js";
 
 @layer base {
   :root {
     /* Backgrounds */
-    --color-bg-primary: #fdfcfa;
-    --color-bg-secondary: #f9f6f3;
-    --color-bg-tertiary: #f0ebe6;
+    --color-bg-primary: #f7f5f3;
+    --color-bg-secondary: #f2efec;
+    --color-bg-tertiary: #ebe7e3;
 
     /* Text */
     --color-text-primary: #3a3632;
@@ -18,18 +17,18 @@
     --color-text-muted: #b8afa5;
 
     /* Borders */
-    --color-border: #f0ebe6;
-    --color-border-hover: #e2dbd3;
+    --color-border: #e8e4e0;
+    --color-border-hover: #ddd8d2;
     --color-border-strong: #b8afa5;
 
     /* Accent (terracotta) */
     --color-accent: #b56a4a;
     --color-accent-hover: #a55d3d;
-    --color-accent-light: rgba(198, 125, 90, 0.1);
+    --color-accent-light: rgba(198, 125, 90, 0.12);
 
     /* Surfaces */
-    --color-surface: white;
-    --color-surface-elevated: white;
+    --color-surface: #fdfcfa;
+    --color-surface-elevated: #ffffff;
 
     /* Status colors */
     --color-error: #c45454;
@@ -136,27 +135,6 @@
     cursor: not-allowed;
   }
 
-  .btn-secondary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.75rem 1.5rem;
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-border-hover);
-    color: var(--color-text-primary);
-    font-size: 1rem;
-    font-weight: 500;
-    border-radius: 0.5rem;
-    text-decoration: none;
-    cursor: pointer;
-    transition: border-color 0.15s ease;
-  }
-
-  .btn-secondary:hover {
-    border-color: var(--color-border-strong);
-    text-decoration: none;
-  }
-
   .btn-text {
     display: inline-flex;
     align-items: center;
@@ -232,28 +210,6 @@
 
   .file-input::file-selector-button:hover {
     background-color: var(--color-bg-tertiary);
-  }
-
-  /* Input with icon */
-  .input-with-icon {
-    position: relative;
-  }
-
-  .input-with-icon .input-icon {
-    position: absolute;
-    left: 0.875rem;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--color-text-muted);
-    pointer-events: none;
-  }
-
-  .input-with-icon .input-field {
-    padding-left: 2.5rem;
-  }
-
-  .input-with-icon:focus-within .input-icon {
-    color: var(--color-accent);
   }
 
   /* Card styles */

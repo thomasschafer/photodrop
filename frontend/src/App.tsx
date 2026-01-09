@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { PhotoUpload } from './components/PhotoUpload';
@@ -10,67 +10,70 @@ import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
 
+const tabs = [
+  { id: 'feed' as const, label: 'Photos' },
+  { id: 'upload' as const, label: 'Upload' },
+  { id: 'invite' as const, label: 'Invite' },
+];
+
 function MainApp() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'feed' | 'upload' | 'invite'>('feed');
   const [feedKey, setFeedKey] = useState(0);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const handleUploadComplete = () => {
     setActiveTab('feed');
     setFeedKey((prev) => prev + 1);
   };
 
+  const focusTab = useCallback((index: number) => {
+    const clampedIndex = Math.max(0, Math.min(index, tabs.length - 1));
+    tabRefs.current[clampedIndex]?.focus();
+  }, []);
+
+  const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    switch (e.key) {
+      case 'ArrowRight':
+        e.preventDefault();
+        focusTab(index + 1);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        focusTab(index - 1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        focusTab(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        focusTab(tabs.length - 1);
+        break;
+    }
+  };
+
   if (!user) {
     return <LandingPage />;
   }
 
-  const tabs = [
-    { id: 'feed' as const, label: 'Photos' },
-    { id: 'upload' as const, label: 'Upload' },
-    { id: 'invite' as const, label: 'Invite' },
-  ];
-
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--color-bg-primary)' }}>
+    <div className="min-h-screen bg-bg-primary">
       <a href="#main-content" className="skip-to-main">
         Skip to main content
       </a>
 
-      <header
-        style={{
-          backgroundColor: 'var(--color-surface)',
-          borderBottom: '1px solid var(--color-border)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 40,
-        }}
-      >
-        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '0 1.5rem' }}>
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              height: '4rem',
-            }}
-          >
+      <header className="sticky top-0 z-40 bg-surface border-b border-border">
+        <div className="max-w-[900px] mx-auto px-6">
+          <div className="flex justify-between items-center h-16">
             <Logo size="sm" />
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div className="flex items-center gap-4">
               <ThemeToggle />
-              <span style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
-                {user.name}
-              </span>
+              <span className="text-sm text-text-secondary">{user.name}</span>
               <button
                 onClick={logout}
-                style={{
-                  fontSize: '0.875rem',
-                  color: 'var(--color-accent)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                }}
+                className="text-sm font-medium text-accent bg-transparent border-none cursor-pointer transition-colors hover:text-accent-hover"
               >
                 Sign out
               </button>
@@ -78,28 +81,23 @@ function MainApp() {
           </div>
 
           {user.role === 'admin' && (
-            <nav style={{ display: 'flex', gap: '2rem' }}>
-              {tabs.map((tab) => (
+            <nav className="flex gap-8" role="tablist" aria-label="Main navigation">
+              {tabs.map((tab, index) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  style={{
-                    paddingBottom: '0.875rem',
-                    fontSize: '0.875rem',
-                    fontWeight: 500,
-                    color:
-                      activeTab === tab.id
-                        ? 'var(--color-text-primary)'
-                        : 'var(--color-text-secondary)',
-                    background: 'none',
-                    border: 'none',
-                    borderBottom:
-                      activeTab === tab.id
-                        ? '2px solid var(--color-accent)'
-                        : '2px solid transparent',
-                    marginBottom: '-1px',
-                    cursor: 'pointer',
+                  ref={(el) => {
+                    tabRefs.current[index] = el;
                   }}
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  aria-controls={`tabpanel-${tab.id}`}
+                  onClick={() => setActiveTab(tab.id)}
+                  onKeyDown={(e) => handleTabKeyDown(e, index)}
+                  className={`pb-3.5 text-sm font-medium bg-transparent border-none cursor-pointer -mb-px border-b-2 transition-colors hover:text-text-primary ${
+                    activeTab === tab.id
+                      ? 'text-text-primary border-accent'
+                      : 'text-text-secondary border-transparent'
+                  }`}
                 >
                   {tab.label}
                 </button>
@@ -109,17 +107,14 @@ function MainApp() {
         </div>
       </header>
 
-      <main
-        id="main-content"
-        style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem 1.5rem' }}
-      >
-        <div>
+      <main id="main-content" className="max-w-[900px] mx-auto py-8 px-6">
+        <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-label={`${activeTab} content`}>
           {activeTab === 'feed' && <PhotoFeed key={feedKey} isAdmin={user.role === 'admin'} />}
           {activeTab === 'upload' && user.role === 'admin' && (
             <PhotoUpload onUploadComplete={handleUploadComplete} />
           )}
           {activeTab === 'invite' && user.role === 'admin' && (
-            <div style={{ maxWidth: '420px' }}>
+            <div className="max-w-[480px] mx-auto">
               <InviteForm />
             </div>
           )}
@@ -134,15 +129,7 @@ function App() {
 
   if (loading) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-          backgroundColor: 'var(--color-bg-primary)',
-        }}
-      >
+      <div className="flex items-center justify-center min-h-screen bg-bg-primary">
         <div className="spinner" />
       </div>
     );

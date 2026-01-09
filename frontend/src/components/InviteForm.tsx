@@ -62,54 +62,18 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
 
   return (
     <div className="card">
-      <h2
-        style={{
-          fontSize: '1.125rem',
-          fontWeight: 500,
-          color: 'var(--color-text-primary)',
-          marginBottom: '0.25rem',
-        }}
-      >
-        Invite someone
-      </h2>
-      <p
-        style={{
-          fontSize: '0.875rem',
-          color: 'var(--color-text-secondary)',
-          marginBottom: '1rem',
-        }}
-      >
-        Add a new member to your group
-      </p>
+      <h2 className="text-lg font-medium text-text-primary mb-1">Invite someone</h2>
+      <p className="text-sm text-text-secondary mb-4">Add a new member to your group</p>
 
       {status === 'success' && (
-        <div
-          style={{
-            marginBottom: '1rem',
-            padding: '0.75rem',
-            backgroundColor: 'var(--color-accent-light)',
-            border: '1px solid var(--color-accent)',
-            borderRadius: '0.5rem',
-            fontSize: '0.875rem',
-            color: 'var(--color-accent)',
-          }}
-        >
+        <div className="mb-4 p-3 bg-accent-light border border-accent rounded-lg text-sm text-accent">
           Invite sent to <strong>{successEmail}</strong>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <div>
-          <label
-            htmlFor="invite-name"
-            style={{
-              display: 'block',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              color: 'var(--color-text-primary)',
-              marginBottom: '0.5rem',
-            }}
-          >
+          <label htmlFor="invite-name" className="block text-sm font-medium text-text-primary mb-2">
             Name
           </label>
           <input
@@ -127,13 +91,7 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
         <div>
           <label
             htmlFor="invite-email"
-            style={{
-              display: 'block',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              color: 'var(--color-text-primary)',
-              marginBottom: '0.5rem',
-            }}
+            className="block text-sm font-medium text-text-primary mb-2"
           >
             Email
           </label>
@@ -150,16 +108,7 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
         </div>
 
         <div>
-          <label
-            htmlFor="invite-role"
-            style={{
-              display: 'block',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              color: 'var(--color-text-primary)',
-              marginBottom: '0.5rem',
-            }}
-          >
+          <label htmlFor="invite-role" className="block text-sm font-medium text-text-primary mb-2">
             Role
           </label>
           <select
@@ -175,7 +124,7 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
         </div>
 
         {status === 'error' && (
-          <p style={{ fontSize: '0.875rem', color: 'var(--color-error)' }} role="alert">
+          <p className="text-sm text-error" role="alert">
             {errorMessage}
           </p>
         )}
