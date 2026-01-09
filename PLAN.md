@@ -6,6 +6,7 @@
 - ✅ Phase 1 (Foundation): Complete - photo upload/feed, JWT auth, user management
 - ✅ Phase 1.5 (Email Auth): Complete - frontend done, magic links working, mock email for local dev
 - ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout, admin features
+- ❌ Phase 1.7 (Multi-group): Not started - users can belong to multiple groups
 - ❌ Phase 2+ (PWA, Notifications): Not started
 
 ---
@@ -16,7 +17,7 @@ A PWA for privately sharing photos within isolated groups. Each group has its ow
 
 **Use cases:** Family photos, travel photos, event photos - each in separate isolated groups.
 
-**Multi-tenancy:** Each group is completely isolated. Users in one group can never see photos or data from another group.
+**Multi-tenancy:** Each group is completely isolated. Users can belong to multiple groups (with different roles in each), but data between groups is never shared. When viewing a group, users only see that group's photos and members.
 
 ## Core requirements
 
@@ -36,9 +37,10 @@ A PWA for privately sharing photos within isolated groups. Each group has its ow
 - Offline support with sync
 
 **Group isolation (critical):**
-- Complete isolation between groups
-- Users belong to exactly one group
-- All queries scoped by group_id
+- Complete data isolation between groups
+- Users can belong to multiple groups (via memberships table)
+- Each session operates in one group context at a time
+- All queries scoped by group_id from current session
 
 ### Non-functional
 
@@ -101,16 +103,23 @@ CREATE TABLE groups (
   created_by TEXT NOT NULL
 );
 
--- Users (group_id required for isolation)
+-- Users (account info only, no group affiliation)
 CREATE TABLE users (
   id TEXT PRIMARY KEY,
-  group_id TEXT NOT NULL,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL,  -- 'admin' or 'member'
-  invite_accepted_at INTEGER,
   created_at INTEGER NOT NULL,
-  last_seen_at INTEGER,
+  last_seen_at INTEGER
+);
+
+-- Memberships (junction table: users can belong to multiple groups)
+CREATE TABLE memberships (
+  user_id TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  role TEXT NOT NULL,  -- 'admin' or 'member'
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, group_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
@@ -142,16 +151,23 @@ CREATE TABLE photos (
 -- Plus: push_subscriptions, photo_views, photo_reactions tables
 ```
 
-**Critical:** All queries MUST filter by group_id to prevent cross-group access.
+**Critical:** All queries MUST filter by group_id (from JWT) to prevent cross-group access.
 
 ### API endpoints
 
 **Authentication:**
 - `POST /api/auth/send-invite` - Send invite email (admin only, scoped to admin's group)
-- `POST /api/auth/send-login-link` - Send login link (public, looks up user's group)
+- `POST /api/auth/send-login-link` - Send login link (public, looks up user by email)
 - `POST /api/auth/verify-magic-link` - Verify token and issue JWT
 - `POST /api/auth/refresh` - Refresh JWT
 - `POST /api/auth/logout` - Invalidate refresh token
+- `POST /api/auth/switch-group` - Switch to different group (issues new tokens)
+
+**Groups:**
+- `GET /api/groups` - List groups current user is a member of (with roles)
+- `GET /api/groups/:groupId/members` - List members of a group (admin only)
+- `PATCH /api/groups/:groupId/members/:userId` - Update member role (admin only)
+- `DELETE /api/groups/:groupId/members/:userId` - Remove user from group (admin only)
 
 **Group + admin creation:** CLI script only (no public endpoint)
 ```bash
@@ -282,6 +298,163 @@ nix run .#dev      # Start servers (auto-setup on first run)
 - [x] Atomic photo upload with R2 cleanup on failure
 - [x] Dark mode toggle (system/light/dark)
 
+### Phase 1.7: Multi-group membership
+
+**Goal:** Allow users to belong to multiple groups with different roles in each. One login grants access to all groups; users switch between groups via a header dropdown.
+
+**Database migration (`migrations/0002_multi_group_membership.sql`):**
+```sql
+-- Create memberships junction table
+CREATE TABLE memberships (
+  user_id TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('admin', 'member')),
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, group_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+);
+
+-- Migrate existing data from users table
+INSERT INTO memberships (user_id, group_id, role, joined_at)
+SELECT id, group_id, role, COALESCE(invite_accepted_at, created_at) FROM users;
+
+-- Create new users table without group_id/role
+CREATE TABLE users_new (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER
+);
+
+INSERT INTO users_new (id, name, email, created_at, last_seen_at)
+SELECT id, name, email, created_at, last_seen_at FROM users;
+
+-- Swap tables
+DROP TABLE users;
+ALTER TABLE users_new RENAME TO users;
+
+-- Indexes
+CREATE INDEX idx_memberships_user ON memberships(user_id);
+CREATE INDEX idx_memberships_group ON memberships(group_id);
+CREATE INDEX idx_users_email ON users(email);
+```
+
+**Backend changes:**
+
+- [ ] New `Membership` type and DB functions:
+  - `getUserMemberships(db, userId): Membership[]`
+  - `getMembership(db, userId, groupId): Membership | null`
+  - `createMembership(db, userId, groupId, role)`
+  - `updateMembershipRole(db, userId, groupId, role)`
+  - `deleteMembership(db, userId, groupId)`
+- [ ] Update `User` type: remove `group_id` and `role` fields
+- [ ] Update `createUser()`: no longer takes groupId/role
+- [ ] Update `getUserByEmail()`: returns user without group context
+- [ ] New auth endpoint `POST /api/auth/switch-group`:
+  - Verify user has membership in requested group
+  - Issue new access/refresh tokens with that groupId
+  - Return new tokens + group info
+- [ ] New endpoint `GET /api/groups`:
+  - Return all groups the current user is a member of
+  - Include role for each group
+- [ ] New endpoint `GET /api/groups/:groupId/members`:
+  - Admin only - list all members of a group with their roles
+- [ ] New endpoint `PATCH /api/groups/:groupId/members/:userId`:
+  - Admin only - update member role
+  - Cannot demote yourself if you're the last admin
+- [ ] New endpoint `DELETE /api/groups/:groupId/members/:userId`:
+  - Admin only - remove a user from the group
+  - Deletes membership record (user account remains)
+  - Cannot remove yourself if you're the last admin
+- [ ] Update magic link verification:
+  - For invites: create user (if needed) + create membership
+  - For login: look up user, get their memberships
+  - If single group → issue token for that group
+  - If multiple groups → issue token with `groupId: null`, frontend shows picker
+- [ ] Update `requireAuth` middleware:
+  - Validate groupId in token against memberships table
+  - Populate `c.get('membership')` with role from memberships table
+- [ ] Update invite flow:
+  - Check if email already exists as user
+  - If yes: just create membership (user joins another group)
+  - If no: create user + membership
+
+**Frontend changes:**
+
+- [ ] New `GroupSwitcher` component (header dropdown):
+  - Reuse keyboard navigation pattern from `ThemeToggle` (Arrow keys, Home/End, Escape)
+  - Show current group name with dropdown indicator
+  - List all user's groups with role badges
+  - Call switch-group API on selection
+  - Refresh app state after switch
+- [ ] Update `AuthContext`:
+  - Store `currentGroup` and `groups` list
+  - Add `switchGroup(groupId)` function
+  - Handle multi-group login flow (show picker if needed)
+- [ ] New `GroupPickerPage` for post-login group selection:
+  - Shown when user has multiple groups and no current selection
+  - Grid/list of group cards
+  - Selecting a group calls switch-group and redirects to feed
+  - Empty state for users with no groups: "You're not a member of any groups yet. Ask someone to invite you."
+- [ ] Update header to include `GroupSwitcher` next to `ThemeToggle`
+- [ ] Update `InviteForm`:
+  - Handle case where invited email already has an account
+  - Show appropriate success message ("Invite sent" vs "User added to group")
+- [ ] New `MembersPage` or `MembersList` component (admin only):
+  - List all members of current group with their roles
+  - Role toggle/dropdown to promote member → admin or demote admin → member
+  - Remove button for each member (with confirmation)
+  - Cannot remove yourself if you're the last admin
+  - Cannot demote yourself if you're the last admin
+  - Accessible from a new "Members" tab (admin only)
+
+**Login flow (updated):**
+
+1. User enters email → receives magic link
+2. User clicks link → backend verifies token
+3. If new user: create user + membership, issue token for that group
+4. If existing user with one group: issue token for that group
+5. If existing user with multiple groups:
+   - Issue token with no groupId (or special "picker" state)
+   - Frontend shows GroupPickerPage
+   - User selects group → switch-group API → token with groupId → redirect to feed
+6. If existing user with zero groups:
+   - Issue token with no groupId
+   - Frontend shows GroupPickerPage with empty state
+   - User waits to be invited to a group
+
+**Testing:**
+
+Unit tests (Vitest):
+- [ ] `getUserMemberships()` returns all memberships for a user
+- [ ] `getUserMemberships()` returns empty array for user with no groups
+- [ ] `getMembership()` returns correct role for user+group
+- [ ] `createMembership()` handles new membership creation
+- [ ] `createMembership()` fails gracefully for duplicate membership
+- [ ] `deleteMembership()` removes membership but keeps user account
+- [ ] `updateMembershipRole()` changes role correctly
+- [ ] Switch-group token generation includes correct groupId
+- [ ] Switch-group rejects if user not a member of group
+
+E2E tests (Playwright):
+- [ ] User with single group logs in directly to feed (no picker)
+- [ ] User with multiple groups sees group picker after login
+- [ ] User can select group from picker and lands on correct feed
+- [ ] User with zero groups sees empty state after login
+- [ ] Group switcher dropdown shows all user's groups
+- [ ] Switching groups via dropdown loads new group's photos
+- [ ] User invited to second group can access both groups
+- [ ] Admin of group A cannot see photos from group B
+- [ ] Role is correct per-group (admin in A, member in B)
+- [ ] Admin can remove a member from the group
+- [ ] Removed user no longer sees that group in their list
+- [ ] Admin cannot remove themselves if they're the last admin
+- [ ] Admin can promote member to admin
+- [ ] Admin can demote another admin to member
+- [ ] Admin cannot demote themselves if they're the last admin
+
 ### Phase 2: PWA features
 
 - [ ] Service worker with Workbox (offline caching)
@@ -291,7 +464,7 @@ nix run .#dev      # Start servers (auto-setup on first run)
 ### Phase 3: Polish
 
 - [x] Admin photo deletion UI
-- [ ] Admin user management UI (role promotion, user removal)
+- [x] Admin user management UI (role promotion, user removal) - moved to Phase 1.7
 - [ ] UX improvements (gallery navigation, reactions UI)
 - [ ] Domain setup and production deployment
 - [ ] Multi-device testing
@@ -316,12 +489,15 @@ nix run .#dev      # Start servers (auto-setup on first run)
 1. JWT generation/validation with group_id ✅
 2. Crypto utilities ✅
 3. Image compression utilities ✅
+4. Membership DB functions (Phase 1.7)
+5. Switch-group token validation (Phase 1.7)
 
 **E2E tests (Playwright):**
 1. Admin workflow (login, upload, delete, invite) ✅
 2. Member workflow (view-only permissions) ✅
 3. Tenant isolation (critical security tests) ✅
 4. Auth edge cases (expiry, reuse, persistence) ✅
+5. Multi-group membership (login flow, group switching, per-group roles) (Phase 1.7)
 
 **Running tests:**
 ```bash
