@@ -4,7 +4,6 @@ export interface Group {
   id: string;
   name: string;
   created_at: number;
-  created_by: string;
 }
 
 export interface User {
@@ -67,20 +66,16 @@ export interface PhotoReaction {
 }
 
 // Group functions
-export async function createGroup(
-  db: D1Database,
-  name: string,
-  createdBy: string
-): Promise<string> {
+export async function createGroup(db: D1Database, name: string): Promise<string> {
   const groupId = generateId();
   const now = Math.floor(Date.now() / 1000);
 
   await db
     .prepare(
-      `INSERT INTO groups (id, name, created_at, created_by)
-       VALUES (?, ?, ?, ?)`
+      `INSERT INTO groups (id, name, created_at)
+       VALUES (?, ?, ?)`
     )
-    .bind(groupId, name, now, createdBy)
+    .bind(groupId, name, now)
     .run();
 
   return groupId;
@@ -200,15 +195,6 @@ export async function deleteMembership(
     .run();
 
   return result.success;
-}
-
-export async function countGroupAdmins(db: D1Database, groupId: string): Promise<number> {
-  const result = await db
-    .prepare('SELECT COUNT(*) as count FROM memberships WHERE group_id = ? AND role = ?')
-    .bind(groupId, 'admin')
-    .first<{ count: number }>();
-
-  return result?.count || 0;
 }
 
 export async function getUserById(db: D1Database, userId: string): Promise<User | null> {

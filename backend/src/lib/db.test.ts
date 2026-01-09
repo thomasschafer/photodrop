@@ -5,7 +5,6 @@ import {
   createMembership,
   deleteMembership,
   updateMembershipRole,
-  countGroupAdmins,
 } from './db';
 
 function createMockDb(results: unknown[] = [], error?: Error) {
@@ -185,25 +184,6 @@ describe('Membership functions', () => {
 
       expect(result).toBe(true);
       expect(db._mocks.mockBind).toHaveBeenCalledWith('member', 'user-1', 'group-1');
-    });
-  });
-
-  describe('countGroupAdmins', () => {
-    it('returns correct admin count', async () => {
-      const db = createMockDb([{ count: 3 }]);
-
-      const result = await countGroupAdmins(db, 'group-1');
-
-      expect(result).toBe(3);
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1', 'admin');
-    });
-
-    it('returns 0 when no admins exist', async () => {
-      const db = createMockDb([null]);
-
-      const result = await countGroupAdmins(db, 'group-empty');
-
-      expect(result).toBe(0);
     });
   });
 });

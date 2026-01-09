@@ -100,8 +100,7 @@ A PWA for privately sharing photos within isolated groups. Each group has its ow
 CREATE TABLE groups (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  created_by TEXT NOT NULL
+  created_at INTEGER NOT NULL
 );
 
 -- Users (account info only, no group affiliation)
@@ -117,7 +116,7 @@ CREATE TABLE users (
 CREATE TABLE memberships (
   user_id TEXT NOT NULL,
   group_id TEXT NOT NULL,
-  role TEXT NOT NULL,  -- 'admin' or 'member'
+  role TEXT NOT NULL,  -- 'owner', 'admin', or 'member'
   joined_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, group_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -299,48 +298,9 @@ nix run .#dev      # Start servers (auto-setup on first run)
 - [x] Atomic photo upload with R2 cleanup on failure
 - [x] Dark mode toggle (system/light/dark)
 
-### Phase 1.7: Multi-group membership
+### Phase 1.7: Multi-group membership ✅
 
 **Goal:** Allow users to belong to multiple groups with different roles in each. One login grants access to all groups; users switch between groups via a header dropdown.
-
-**Database migration (`migrations/0002_multi_group_membership.sql`):**
-```sql
--- Create memberships junction table
-CREATE TABLE memberships (
-  user_id TEXT NOT NULL,
-  group_id TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('admin', 'member')),
-  joined_at INTEGER NOT NULL,
-  PRIMARY KEY (user_id, group_id),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
-);
-
--- Migrate existing data from users table
-INSERT INTO memberships (user_id, group_id, role, joined_at)
-SELECT id, group_id, role, COALESCE(invite_accepted_at, created_at) FROM users;
-
--- Create new users table without group_id/role
-CREATE TABLE users_new (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  created_at INTEGER NOT NULL,
-  last_seen_at INTEGER
-);
-
-INSERT INTO users_new (id, name, email, created_at, last_seen_at)
-SELECT id, name, email, created_at, last_seen_at FROM users;
-
--- Swap tables
-DROP TABLE users;
-ALTER TABLE users_new RENAME TO users;
-
--- Indexes
-CREATE INDEX idx_memberships_user ON memberships(user_id);
-CREATE INDEX idx_memberships_group ON memberships(group_id);
-CREATE INDEX idx_users_email ON users(email);
-```
 
 **Backend changes:**
 
@@ -458,58 +418,27 @@ E2E tests (Playwright):
 
 ### Phase 1.8: Owner role
 
-**Goal:** Add an "owner" role distinct from admin. Each group has exactly one owner who is responsible for payments (if ever enabled) and ultimately owns the group. Owners have all admin permissions, but their role is immutable - it cannot be changed by anyone except via an explicit ownership transfer.
+**Goal:** Add an "owner" role distinct from admin. Each group has exactly one owner who cannot be removed or have their role changed. Groups always start with an owner (created via CLI script). Owners have all admin permissions. This replaces the "last admin" protection - since every group has an immutable owner, there's always someone who can manage the group.
 
-**Database migration (`migrations/0003_owner_role.sql`):**
-```sql
--- SQLite doesn't support ALTER TABLE to modify CHECK constraints, so we need to recreate the table
-CREATE TABLE memberships_new (
-  user_id TEXT NOT NULL,
-  group_id TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member')),
-  joined_at INTEGER NOT NULL,
-  PRIMARY KEY (user_id, group_id),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
-);
-
--- Migrate data: group creators become owners, others keep their role
-INSERT INTO memberships_new (user_id, group_id, role, joined_at)
-SELECT
-  m.user_id,
-  m.group_id,
-  CASE WHEN m.user_id = g.created_by AND m.role = 'admin' THEN 'owner' ELSE m.role END,
-  m.joined_at
-FROM memberships m
-JOIN groups g ON m.group_id = g.id;
-
--- Swap tables
-DROP TABLE memberships;
-ALTER TABLE memberships_new RENAME TO memberships;
-
--- Recreate indexes
-CREATE INDEX idx_memberships_user ON memberships(user_id);
-CREATE INDEX idx_memberships_group ON memberships(group_id);
-```
+**Key invariants:**
+- Every group has exactly one owner
+- Owner role is immutable (cannot be changed or removed)
+- Groups are created via CLI with the owner specified
+- Owners cannot be invited (only admins/members can be invited)
 
 **Backend changes:**
 
 - [ ] Update `Membership` type to include `'owner'` in role union type
-- [ ] Add `getGroupOwner(db, groupId): Membership | null` function
 - [ ] Update `updateMembershipRole()`:
   - Reject attempts to change an owner's role (return 403)
-  - Reject attempts to promote someone to owner (must use transfer)
+  - Reject attempts to promote someone to owner (owner is set at group creation only)
 - [ ] Update `deleteMembership()`:
-  - Reject attempts to remove an owner (return 403 with message to transfer first)
-- [ ] New endpoint `POST /api/groups/:groupId/transfer-ownership`:
-  - Owner only - returns 403 for non-owners
-  - Request body: `{ targetUserId: string }`
-  - Validates target user is a member of the group
-  - Atomic transaction: promotes target to owner, demotes caller to admin
-  - Returns updated membership list
-- [ ] Update `requireAdmin` middleware to also allow owners (or create `requireAdminOrOwner`)
+  - Reject attempts to remove an owner (return 403)
+- [ ] Update `requireAdmin` middleware to also allow owners
+- [x] Remove `countGroupAdmins()` function (no longer needed - owner guarantees group management)
 - [ ] Update `create-group` CLI script:
   - Create initial user with `role='owner'` instead of `role='admin'`
+- [x] Remove `created_by` column from groups table (not needed)
 
 **Frontend changes:**
 
@@ -518,36 +447,21 @@ CREATE INDEX idx_memberships_group ON memberships(group_id);
   - Display "Owner" badge with distinct styling (different color from admin)
   - Hide role dropdown/toggle for owner (role is immutable)
   - Hide remove button for owner
-  - Show "Transfer Ownership" button next to non-owner members (visible to owner only)
-- [ ] Add transfer ownership confirmation dialog:
-  - "Transfer ownership to [name]? You will become an admin."
-  - Confirm/Cancel buttons
-  - Calls transfer-ownership endpoint on confirm
-  - Refreshes member list after success
 - [ ] Update `GroupSwitcher` to show owner badge where applicable
+- [ ] Remove "last admin" validation from role change/remove UI
 
 **Testing:**
 
 Unit tests (Vitest):
-- [ ] `getGroupOwner()` returns owner membership for group
-- [ ] `getGroupOwner()` returns null for group with no owner (edge case)
 - [ ] `updateMembershipRole()` rejects changing owner's role
 - [ ] `updateMembershipRole()` rejects promoting to owner
 - [ ] `deleteMembership()` rejects removing owner
-- [ ] Transfer ownership promotes target and demotes caller atomically
-- [ ] Transfer ownership rejects if caller is not owner
-- [ ] Transfer ownership rejects if target is not a member
 
 E2E tests (Playwright):
-- [ ] Group creator has owner role after creation
+- [ ] Group created via CLI has owner role
 - [ ] Owner badge displays with distinct styling in members list
 - [ ] Owner role dropdown is not shown (immutable)
 - [ ] Owner has no remove button
-- [ ] Owner can see "Transfer Ownership" button for other members
-- [ ] Non-owner cannot see "Transfer Ownership" button
-- [ ] Owner can transfer ownership to a member
-- [ ] After transfer: old owner is admin, new member is owner
-- [ ] Transfer requires confirmation dialog
 - [ ] Admin cannot change owner's role via API (403)
 - [ ] Admin cannot remove owner via API (403)
 
@@ -573,7 +487,7 @@ E2E tests (Playwright):
 
 ## Future enhancements
 
-**Nice-to-haves:** Batch upload, video support, albums, comments
+**Nice-to-haves:** Batch upload, video support, albums, comments, ownership transfer (allow owner to transfer ownership to another member)
 
 **Technical:** Progressive image loading, CDN optimization, accessibility improvements
 
@@ -611,11 +525,7 @@ nix run .#test-e2e-ui    # E2E with Playwright UI
 
 ## Database migrations
 
-- Store in `migrations/` as numbered SQL files
-- Track in `schema_migrations` table
-- Run via Wrangler CLI
-- Always test locally first
-- Backup before major changes
+Schema is defined in `backend/migrations/0001_initial_schema.sql`. For schema changes, update this file and reset local dev DB with `nix run .#teardown-dev && nix run .#dev`.
 
 ## Monitoring
 

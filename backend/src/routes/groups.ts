@@ -5,7 +5,6 @@ import {
   getMembership,
   updateMembershipRole,
   deleteMembership,
-  countGroupAdmins,
   updateUserName,
 } from '../lib/db';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -100,14 +99,6 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
         return c.json({ error: 'Invalid role' }, 400);
       }
 
-      // Prevent demoting yourself if you're the last admin
-      if (userId === user.id && role === 'member') {
-        const adminCount = await countGroupAdmins(c.env.DB, groupId);
-        if (adminCount <= 1) {
-          return c.json({ error: 'Cannot demote yourself - you are the last admin' }, 400);
-        }
-      }
-
       await updateMembershipRole(c.env.DB, userId, groupId, role);
     }
 
@@ -144,17 +135,9 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
     }
 
     // Check if membership exists
-    const membership = await getMembership(c.env.DB, userId, groupId);
-    if (!membership) {
+    const exists = await getMembership(c.env.DB, userId, groupId);
+    if (!exists) {
       return c.json({ error: 'User is not a member of this group' }, 404);
-    }
-
-    // Prevent removing yourself if you're the last admin
-    if (userId === user.id) {
-      const adminCount = await countGroupAdmins(c.env.DB, groupId);
-      if (membership.role === 'admin' && adminCount <= 1) {
-        return c.json({ error: 'Cannot remove yourself - you are the last admin' }, 400);
-      }
     }
 
     await deleteMembership(c.env.DB, userId, groupId);

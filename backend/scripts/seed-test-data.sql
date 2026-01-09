@@ -2,8 +2,8 @@
 -- Run with: wrangler d1 execute photodrop-db-dev --local --file=scripts/seed-test-data.sql
 
 -- Create a test group
-INSERT OR IGNORE INTO groups (id, name, created_at, created_by)
-VALUES ('test-group-1', 'Test Family', unixepoch(), 'system');
+INSERT OR IGNORE INTO groups (id, name, created_at)
+VALUES ('test-group-1', 'Test Family', unixepoch());
 
 -- Create a test admin user
 INSERT OR IGNORE INTO users (id, name, email, created_at)

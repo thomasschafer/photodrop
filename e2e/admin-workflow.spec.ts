@@ -87,15 +87,17 @@ test.describe('Admin workflow', () => {
     await page.reload();
     await expect(page.getByText('Unique delete test photo')).toBeVisible({ timeout: 5000 });
 
-    // Setup dialog handler before clicking
-    page.on('dialog', (dialog) => dialog.accept());
-
     // Find the specific article with our photo and click its delete button
     const photoCard = page.locator('article').filter({ hasText: 'Unique delete test photo' });
     const deleteButton = photoCard.getByRole('button', { name: /delete/i });
 
     // Use force click to avoid event propagation issues
     await deleteButton.click({ force: true });
+
+    // Confirm deletion in the modal
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Delete' }).click();
 
     // Wait for photo to be removed from DOM
     await expect(page.getByText('Unique delete test photo')).not.toBeVisible({ timeout: 10000 });
@@ -108,8 +110,7 @@ test.describe('Admin workflow', () => {
     // Navigate to invite tab
     await page.getByRole('tab', { name: /invite/i }).click();
 
-    // Fill in invite form
-    await page.getByLabel(/name/i).fill('New Member');
+    // Fill in invite form (only email and role, no name field)
     await page.getByLabel(/email/i).fill('newmember@test.local');
 
     // Submit the form

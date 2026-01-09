@@ -5,8 +5,7 @@
 CREATE TABLE IF NOT EXISTS groups (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  created_by TEXT NOT NULL
+  created_at INTEGER NOT NULL
 );
 
 -- Users table: stores all users (group membership is separate)

@@ -68,16 +68,16 @@ export function AuthVerifyPage() {
 
     verificationAttempted.current = true;
 
-    async function verify() {
+    async function verify(tokenToVerify: string) {
       try {
-        const data = await api.auth.verifyMagicLink(token);
+        const data = await api.auth.verifyMagicLink(tokenToVerify);
         handleVerificationResult(data);
       } catch (error) {
         handleVerificationError(error);
       }
     }
 
-    verify();
+    verify(token);
   }, [token, handleVerificationResult, handleVerificationError]);
 
   const handleNameSubmit = async (e: FormEvent) => {

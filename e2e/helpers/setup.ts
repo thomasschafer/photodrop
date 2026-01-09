@@ -28,7 +28,7 @@ export function createTestGroup(name: string): TestGroup {
 
   // Insert group
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO groups (id, name, created_at, created_by) VALUES ('${groupId}', '${name}', ${now}, 'e2e-test');"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO groups (id, name, created_at) VALUES ('${groupId}', '${name}', ${now});"`,
     { stdio: 'pipe' }
   );
 

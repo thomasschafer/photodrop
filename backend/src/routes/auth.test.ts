@@ -54,8 +54,13 @@ describe('switch-group endpoint', () => {
         return c.json({ error: 'User not found' }, 404);
       }
 
-      const accessToken = await mockGenerateAccessToken(user.id, groupId, membership.role, 'secret');
-      const refreshToken = await mockGenerateRefreshToken(
+      const accessToken = await mockGenerateAccessToken(
+        user.id,
+        groupId,
+        membership.role,
+        'secret'
+      );
+      const _refreshToken = await mockGenerateRefreshToken(
         user.id,
         groupId,
         membership.role,

@@ -43,8 +43,8 @@ cd "$(dirname "$0")/../backend"
 
 # Insert group
 wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
-INSERT INTO groups (id, name, created_at, created_by)
-VALUES ('$GROUP_ID', '$GROUP_NAME', $NOW, 'cli');
+INSERT INTO groups (id, name, created_at)
+VALUES ('$GROUP_ID', '$GROUP_NAME', $NOW);
 "
 
 echo "✓ Group created (ID: $GROUP_ID)"

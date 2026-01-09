@@ -52,7 +52,7 @@
 
           # Run migrations
           echo "Running migrations..."
-          (cd backend && npx wrangler d1 migrations apply photodrop-db --local)
+          (cd backend && echo "y" | npx wrangler d1 migrations apply photodrop-db --local)
           echo ""
 
           # Start servers
@@ -110,7 +110,7 @@
           fi
 
           echo "Running database migrations..."
-          (cd backend && npx wrangler d1 migrations apply photodrop-db --local)
+          (cd backend && echo "y" | npx wrangler d1 migrations apply photodrop-db --local)
           echo ""
 
           if [ ! -d "$HOME/.cache/ms-playwright" ]; then
@@ -205,7 +205,7 @@
           cd backend
 
           echo "Running migrations..."
-          npx wrangler d1 migrations apply photodrop-db --local
+          echo "y" | npx wrangler d1 migrations apply photodrop-db --local
 
           echo "Seeding test data..."
           npx wrangler d1 execute photodrop-db --local --file=scripts/seed-test-data.sql
@@ -221,6 +221,28 @@
           echo "Running secrets scan with gitleaks..."
           gitleaks detect --verbose --config .gitleaks.toml
         '';
+
+        dev-kill = pkgs.writeShellScriptBin "dev-kill" ''
+          echo "Stopping all dev servers..."
+          pkill -f "wrangler dev" 2>/dev/null || true
+          pkill -f "vite" 2>/dev/null || true
+          echo "All dev servers stopped"
+        '';
+
+        teardown-dev = pkgs.writeShellScriptBin "teardown-dev" ''
+          export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
+          ./scripts/teardown.sh dev
+        '';
+
+        teardown-prod = pkgs.writeShellScriptBin "teardown-prod" ''
+          export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
+          ./scripts/teardown.sh prod
+        '';
+
+        teardown = pkgs.writeShellScriptBin "teardown" ''
+          export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
+          ./scripts/teardown.sh all
+        '';
       in
       {
         apps.dev = flake-utils.lib.mkApp { drv = dev; };
@@ -233,6 +255,10 @@
         apps.create-group = flake-utils.lib.mkApp { drv = create-group; };
         apps.db-seed = flake-utils.lib.mkApp { drv = db-seed; };
         apps.secrets-scan = flake-utils.lib.mkApp { drv = secrets-scan; };
+        apps.dev-kill = flake-utils.lib.mkApp { drv = dev-kill; };
+        apps.teardown-dev = flake-utils.lib.mkApp { drv = teardown-dev; };
+        apps.teardown-prod = flake-utils.lib.mkApp { drv = teardown-prod; };
+        apps.teardown = flake-utils.lib.mkApp { drv = teardown; };
 
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = deps ++ [
@@ -246,6 +272,10 @@
             create-group
             db-seed
             secrets-scan
+            dev-kill
+            teardown-dev
+            teardown-prod
+            teardown
           ];
         };
       }

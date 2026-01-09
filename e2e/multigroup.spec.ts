@@ -203,7 +203,11 @@ test.describe('Group switcher', () => {
     // Switch back to Alpha
     await page.getByRole('button', { name: /Switcher Beta/i }).click();
     await page.getByRole('option', { name: /Switcher Alpha/i }).click();
-    await expect(page.getByText('Switcher Alpha')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Switcher Alpha/i })).toBeVisible();
+
+    // Reload to ensure photos are refreshed for new group
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
     // Should see Alpha's photo, not Beta's
     await expect(page.getByText('Alpha Photo')).toBeVisible();
@@ -388,8 +392,8 @@ test.describe('Member management', () => {
     // Confirm removal - use exact match to get the modal button, not member-specific remove buttons
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
 
-    // Member should be removed from list
-    await expect(page.getByText('Removable Member')).not.toBeVisible({ timeout: 5000 });
+    // Member should be removed from list (use exact match to avoid matching modal text)
+    await expect(page.getByText('Removable Member', { exact: true })).not.toBeVisible({ timeout: 5000 });
   });
 
   test('admin cannot remove themselves if last admin', async ({ page }) => {
@@ -433,7 +437,7 @@ test.describe('Member management', () => {
     await page.getByRole('tab', { name: 'Members' }).click();
     await page.getByRole('button', { name: 'Remove Member To Remove from group' }).click();
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
-    await expect(page.getByText('Member To Remove')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Member To Remove', { exact: true })).not.toBeVisible({ timeout: 5000 });
 
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
