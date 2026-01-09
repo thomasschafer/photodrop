@@ -34,10 +34,10 @@ test.describe('Admin workflow', () => {
     await loginWithMagicLink(page, testGroup.magicLink);
 
     // Verify we're on the main app
-    await expect(page.getByRole('button', { name: 'Photos' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Photos' })).toBeVisible();
 
     // Verify admin sees the Upload tab
-    await expect(page.getByRole('button', { name: /upload/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /upload/i })).toBeVisible();
   });
 
   test('admin can upload a photo with caption', async ({ page, request }) => {
@@ -106,7 +106,7 @@ test.describe('Admin workflow', () => {
     await loginWithMagicLink(page, magicLink);
 
     // Navigate to invite tab
-    await page.getByRole('button', { name: /invite/i }).click();
+    await page.getByRole('tab', { name: /invite/i }).click();
 
     // Fill in invite form
     await page.getByLabel(/name/i).fill('New Member');

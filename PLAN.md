@@ -252,11 +252,11 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 - [x] Invite form component
 - [x] Update App.tsx with routing (React Router)
 - [x] Update AuthContext for email flow
+- [x] `scripts/create-group.sh` CLI script
 
 **Remaining for production:**
 - [ ] Cloudflare Email Workers setup (dashboard + DNS)
 - [ ] Implement actual email sending (MailChannels API)
-- [ ] `scripts/create-group.sh` CLI script
 
 **Local testing:**
 ```bash
@@ -280,6 +280,7 @@ nix run .#dev      # Start servers (auto-setup on first run)
 - [x] Improved thumbnail quality (800px, 85% quality)
 - [x] Auth middleware support for query param tokens (for image URLs)
 - [x] Atomic photo upload with R2 cleanup on failure
+- [x] Dark mode toggle (system/light/dark)
 
 ### Phase 2: PWA features
 
@@ -303,7 +304,7 @@ nix run .#dev      # Start servers (auto-setup on first run)
 
 ## Future enhancements
 
-**Nice-to-haves:** Batch upload, video support, albums, dark mode, comments
+**Nice-to-haves:** Batch upload, video support, albums, comments
 
 **Technical:** Progressive image loading, CDN optimization, accessibility improvements
 

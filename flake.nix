@@ -227,6 +227,19 @@
           echo "✅ All lint and format checks passed!"
         '';
 
+        build = pkgs.writeShellScriptBin "build" ''
+          export PATH="${pkgs.lib.makeBinPath coreDeps}:$PATH"
+          set -e
+
+          echo "🔨 Building frontend..."
+          cd frontend
+          npm ci
+          npm run build
+
+          echo ""
+          echo "✅ Build successful!"
+        '';
+
         setup-dev = pkgs.writeShellScriptBin "setup-dev" ''
           export PATH="${pkgs.lib.makeBinPath (coreDeps ++ deployDeps)}:$PATH"
           ./scripts/setup.sh dev
@@ -363,6 +376,11 @@
           drv = lint-and-format;
         };
 
+        # Build frontend
+        apps.build = flake-utils.lib.mkApp {
+          drv = build;
+        };
+
         # Setup development environment
         apps.setup-dev = flake-utils.lib.mkApp {
           drv = setup-dev;
@@ -436,6 +454,7 @@
             format-backend
             format-frontend
             lint-and-format
+            build
             setup-dev
             setup-prod
             deploy

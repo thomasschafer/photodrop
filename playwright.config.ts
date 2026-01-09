@@ -23,7 +23,7 @@ export default defineConfig({
 
   webServer: [
     {
-      command: 'cd backend && npm run dev',
+      command: 'cd backend && npx wrangler d1 migrations apply photodrop-db --local && npm run dev',
       url: 'http://localhost:8787/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
