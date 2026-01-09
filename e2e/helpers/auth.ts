@@ -3,11 +3,26 @@ import { Page, expect } from '@playwright/test';
 export async function loginWithMagicLink(page: Page, magicLink: string): Promise<void> {
   await page.goto(magicLink);
 
-  // Wait for verification to complete and redirect to main app
-  await expect(page).toHaveURL('/', { timeout: 10000 });
+  // Wait for verification to complete - either redirect to feed or show group picker
+  // The sign out button is present in both states
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({ timeout: 15000 });
 
-  // Verify we're logged in by checking for the Sign out button (present for all users)
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({ timeout: 5000 });
+  // Also verify we're not still on the auth page
+  await expect(page.locator('text=Verifying your link')).not.toBeVisible({ timeout: 5000 });
+}
+
+export async function loginWithMagicLinkExpectPicker(page: Page, magicLink: string): Promise<void> {
+  await page.goto(magicLink);
+
+  // Wait for group picker
+  await expect(page.getByText('Choose a group')).toBeVisible({ timeout: 15000 });
+}
+
+export async function loginWithMagicLinkExpectEmpty(page: Page, magicLink: string): Promise<void> {
+  await page.goto(magicLink);
+
+  // Wait for empty state
+  await expect(page.getByText('No groups yet')).toBeVisible({ timeout: 15000 });
 }
 
 export async function getAuthToken(page: Page): Promise<string | null> {

@@ -4,6 +4,7 @@ import { useAuth } from './contexts/AuthContext';
 import { PhotoUpload } from './components/PhotoUpload';
 import { PhotoFeed } from './components/PhotoFeed';
 import { InviteForm } from './components/InviteForm';
+import { MembersList } from './components/MembersList';
 import { Logo } from './components/Logo';
 import { ThemeToggle } from './components/ThemeToggle';
 import { GroupSwitcher } from './components/GroupSwitcher';
@@ -142,36 +143,11 @@ function MainApp() {
           )}
           {activeTab === 'members' && isAdmin && (
             <div className="max-w-[600px] mx-auto">
-              <MembersPlaceholder />
+              <MembersList />
             </div>
           )}
         </div>
       </main>
-    </div>
-  );
-}
-
-function MembersPlaceholder() {
-  return (
-    <div className="text-center py-12">
-      <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-bg-secondary flex items-center justify-center">
-        <svg
-          width="32"
-          height="32"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          className="text-text-tertiary"
-        >
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-        </svg>
-      </div>
-      <h2 className="text-lg font-medium text-text-primary mb-2">Members</h2>
-      <p className="text-text-secondary">Member management coming soon</p>
     </div>
   );
 }
