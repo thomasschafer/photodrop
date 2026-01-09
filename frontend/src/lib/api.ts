@@ -67,20 +67,20 @@ export const api = {
       return response.json();
     },
 
-    sendInvite: async (name: string, email: string, role: 'admin' | 'member' = 'member') => {
+    sendInvite: async (email: string, role: 'admin' | 'member' = 'member') => {
       const response = await fetchWithAuth('/api/auth/send-invite', {
         method: 'POST',
-        body: JSON.stringify({ name, email, role }),
+        body: JSON.stringify({ email, role }),
       });
       return response.json();
     },
 
-    verifyMagicLink: async (token: string) => {
+    verifyMagicLink: async (token: string, name?: string) => {
       const response = await fetchWithAuth(
         '/api/auth/verify-magic-link',
         {
           method: 'POST',
-          body: JSON.stringify({ token }),
+          body: JSON.stringify({ token, name }),
         },
         false
       );
@@ -135,6 +135,14 @@ export const api = {
       const response = await fetchWithAuth(`/api/groups/${groupId}/members/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ role }),
+      });
+      return response.json();
+    },
+
+    updateMemberName: async (groupId: string, userId: string, name: string) => {
+      const response = await fetchWithAuth(`/api/groups/${groupId}/members/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
       });
       return response.json();
     },

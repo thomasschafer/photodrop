@@ -6,7 +6,6 @@ interface InviteFormProps {
 }
 
 export function InviteForm({ onInviteSent }: InviteFormProps) {
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'member' | 'admin'>('member');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -15,12 +14,6 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-
-    if (!name.trim()) {
-      setErrorMessage('Please enter their name');
-      setStatus('error');
-      return;
-    }
 
     if (!email.trim() || !email.includes('@')) {
       setErrorMessage('Please enter a valid email address');
@@ -32,10 +25,9 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
     setErrorMessage('');
 
     try {
-      await api.auth.sendInvite(name.trim(), email.trim(), role);
+      await api.auth.sendInvite(email.trim(), role);
       setSuccessEmail(email);
       setStatus('success');
-      setName('');
       setEmail('');
       setRole('member');
       onInviteSent?.();
@@ -72,22 +64,6 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
       )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <div>
-          <label htmlFor="invite-name" className="block text-sm font-medium text-text-primary mb-2">
-            Name
-          </label>
-          <input
-            type="text"
-            id="invite-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Jane Smith"
-            className="input-field"
-            disabled={status === 'loading'}
-            autoComplete="off"
-          />
-        </div>
-
         <div>
           <label
             htmlFor="invite-email"

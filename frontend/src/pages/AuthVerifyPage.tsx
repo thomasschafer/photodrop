@@ -1,10 +1,10 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback, type FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
 
-type VerifyStatus = 'verifying' | 'success' | 'error';
+type VerifyStatus = 'verifying' | 'needs_name' | 'submitting_name' | 'success' | 'error';
 
 export function AuthVerifyPage() {
   const { token } = useParams<{ token: string }>();
@@ -12,7 +12,54 @@ export function AuthVerifyPage() {
   const { login } = useAuth();
   const [status, setStatus] = useState<VerifyStatus>('verifying');
   const [errorMessage, setErrorMessage] = useState('');
+  const [name, setName] = useState('');
+  const [nameError, setNameError] = useState('');
   const verificationAttempted = useRef(false);
+
+  const handleVerificationResult = useCallback(
+    (data: Awaited<ReturnType<typeof api.auth.verifyMagicLink>>) => {
+      if (data.needsName) {
+        setStatus('needs_name');
+        return;
+      }
+
+      login(
+        data.accessToken,
+        {
+          id: data.user.id,
+          name: data.user.name,
+          email: data.user.email,
+        },
+        data.currentGroup || null,
+        data.groups || [],
+        data.needsGroupSelection || false
+      );
+
+      setStatus('success');
+
+      setTimeout(() => {
+        navigate('/', { replace: true });
+      }, 1500);
+    },
+    [login, navigate]
+  );
+
+  const handleVerificationError = useCallback((error: unknown) => {
+    console.error('Failed to verify magic link:', error);
+    setStatus('error');
+
+    if (error instanceof ApiError) {
+      if (error.message.includes('expired')) {
+        setErrorMessage('This link has expired. Please request a new one.');
+      } else if (error.message.includes('already been used')) {
+        setErrorMessage('This link has already been used. Please request a new one.');
+      } else {
+        setErrorMessage(error.message || 'Invalid or expired link.');
+      }
+    } else {
+      setErrorMessage('Something went wrong. Please try again.');
+    }
+  }, []);
 
   useEffect(() => {
     if (!token || verificationAttempted.current) {
@@ -21,50 +68,36 @@ export function AuthVerifyPage() {
 
     verificationAttempted.current = true;
 
-    const verifyToken = async () => {
+    async function verify() {
       try {
         const data = await api.auth.verifyMagicLink(token);
-
-        // Login with the new multi-group format
-        login(
-          data.accessToken,
-          {
-            id: data.user.id,
-            name: data.user.name,
-            email: data.user.email,
-          },
-          data.currentGroup || null,
-          data.groups || [],
-          data.needsGroupSelection || false
-        );
-
-        setStatus('success');
-
-        setTimeout(() => {
-          // If user needs to select a group, they'll be redirected by App.tsx
-          // based on the needsGroupSelection state
-          navigate('/', { replace: true });
-        }, 1500);
+        handleVerificationResult(data);
       } catch (error) {
-        console.error('Failed to verify magic link:', error);
-        setStatus('error');
-
-        if (error instanceof ApiError) {
-          if (error.message.includes('expired')) {
-            setErrorMessage('This link has expired. Please request a new one.');
-          } else if (error.message.includes('already been used')) {
-            setErrorMessage('This link has already been used. Please request a new one.');
-          } else {
-            setErrorMessage(error.message || 'Invalid or expired link.');
-          }
-        } else {
-          setErrorMessage('Something went wrong. Please try again.');
-        }
+        handleVerificationError(error);
       }
-    };
+    }
 
-    verifyToken();
-  }, [token, login, navigate]);
+    verify();
+  }, [token, handleVerificationResult, handleVerificationError]);
+
+  const handleNameSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!name.trim()) {
+      setNameError('Please enter your name');
+      return;
+    }
+
+    setNameError('');
+    setStatus('submitting_name');
+
+    try {
+      const data = await api.auth.verifyMagicLink(token!, name.trim());
+      handleVerificationResult(data);
+    } catch (error) {
+      handleVerificationError(error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col justify-center py-12 px-6">
@@ -78,6 +111,14 @@ export function AuthVerifyPage() {
             <ErrorContent message="Invalid link. No token provided." />
           ) : status === 'verifying' ? (
             <VerifyingContent />
+          ) : status === 'needs_name' || status === 'submitting_name' ? (
+            <NameInputContent
+              name={name}
+              setName={setName}
+              nameError={nameError}
+              onSubmit={handleNameSubmit}
+              isSubmitting={status === 'submitting_name'}
+            />
           ) : status === 'success' ? (
             <SuccessContent />
           ) : (
@@ -96,6 +137,58 @@ function VerifyingContent() {
         <div className="spinner" />
       </div>
       <p className="text-text-secondary">Verifying your link...</p>
+    </>
+  );
+}
+
+interface NameInputContentProps {
+  name: string;
+  setName: (name: string) => void;
+  nameError: string;
+  onSubmit: (e: FormEvent) => void;
+  isSubmitting: boolean;
+}
+
+function NameInputContent({
+  name,
+  setName,
+  nameError,
+  onSubmit,
+  isSubmitting,
+}: NameInputContentProps) {
+  return (
+    <>
+      <h2 className="text-lg font-medium text-text-primary mb-2">Welcome!</h2>
+      <p className="text-sm text-text-secondary mb-6">Please enter your name to complete sign-up</p>
+      <form onSubmit={onSubmit} className="text-left">
+        <div className="mb-4">
+          <label htmlFor="signup-name" className="block text-sm font-medium text-text-primary mb-2">
+            Your name
+          </label>
+          <input
+            type="text"
+            id="signup-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Jane Smith"
+            className="input-field"
+            disabled={isSubmitting}
+            autoComplete="name"
+            autoFocus
+          />
+          {nameError && <p className="mt-2 text-sm text-error">{nameError}</p>}
+        </div>
+        <button type="submit" disabled={isSubmitting} className="btn-primary w-full">
+          {isSubmitting ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="spinner spinner-sm" />
+              Completing sign-up...
+            </span>
+          ) : (
+            'Continue'
+          )}
+        </button>
+      </form>
     </>
   );
 }

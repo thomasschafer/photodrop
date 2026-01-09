@@ -6,6 +6,7 @@ import {
   updateMembershipRole,
   deleteMembership,
   countGroupAdmins,
+  updateUserName,
 } from '../lib/db';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 
@@ -72,7 +73,7 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
   }
 });
 
-// Update a member's role (admin only)
+// Update a member's role or name (admin only)
 groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
   try {
     const groupId = c.req.param('groupId');
@@ -85,11 +86,7 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
     }
 
     const body = await c.req.json();
-    const { role } = body;
-
-    if (role !== 'admin' && role !== 'member') {
-      return c.json({ error: 'Invalid role' }, 400);
-    }
+    const { role, name } = body;
 
     // Check if membership exists
     const membership = await getMembership(c.env.DB, userId, groupId);
@@ -97,20 +94,40 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
       return c.json({ error: 'User is not a member of this group' }, 404);
     }
 
-    // Prevent demoting yourself if you're the last admin
-    if (userId === user.id && role === 'member') {
-      const adminCount = await countGroupAdmins(c.env.DB, groupId);
-      if (adminCount <= 1) {
-        return c.json({ error: 'Cannot demote yourself - you are the last admin' }, 400);
+    // Handle role update
+    if (role !== undefined) {
+      if (role !== 'admin' && role !== 'member') {
+        return c.json({ error: 'Invalid role' }, 400);
       }
+
+      // Prevent demoting yourself if you're the last admin
+      if (userId === user.id && role === 'member') {
+        const adminCount = await countGroupAdmins(c.env.DB, groupId);
+        if (adminCount <= 1) {
+          return c.json({ error: 'Cannot demote yourself - you are the last admin' }, 400);
+        }
+      }
+
+      await updateMembershipRole(c.env.DB, userId, groupId, role);
     }
 
-    await updateMembershipRole(c.env.DB, userId, groupId, role);
+    // Handle name update
+    if (name !== undefined) {
+      const trimmedName = name.trim();
+      if (trimmedName.length === 0) {
+        return c.json({ error: 'Name cannot be empty' }, 400);
+      }
+      if (trimmedName.length > 100) {
+        return c.json({ error: 'Name is too long' }, 400);
+      }
 
-    return c.json({ message: 'Role updated successfully' });
+      await updateUserName(c.env.DB, userId, trimmedName);
+    }
+
+    return c.json({ message: 'Member updated successfully' });
   } catch (error) {
-    console.error('Error updating member role:', error);
-    return c.json({ error: 'Failed to update member role' }, 500);
+    console.error('Error updating member:', error);
+    return c.json({ error: 'Failed to update member' }, 500);
   }
 });
 

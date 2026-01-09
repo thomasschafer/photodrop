@@ -31,14 +31,29 @@ export function GroupSwitcher() {
       }
     };
 
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleEscape);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen]);
+
+  const handleBlur = (e: React.FocusEvent) => {
+    if (!dropdownRef.current?.contains(e.relatedTarget as Node)) {
+      setIsOpen(false);
+    }
+  };
 
   const handleSelect = async (groupId: string) => {
     if (groupId === currentGroup?.id) {
@@ -91,15 +106,12 @@ export function GroupSwitcher() {
     }
   };
 
-  // Don't show if user only has one group
-  if (groups.length <= 1) {
-    return currentGroup ? (
-      <span className="text-sm font-medium text-text-primary">{currentGroup.name}</span>
-    ) : null;
+  if (!currentGroup || groups.length === 0) {
+    return null;
   }
 
   return (
-    <div ref={dropdownRef} className="relative">
+    <div ref={dropdownRef} className="relative" onBlur={handleBlur}>
       <button
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}

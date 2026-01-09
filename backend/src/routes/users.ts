@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getUserById, getMembership, getUserMemberships, getGroupMembers } from '../lib/db';
+import { getUserById, getUserMemberships, getGroupMembers } from '../lib/db';
 import { requireAuth } from '../middleware/auth';
 
 type Bindings = {
@@ -47,11 +47,11 @@ users.get('/me', requireAuth, async (c) => {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    // Get membership for current group context
-    const membership = await getMembership(c.env.DB, user.id, currentUser.groupId);
-
     // Get all memberships
     const memberships = await getUserMemberships(c.env.DB, user.id);
+
+    // Find current group membership
+    const currentMembership = memberships.find((m) => m.group_id === currentUser.groupId);
 
     return c.json({
       id: user.id,
@@ -59,10 +59,11 @@ users.get('/me', requireAuth, async (c) => {
       email: user.email,
       createdAt: user.created_at,
       lastSeenAt: user.last_seen_at,
-      currentGroup: membership
+      currentGroup: currentMembership
         ? {
             id: currentUser.groupId,
-            role: membership.role,
+            name: currentMembership.group_name,
+            role: currentMembership.role,
           }
         : null,
       groups: memberships.map((m) => ({

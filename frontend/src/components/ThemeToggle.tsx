@@ -84,14 +84,29 @@ export function ThemeToggle() {
       }
     };
 
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleEscape);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen]);
+
+  const handleBlur = (e: React.FocusEvent) => {
+    if (!dropdownRef.current?.contains(e.relatedTarget as Node)) {
+      setIsOpen(false);
+    }
+  };
 
   const handleSelect = (value: Theme) => {
     setTheme(value);
@@ -133,7 +148,7 @@ export function ThemeToggle() {
   };
 
   return (
-    <div ref={dropdownRef} className="relative">
+    <div ref={dropdownRef} className="relative" onBlur={handleBlur}>
       <button
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}

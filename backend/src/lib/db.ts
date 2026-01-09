@@ -229,6 +229,19 @@ export async function updateUserLastSeen(db: D1Database, userId: string): Promis
   await db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now, userId).run();
 }
 
+export async function updateUserName(
+  db: D1Database,
+  userId: string,
+  name: string
+): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE users SET name = ? WHERE id = ?')
+    .bind(name, userId)
+    .run();
+
+  return result.success;
+}
+
 // Magic link token functions
 export async function createMagicLinkToken(
   db: D1Database,

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
+import { ConfirmModal } from './ConfirmModal';
 
 function useAuthToken() {
   return useMemo(() => localStorage.getItem('accessToken') || '', []);
@@ -22,6 +23,8 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const token = useAuthToken();
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
 
@@ -72,8 +75,10 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
         break;
       case 'Enter':
       case ' ':
-        e.preventDefault();
-        setSelectedPhotoIndex(index);
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+          setSelectedPhotoIndex(index);
+        }
         break;
     }
   };
@@ -98,17 +103,23 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   }, [selectedPhotoIndex, focusPhoto]);
 
-  const handleDelete = async (photoId: string, e: React.MouseEvent) => {
+  const handleDeleteClick = (photoId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this photo?')) {
-      return;
-    }
-    setDeleting(photoId);
+    setConfirmDelete(photoId);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!confirmDelete) return;
+
+    setDeleting(confirmDelete);
+    setDeleteError(null);
+
     try {
-      await api.photos.delete(photoId);
-      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      await api.photos.delete(confirmDelete);
+      setPhotos((prev) => prev.filter((p) => p.id !== confirmDelete));
+      setConfirmDelete(null);
     } catch {
-      alert('Failed to delete photo');
+      setDeleteError('Failed to delete photo');
     } finally {
       setDeleting(null);
     }
@@ -191,7 +202,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                   <p className="text-xs text-text-muted">{formatDate(photo.uploadedAt)}</p>
                   {isAdmin && (
                     <button
-                      onClick={(e) => handleDelete(photo.id, e)}
+                      onClick={(e) => handleDeleteClick(photo.id, e)}
                       disabled={deleting === photo.id}
                       className={`text-xs text-error bg-transparent border-none py-1 px-2 rounded transition-colors ${
                         deleting === photo.id
@@ -220,6 +231,23 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           }
           currentIndex={selectedPhotoIndex}
           totalCount={photos.length}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete photo"
+          message={
+            deleteError || 'Are you sure you want to delete this photo? This cannot be undone.'
+          }
+          confirmLabel="Delete"
+          variant="danger"
+          isLoading={deleting === confirmDelete}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => {
+            setConfirmDelete(null);
+            setDeleteError(null);
+          }}
         />
       )}
     </>

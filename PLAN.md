@@ -6,7 +6,7 @@
 - ✅ Phase 1 (Foundation): Complete - photo upload/feed, JWT auth, user management
 - ✅ Phase 1.5 (Email Auth): Complete - frontend done, magic links working, mock email for local dev
 - ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout, admin features
-- ❌ Phase 1.7 (Multi-group): Not started - users can belong to multiple groups
+- ✅ Phase 1.7 (Multi-group): Complete - users can belong to multiple groups
 - ❌ Phase 1.8 (Owner role): Not started - immutable owner role per group
 - ❌ Phase 2+ (PWA, Notifications): Not started
 
@@ -403,7 +403,7 @@ CREATE INDEX idx_users_email ON users(email);
 - [x] Update `InviteForm`:
   - Handle case where invited email already has an account
   - Show appropriate success message ("Invite sent" vs "User added to group")
-- [ ] New `MembersPage` or `MembersList` component (admin only):
+- [x] New `MembersPage` or `MembersList` component (admin only):
   - List all members of current group with their roles
   - Role toggle/dropdown to promote member → admin or demote admin → member
   - Remove button for each member (with confirmation)
@@ -429,32 +429,32 @@ CREATE INDEX idx_users_email ON users(email);
 **Testing:**
 
 Unit tests (Vitest):
-- [ ] `getUserMemberships()` returns all memberships for a user
-- [ ] `getUserMemberships()` returns empty array for user with no groups
-- [ ] `getMembership()` returns correct role for user+group
-- [ ] `createMembership()` handles new membership creation
-- [ ] `createMembership()` fails gracefully for duplicate membership
-- [ ] `deleteMembership()` removes membership but keeps user account
-- [ ] `updateMembershipRole()` changes role correctly
-- [ ] Switch-group token generation includes correct groupId
-- [ ] Switch-group rejects if user not a member of group
+- [x] `getUserMemberships()` returns all memberships for a user
+- [x] `getUserMemberships()` returns empty array for user with no groups
+- [x] `getMembership()` returns correct role for user+group
+- [x] `createMembership()` handles new membership creation
+- [x] `createMembership()` fails gracefully for duplicate membership
+- [x] `deleteMembership()` removes membership but keeps user account
+- [x] `updateMembershipRole()` changes role correctly
+- [x] Switch-group token generation includes correct groupId
+- [x] Switch-group rejects if user not a member of group
 
 E2E tests (Playwright):
-- [ ] User with single group logs in directly to feed (no picker)
-- [ ] User with multiple groups sees group picker after login
-- [ ] User can select group from picker and lands on correct feed
-- [ ] User with zero groups sees empty state after login
-- [ ] Group switcher dropdown shows all user's groups
-- [ ] Switching groups via dropdown loads new group's photos
-- [ ] User invited to second group can access both groups
-- [ ] Admin of group A cannot see photos from group B
-- [ ] Role is correct per-group (admin in A, member in B)
-- [ ] Admin can remove a member from the group
-- [ ] Removed user no longer sees that group in their list
-- [ ] Admin cannot remove themselves if they're the last admin
-- [ ] Admin can promote member to admin
-- [ ] Admin can demote another admin to member
-- [ ] Admin cannot demote themselves if they're the last admin
+- [x] User with single group logs in directly to feed (no picker)
+- [x] User with multiple groups sees group picker after login
+- [x] User can select group from picker and lands on correct feed
+- [x] User with zero groups sees empty state after login
+- [x] Group switcher dropdown shows all user's groups
+- [x] Switching groups via dropdown loads new group's photos
+- [x] User invited to second group can access both groups
+- [x] Admin of group A cannot see photos from group B
+- [x] Role is correct per-group (admin in A, member in B)
+- [x] Admin can remove a member from the group
+- [x] Removed user no longer sees that group in their list
+- [x] Admin cannot remove themselves if they're the last admin
+- [x] Admin can promote member to admin
+- [x] Admin can demote another admin to member
+- [x] Admin cannot demote themselves if they're the last admin
 
 ### Phase 1.8: Owner role
 
