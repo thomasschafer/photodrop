@@ -75,7 +75,7 @@ export function PhotoUpload({ onUploadComplete }: PhotoUploadProps) {
   };
 
   return (
-    <div className="max-w-[480px]">
+    <div className="max-w-[480px] mx-auto">
       <div className="card">
         <h2 className="text-lg font-medium text-text-primary mb-4">Upload photo</h2>
 

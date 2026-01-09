@@ -215,7 +215,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           token={token}
           onClose={handleLightboxClose}
           onPrev={selectedPhotoIndex > 0 ? () => handleLightboxNav('prev') : undefined}
-          onNext={selectedPhotoIndex < photos.length - 1 ? () => handleLightboxNav('next') : undefined}
+          onNext={
+            selectedPhotoIndex < photos.length - 1 ? () => handleLightboxNav('next') : undefined
+          }
           currentIndex={selectedPhotoIndex}
           totalCount={photos.length}
         />
@@ -242,6 +244,7 @@ function Lightbox({
   totalCount: number;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const touchStartX = useRef<number | null>(null);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -268,10 +271,41 @@ function Lightbox({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose, onPrev, onNext]);
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartX.current !== null) {
+      e.preventDefault();
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+
+    const touchEndX = e.changedTouches[0].clientX;
+    const diff = touchStartX.current - touchEndX;
+    const minSwipeDistance = 50;
+
+    if (Math.abs(diff) > minSwipeDistance) {
+      if (diff > 0) {
+        onNext?.();
+      } else {
+        onPrev?.();
+      }
+    }
+
+    touchStartX.current = null;
+  };
+
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 touch-none"
       role="dialog"
       aria-label={`Photo ${currentIndex + 1} of ${totalCount}`}
     >
@@ -298,10 +332,15 @@ function Lightbox({
             onPrev();
           }}
           aria-label="Previous photo"
-          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer flex items-center justify-center text-white transition-colors hover:bg-white/20"
+          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
         >
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
         </button>
       )}
@@ -313,7 +352,7 @@ function Lightbox({
             onNext();
           }}
           aria-label="Next photo"
-          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer flex items-center justify-center text-white transition-colors hover:bg-white/20"
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
         >
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -321,7 +360,10 @@ function Lightbox({
         </button>
       )}
 
-      <div onClick={(e) => e.stopPropagation()} className="mx-16 max-w-4xl max-h-[90vh]">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="mx-2 md:mx-16 max-w-[98vw] md:max-w-[90vw] max-h-[90vh]"
+      >
         <img
           src={`/api/photos/${photo.id}/download?token=${token}`}
           alt={photo.caption || 'Photo'}

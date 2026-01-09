@@ -7,28 +7,28 @@
 @layer base {
   :root {
     /* Backgrounds */
-    --color-bg-primary: #f7f5f3;
-    --color-bg-secondary: #f2efec;
-    --color-bg-tertiary: #ebe7e3;
+    --color-bg-primary: #f6f1eb;
+    --color-bg-secondary: #efe9e3;
+    --color-bg-tertiary: #e6e0d9;
 
     /* Text */
     --color-text-primary: #3a3632;
-    --color-text-secondary: #8a8078;
-    --color-text-muted: #b8afa5;
+    --color-text-secondary: #6b635b;
+    --color-text-muted: #9a918a;
 
     /* Borders */
-    --color-border: #e8e4e0;
-    --color-border-hover: #ddd8d2;
+    --color-border: #e0d9d2;
+    --color-border-hover: #d4ccc4;
     --color-border-strong: #b8afa5;
 
     /* Accent (terracotta) */
     --color-accent: #b56a4a;
     --color-accent-hover: #a55d3d;
-    --color-accent-light: rgba(198, 125, 90, 0.12);
+    --color-accent-light: rgba(198, 125, 90, 0.15);
 
     /* Surfaces */
-    --color-surface: #fdfcfa;
-    --color-surface-elevated: #ffffff;
+    --color-surface: #faf7f4;
+    --color-surface-elevated: #fdfbf9;
 
     /* Status colors */
     --color-error: #c45454;
@@ -38,8 +38,8 @@
   .dark {
     /* Backgrounds */
     --color-bg-primary: #1a1918;
-    --color-bg-secondary: #252320;
-    --color-bg-tertiary: #2d2a27;
+    --color-bg-secondary: #302d2a;
+    --color-bg-tertiary: #3a3632;
 
     /* Text */
     --color-text-primary: #f0ebe6;
@@ -202,14 +202,14 @@
     border: none;
     font-size: 0.875rem;
     font-weight: 500;
-    background-color: var(--color-bg-secondary);
+    background-color: var(--color-bg-tertiary);
     color: var(--color-text-primary);
     cursor: pointer;
     transition: background-color 0.15s ease;
   }
 
   .file-input::file-selector-button:hover {
-    background-color: var(--color-bg-tertiary);
+    background-color: var(--color-border-hover);
   }
 
   /* Card styles */

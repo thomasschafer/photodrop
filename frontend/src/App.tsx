@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { PhotoUpload } from './components/PhotoUpload';
 import { PhotoFeed } from './components/PhotoFeed';
@@ -11,20 +11,23 @@ import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
 
 const tabs = [
-  { id: 'feed' as const, label: 'Photos' },
-  { id: 'upload' as const, label: 'Upload' },
-  { id: 'invite' as const, label: 'Invite' },
+  { id: 'feed' as const, path: '/', label: 'Photos' },
+  { id: 'upload' as const, path: '/upload', label: 'Upload' },
+  { id: 'invite' as const, path: '/invite', label: 'Invite' },
 ];
 
 function MainApp() {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'feed' | 'upload' | 'invite'>('feed');
+  const location = useLocation();
+  const navigate = useNavigate();
   const [feedKey, setFeedKey] = useState(0);
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+
+  const activeTab = tabs.find((tab) => tab.path === location.pathname)?.id ?? 'feed';
 
   const handleUploadComplete = () => {
-    setActiveTab('feed');
     setFeedKey((prev) => prev + 1);
+    navigate('/');
   };
 
   const focusTab = useCallback((index: number) => {
@@ -83,24 +86,24 @@ function MainApp() {
           {user.role === 'admin' && (
             <nav className="flex gap-8" role="tablist" aria-label="Main navigation">
               {tabs.map((tab, index) => (
-                <button
+                <Link
                   key={tab.id}
+                  to={tab.path}
                   ref={(el) => {
                     tabRefs.current[index] = el;
                   }}
                   role="tab"
                   aria-selected={activeTab === tab.id}
                   aria-controls={`tabpanel-${tab.id}`}
-                  onClick={() => setActiveTab(tab.id)}
                   onKeyDown={(e) => handleTabKeyDown(e, index)}
-                  className={`pb-3.5 text-sm font-medium bg-transparent border-none cursor-pointer -mb-px border-b-2 transition-colors hover:text-text-primary ${
+                  className={`pb-3.5 text-sm font-medium no-underline cursor-pointer -mb-px border-b-2 transition-colors hover:text-text-primary ${
                     activeTab === tab.id
                       ? 'text-text-primary border-accent'
                       : 'text-text-secondary border-transparent'
                   }`}
                 >
                   {tab.label}
-                </button>
+                </Link>
               ))}
             </nav>
           )}
@@ -140,6 +143,8 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/:token" element={<AuthVerifyPage />} />
       <Route path="/" element={<MainApp />} />
+      <Route path="/upload" element={<MainApp />} />
+      <Route path="/invite" element={<MainApp />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
