@@ -7,6 +7,7 @@
 - ✅ Phase 1.5 (Email Auth): Complete - frontend done, magic links working, mock email for local dev
 - ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout, admin features
 - ❌ Phase 1.7 (Multi-group): Not started - users can belong to multiple groups
+- ❌ Phase 1.8 (Owner role): Not started - immutable owner role per group
 - ❌ Phase 2+ (PWA, Notifications): Not started
 
 ---
@@ -454,6 +455,101 @@ E2E tests (Playwright):
 - [ ] Admin can promote member to admin
 - [ ] Admin can demote another admin to member
 - [ ] Admin cannot demote themselves if they're the last admin
+
+### Phase 1.8: Owner role
+
+**Goal:** Add an "owner" role distinct from admin. Each group has exactly one owner who is responsible for payments (if ever enabled) and ultimately owns the group. Owners have all admin permissions, but their role is immutable - it cannot be changed by anyone except via an explicit ownership transfer.
+
+**Database migration (`migrations/0003_owner_role.sql`):**
+```sql
+-- SQLite doesn't support ALTER TABLE to modify CHECK constraints, so we need to recreate the table
+CREATE TABLE memberships_new (
+  user_id TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member')),
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, group_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+);
+
+-- Migrate data: group creators become owners, others keep their role
+INSERT INTO memberships_new (user_id, group_id, role, joined_at)
+SELECT
+  m.user_id,
+  m.group_id,
+  CASE WHEN m.user_id = g.created_by AND m.role = 'admin' THEN 'owner' ELSE m.role END,
+  m.joined_at
+FROM memberships m
+JOIN groups g ON m.group_id = g.id;
+
+-- Swap tables
+DROP TABLE memberships;
+ALTER TABLE memberships_new RENAME TO memberships;
+
+-- Recreate indexes
+CREATE INDEX idx_memberships_user ON memberships(user_id);
+CREATE INDEX idx_memberships_group ON memberships(group_id);
+```
+
+**Backend changes:**
+
+- [ ] Update `Membership` type to include `'owner'` in role union type
+- [ ] Add `getGroupOwner(db, groupId): Membership | null` function
+- [ ] Update `updateMembershipRole()`:
+  - Reject attempts to change an owner's role (return 403)
+  - Reject attempts to promote someone to owner (must use transfer)
+- [ ] Update `deleteMembership()`:
+  - Reject attempts to remove an owner (return 403 with message to transfer first)
+- [ ] New endpoint `POST /api/groups/:groupId/transfer-ownership`:
+  - Owner only - returns 403 for non-owners
+  - Request body: `{ targetUserId: string }`
+  - Validates target user is a member of the group
+  - Atomic transaction: promotes target to owner, demotes caller to admin
+  - Returns updated membership list
+- [ ] Update `requireAdmin` middleware to also allow owners (or create `requireAdminOrOwner`)
+- [ ] Update `create-group` CLI script:
+  - Create initial user with `role='owner'` instead of `role='admin'`
+
+**Frontend changes:**
+
+- [ ] Update role type to include `'owner'`
+- [ ] Update `MembersList` component:
+  - Display "Owner" badge with distinct styling (different color from admin)
+  - Hide role dropdown/toggle for owner (role is immutable)
+  - Hide remove button for owner
+  - Show "Transfer Ownership" button next to non-owner members (visible to owner only)
+- [ ] Add transfer ownership confirmation dialog:
+  - "Transfer ownership to [name]? You will become an admin."
+  - Confirm/Cancel buttons
+  - Calls transfer-ownership endpoint on confirm
+  - Refreshes member list after success
+- [ ] Update `GroupSwitcher` to show owner badge where applicable
+
+**Testing:**
+
+Unit tests (Vitest):
+- [ ] `getGroupOwner()` returns owner membership for group
+- [ ] `getGroupOwner()` returns null for group with no owner (edge case)
+- [ ] `updateMembershipRole()` rejects changing owner's role
+- [ ] `updateMembershipRole()` rejects promoting to owner
+- [ ] `deleteMembership()` rejects removing owner
+- [ ] Transfer ownership promotes target and demotes caller atomically
+- [ ] Transfer ownership rejects if caller is not owner
+- [ ] Transfer ownership rejects if target is not a member
+
+E2E tests (Playwright):
+- [ ] Group creator has owner role after creation
+- [ ] Owner badge displays with distinct styling in members list
+- [ ] Owner role dropdown is not shown (immutable)
+- [ ] Owner has no remove button
+- [ ] Owner can see "Transfer Ownership" button for other members
+- [ ] Non-owner cannot see "Transfer Ownership" button
+- [ ] Owner can transfer ownership to a member
+- [ ] After transfer: old owner is admin, new member is owner
+- [ ] Transfer requires confirmation dialog
+- [ ] Admin cannot change owner's role via API (403)
+- [ ] Admin cannot remove owner via API (403)
 
 ### Phase 2: PWA features
 
