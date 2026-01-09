@@ -62,7 +62,7 @@ echo "✓ Admin user created (ID: $USER_ID)"
 # Create magic link token for initial login
 wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
 INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at)
-VALUES ('$TOKEN', '$GROUP_ID', '$ADMIN_EMAIL', 'invite', 'admin', $NOW, $EXPIRES_AT);
+VALUES ('$TOKEN', '$GROUP_ID', '$ADMIN_EMAIL', 'login', NULL, $NOW, $EXPIRES_AT);
 "
 
 echo "✓ Magic link token created"
