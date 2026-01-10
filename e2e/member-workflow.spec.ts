@@ -20,16 +20,16 @@ test.describe('Member workflow', () => {
     const member = createTestMember(testGroup.groupId, 'Test Member');
     memberEmail = member.email;
 
-    // Consume the member's invite link via API to create the user
+    // Consume the member's invite link via API to create the user (with name)
     const memberInviteToken = member.magicLink.split('/auth/')[1];
     await request.post('http://localhost:8787/api/auth/verify-magic-link', {
-      data: { token: memberInviteToken },
+      data: { token: memberInviteToken, name: member.name },
     });
 
-    // Get admin token via API (consume the admin invite link)
-    const adminInviteToken = testGroup.magicLink.split('/auth/')[1];
+    // Get admin token via API (owner already exists, just logging in)
+    const adminLoginToken = testGroup.magicLink.split('/auth/')[1];
     const adminLoginResponse = await request.post('http://localhost:8787/api/auth/verify-magic-link', {
-      data: { token: adminInviteToken },
+      data: { token: adminLoginToken },
     });
     const adminAuth = await adminLoginResponse.json();
 

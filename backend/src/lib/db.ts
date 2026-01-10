@@ -40,7 +40,6 @@ export interface MagicLinkToken {
   email: string;
   type: 'invite' | 'login';
   invite_role: MembershipRole | null; // 'admin' or 'member' only
-  invite_name: string | null;
   created_at: number;
   expires_at: number;
   used_at: number | null;
@@ -256,8 +255,7 @@ export async function createMagicLinkToken(
   groupId: string,
   email: string,
   type: 'invite' | 'login',
-  inviteRole?: 'admin' | 'member',
-  inviteName?: string
+  inviteRole?: 'admin' | 'member'
 ): Promise<string> {
   const token = generateInviteToken(); // Reuse this for cryptographically random tokens
   const now = Math.floor(Date.now() / 1000);
@@ -265,10 +263,10 @@ export async function createMagicLinkToken(
 
   await db
     .prepare(
-      `INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, invite_name, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(token, groupId, email, type, inviteRole || null, inviteName || null, now, expiresAt)
+    .bind(token, groupId, email, type, inviteRole || null, now, expiresAt)
     .run();
 
   return token;

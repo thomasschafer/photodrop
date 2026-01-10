@@ -188,6 +188,11 @@
           ./scripts/deploy.sh
         '';
 
+        setup-prod = pkgs.writeShellScriptBin "setup-prod" ''
+          export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
+          ./scripts/setup.sh prod
+        '';
+
         create-group = pkgs.writeShellScriptBin "create-group" ''
           export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
           if [ "$#" -lt 3 ]; then
@@ -252,6 +257,7 @@
         apps.fix = flake-utils.lib.mkApp { drv = fix; };
         apps.build = flake-utils.lib.mkApp { drv = build; };
         apps.deploy = flake-utils.lib.mkApp { drv = deploy; };
+        apps.setup-prod = flake-utils.lib.mkApp { drv = setup-prod; };
         apps.create-group = flake-utils.lib.mkApp { drv = create-group; };
         apps.db-seed = flake-utils.lib.mkApp { drv = db-seed; };
         apps.secrets-scan = flake-utils.lib.mkApp { drv = secrets-scan; };
@@ -269,6 +275,7 @@
             fix
             build
             deploy
+            setup-prod
             create-group
             db-seed
             secrets-scan

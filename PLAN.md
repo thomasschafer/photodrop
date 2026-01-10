@@ -151,7 +151,7 @@ CREATE TABLE photos (
   FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
--- Plus: push_subscriptions, photo_views, photo_reactions tables
+-- Plus: photo_views, photo_reactions tables (push_subscriptions will be added in Phase 2)
 ```
 
 **Critical:** All queries MUST filter by group_id (from JWT) to prevent cross-group access.
@@ -165,6 +165,7 @@ CREATE TABLE photos (
 - `POST /api/auth/refresh` - Refresh JWT
 - `POST /api/auth/logout` - Invalidate refresh token
 - `POST /api/auth/switch-group` - Switch to different group (issues new tokens)
+- `POST /api/auth/select-group` - Initial group selection for multi-group users (after login)
 
 **Groups:**
 - `GET /api/groups` - List groups current user is a member of (with roles)

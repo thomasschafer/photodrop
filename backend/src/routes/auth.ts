@@ -169,9 +169,8 @@ auth.post('/verify-magic-link', async (c) => {
         // User exists, just create membership
         user = existingUser;
       } else {
-        // New user - use provided name, or fall back to invite_name from token
-        const userName =
-          name && typeof name === 'string' && name.trim() ? name.trim() : magicToken.invite_name;
+        // New user - name must be provided in request
+        const userName = name && typeof name === 'string' ? name.trim() : null;
 
         if (!userName) {
           // Don't consume token yet - user needs to provide name

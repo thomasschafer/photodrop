@@ -71,7 +71,7 @@ export function createTestGroup(name: string): TestGroup {
 export function createTestMember(
   groupId: string,
   name: string
-): { email: string; magicLink: string } {
+): { email: string; name: string; magicLink: string } {
   const uniqueId = generateId().slice(0, 8);
   const token = generateToken();
   const now = Math.floor(Date.now() / 1000);
@@ -80,18 +80,19 @@ export function createTestMember(
   const email = `member-${uniqueId}@test.local`;
 
   // Create magic link token (user + membership will be created when token is verified)
+  // New users will be prompted to enter their name on the verification page
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, invite_name, created_at, expires_at) VALUES ('${token}', '${groupId}', '${email}', 'invite', 'member', '${name}', ${now}, ${expiresAt});"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at) VALUES ('${token}', '${groupId}', '${email}', 'invite', 'member', ${now}, ${expiresAt});"`,
     { stdio: 'pipe' }
   );
 
-  return { email, magicLink: `http://localhost:5173/auth/${token}` };
+  return { email, name, magicLink: `http://localhost:5173/auth/${token}` };
 }
 
 export function createTestAdmin(
   groupId: string,
   name: string
-): { email: string; magicLink: string } {
+): { email: string; name: string; magicLink: string } {
   const uniqueId = generateId().slice(0, 8);
   const token = generateToken();
   const now = Math.floor(Date.now() / 1000);
@@ -100,12 +101,13 @@ export function createTestAdmin(
   const email = `admin-${uniqueId}@test.local`;
 
   // Create magic link token with admin role (user + membership will be created when token is verified)
+  // New users will be prompted to enter their name on the verification page
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, invite_name, created_at, expires_at) VALUES ('${token}', '${groupId}', '${email}', 'invite', 'admin', '${name}', ${now}, ${expiresAt});"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at) VALUES ('${token}', '${groupId}', '${email}', 'invite', 'admin', ${now}, ${expiresAt});"`,
     { stdio: 'pipe' }
   );
 
-  return { email, magicLink: `http://localhost:5173/auth/${token}` };
+  return { email, name, magicLink: `http://localhost:5173/auth/${token}` };
 }
 
 export function createFreshMagicLink(

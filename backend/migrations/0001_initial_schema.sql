@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS magic_link_tokens (
   email TEXT NOT NULL,
   type TEXT NOT NULL CHECK(type IN ('invite', 'login')),
   invite_role TEXT CHECK(invite_role IN ('admin', 'member')),
-  invite_name TEXT,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at INTEGER,

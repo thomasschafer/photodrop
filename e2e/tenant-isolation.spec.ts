@@ -138,9 +138,9 @@ test.describe('Tenant isolation', () => {
     // Create a member in Group A
     const member = createTestMember(groupA.groupId, 'Group A Member');
 
-    // Consume the invite link to create the member user
+    // Consume the invite link to create the member user (with name)
     await request.post('http://localhost:8787/api/auth/verify-magic-link', {
-      data: { token: member.magicLink.split('/auth/')[1] },
+      data: { token: member.magicLink.split('/auth/')[1], name: member.name },
     });
 
     // Now login with a fresh login link

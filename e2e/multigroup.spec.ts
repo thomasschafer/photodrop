@@ -84,7 +84,7 @@ test.describe('Multi-group selection', () => {
   test('user with multiple groups sees group picker after login', async ({ page }) => {
     // First, login to group A to create the user
     const memberA = createTestMember(groupA.groupId, 'Picker Test User');
-    await loginWithMagicLink(page, memberA.magicLink);
+    await loginWithMagicLink(page, memberA.magicLink, memberA.name);
 
     // Get user ID and add to group B
     const userId = getUserIdByEmail(memberA.email);
@@ -107,7 +107,7 @@ test.describe('Multi-group selection', () => {
   test('user can select group from picker and lands on correct feed', async ({ page }) => {
     // Create user in both groups
     const member = createTestMember(groupA.groupId, 'Selector Test User');
-    await loginWithMagicLink(page, member.magicLink);
+    await loginWithMagicLink(page, member.magicLink, member.name);
 
     const userId = getUserIdByEmail(member.email);
     expect(userId).toBeTruthy();
@@ -146,7 +146,7 @@ test.describe('Group switcher', () => {
   test('group switcher dropdown shows all user groups', async ({ page }) => {
     // Create user in group A
     const member = createTestMember(groupA.groupId, 'Switcher Test User');
-    await loginWithMagicLink(page, member.magicLink);
+    await loginWithMagicLink(page, member.magicLink, member.name);
 
     // Add user to group B
     const userId = getUserIdByEmail(member.email);
@@ -286,7 +286,7 @@ test.describe('Member management', () => {
     const member = createTestMember(testGroup.groupId, 'Promotable Member');
 
     // Login as member to create the user
-    await loginWithMagicLink(page, member.magicLink);
+    await loginWithMagicLink(page, member.magicLink, member.name);
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
 
@@ -320,7 +320,7 @@ test.describe('Member management', () => {
     const otherAdmin = createTestMember(testGroup.groupId, 'Other Admin');
 
     // Login as other admin to create user
-    await loginWithMagicLink(page, otherAdmin.magicLink);
+    await loginWithMagicLink(page, otherAdmin.magicLink, otherAdmin.name);
 
     // Promote to admin via direct DB (simulating the flow)
     const userId = getUserIdByEmail(otherAdmin.email);
@@ -377,7 +377,7 @@ test.describe('Member management', () => {
     const member = createTestMember(testGroup.groupId, 'Removable Member');
 
     // Login as member first to create user
-    await loginWithMagicLink(page, member.magicLink);
+    await loginWithMagicLink(page, member.magicLink, member.name);
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
 
@@ -423,7 +423,7 @@ test.describe('Member management', () => {
     const member = createTestMember(testGroup.groupId, 'Member To Remove');
 
     // Login as member to create user
-    await loginWithMagicLink(page, member.magicLink);
+    await loginWithMagicLink(page, member.magicLink, member.name);
 
     // Add to other group
     const userId = getUserIdByEmail(member.email);
@@ -525,7 +525,7 @@ test.describe('Member management', () => {
 
     // Create a member
     const member = createTestMember(testGroup.groupId, 'Cannot Be Owner');
-    await loginWithMagicLink(page, member.magicLink);
+    await loginWithMagicLink(page, member.magicLink, member.name);
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
 
