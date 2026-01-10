@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getUserById, getUserMemberships, getGroupMembers } from '../lib/db';
+import { getUserById, getUserMemberships, getGroupMembers, type MembershipRole } from '../lib/db';
 import { requireAuth } from '../middleware/auth';
 
 type Bindings = {
@@ -12,7 +12,7 @@ type Variables = {
   user: {
     id: string;
     groupId: string;
-    role: 'admin' | 'member';
+    role: MembershipRole;
   };
 };
 
@@ -21,7 +21,7 @@ const users = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 users.get('/', requireAuth, async (c) => {
   try {
     const currentUser = c.get('user');
-    const members = await getGroupMembers(c.env.DB, currentUser.groupId);
+    const { members } = await getGroupMembers(c.env.DB, currentUser.groupId);
 
     return c.json({
       users: members.map((m) => ({

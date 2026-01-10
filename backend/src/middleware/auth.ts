@@ -1,12 +1,13 @@
 import { Context, Next } from 'hono';
 import { verifyJWT } from '../lib/jwt';
+import { getMembership, type MembershipRole } from '../lib/db';
 
 export type AuthContext = {
   Variables: {
     user: {
       id: string;
       groupId: string;
-      role: 'admin' | 'member';
+      role: MembershipRole;
     };
   };
 };
@@ -70,9 +71,18 @@ export async function requireAdmin(c: Context, next: Next) {
   }
 
   const user = c.get('user');
-  if (!user || user.role !== 'admin') {
+  if (!user) {
     return c.json({ error: 'Admin access required' }, 403);
   }
+
+  // Check actual role from database (not JWT) to handle role changes immediately
+  const membership = await getMembership(c.env.DB, user.id, user.groupId);
+  if (!membership || membership.role !== 'admin') {
+    return c.json({ error: 'Admin access required' }, 403);
+  }
+
+  // Update context with current role from DB
+  c.set('user', { ...user, role: membership.role });
 
   await next();
 }

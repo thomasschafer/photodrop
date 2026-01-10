@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type JSX } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
+import { getNavDirection, isVerticalNavKey } from '../lib/keyboard';
 
 type Theme = 'system' | 'light' | 'dark';
 
@@ -115,33 +116,28 @@ export function ThemeToggle() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        focusOption(index + 1);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        focusOption(index - 1);
-        break;
-      case 'Home':
-        e.preventDefault();
-        focusOption(0);
-        break;
-      case 'End':
-        e.preventDefault();
-        focusOption(themes.length - 1);
-        break;
-      case 'Escape':
-        e.preventDefault();
-        setIsOpen(false);
-        triggerRef.current?.focus();
-        break;
+    const direction = getNavDirection(e.key);
+    if (direction === 'down') {
+      e.preventDefault();
+      focusOption(index + 1);
+    } else if (direction === 'up') {
+      e.preventDefault();
+      focusOption(index - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusOption(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusOption(themes.length - 1);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsOpen(false);
+      triggerRef.current?.focus();
     }
   };
 
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (isVerticalNavKey(e.key)) {
       e.preventDefault();
       setIsOpen(true);
     }

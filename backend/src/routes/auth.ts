@@ -10,6 +10,7 @@ import {
   getMembership,
   getUserMemberships,
   markMagicLinkTokenUsed,
+  type MembershipRole,
 } from '../lib/db';
 import { generateAccessToken, generateRefreshToken, verifyJWT } from '../lib/jwt';
 import { verifyMagicLink } from '../lib/magic-links';
@@ -29,7 +30,7 @@ type Variables = {
   user: {
     id: string;
     groupId: string;
-    role: 'admin' | 'member';
+    role: MembershipRole;
   };
 };
 
@@ -252,11 +253,13 @@ auth.post('/verify-magic-link', async (c) => {
           id: magicToken.group_id,
           name: group?.name || invitedGroupMembership.group_name,
           role: invitedGroupMembership.role,
+          ownerId: group?.owner_id || invitedGroupMembership.group_owner_id,
         },
         groups: memberships.map((m) => ({
           id: m.group_id,
           name: m.group_name,
           role: m.role,
+          ownerId: m.group_owner_id,
         })),
         needsGroupSelection: false,
       });
@@ -322,11 +325,13 @@ auth.post('/verify-magic-link', async (c) => {
             id: membership.group_id,
             name: membership.group_name,
             role: membership.role,
+            ownerId: membership.group_owner_id,
           },
           groups: memberships.map((m) => ({
             id: m.group_id,
             name: m.group_name,
             role: m.role,
+            ownerId: m.group_owner_id,
           })),
           needsGroupSelection: false,
         });
@@ -344,6 +349,7 @@ auth.post('/verify-magic-link', async (c) => {
           id: m.group_id,
           name: m.group_name,
           role: m.role,
+          ownerId: m.group_owner_id,
         })),
         needsGroupSelection: true,
       });
@@ -420,11 +426,13 @@ auth.post('/switch-group', requireAuth, async (c) => {
         id: groupId,
         name: group.name,
         role: membership.role,
+        ownerId: group.owner_id,
       },
       groups: memberships.map((m) => ({
         id: m.group_id,
         name: m.group_name,
         role: m.role,
+        ownerId: m.group_owner_id,
       })),
     });
   } catch (error) {
@@ -501,11 +509,13 @@ auth.post('/select-group', async (c) => {
         id: groupId,
         name: group.name,
         role: membership.role,
+        ownerId: group.owner_id,
       },
       groups: memberships.map((m) => ({
         id: m.group_id,
         name: m.group_name,
         role: m.role,
+        ownerId: m.group_owner_id,
       })),
     });
   } catch (error) {
@@ -584,11 +594,13 @@ auth.post('/refresh', async (c) => {
         id: payload.groupId,
         name: group?.name || 'Unknown',
         role: membership.role,
+        ownerId: group?.owner_id,
       },
       groups: memberships.map((m) => ({
         id: m.group_id,
         name: m.group_name,
         role: m.role,
+        ownerId: m.group_owner_id,
       })),
     });
   } catch (error) {

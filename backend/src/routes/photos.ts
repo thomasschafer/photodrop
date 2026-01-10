@@ -9,6 +9,7 @@ import {
   addPhotoReaction,
   removePhotoReaction,
   getPhotoReactions,
+  type MembershipRole,
 } from '../lib/db';
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -23,7 +24,7 @@ type Variables = {
   user: {
     id: string;
     groupId: string;
-    role: 'admin' | 'member';
+    role: MembershipRole;
   };
 };
 

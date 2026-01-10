@@ -3,6 +3,7 @@ import { generateId, generateInviteToken } from './crypto';
 export interface Group {
   id: string;
   name: string;
+  owner_id: string;
   created_at: number;
 }
 
@@ -14,15 +15,18 @@ export interface User {
   last_seen_at: number | null;
 }
 
+export type MembershipRole = 'admin' | 'member';
+
 export interface Membership {
   user_id: string;
   group_id: string;
-  role: 'admin' | 'member';
+  role: MembershipRole;
   joined_at: number;
 }
 
 export interface MembershipWithGroup extends Membership {
   group_name: string;
+  group_owner_id: string;
 }
 
 export interface MembershipWithUser extends Membership {
@@ -35,7 +39,7 @@ export interface MagicLinkToken {
   group_id: string;
   email: string;
   type: 'invite' | 'login';
-  invite_role: 'admin' | 'member' | null;
+  invite_role: MembershipRole | null; // 'admin' or 'member' only
   invite_name: string | null;
   created_at: number;
   expires_at: number;
@@ -66,16 +70,16 @@ export interface PhotoReaction {
 }
 
 // Group functions
-export async function createGroup(db: D1Database, name: string): Promise<string> {
+export async function createGroup(db: D1Database, name: string, ownerId: string): Promise<string> {
   const groupId = generateId();
   const now = Math.floor(Date.now() / 1000);
 
   await db
     .prepare(
-      `INSERT INTO groups (id, name, created_at)
-       VALUES (?, ?, ?)`
+      `INSERT INTO groups (id, name, owner_id, created_at)
+       VALUES (?, ?, ?, ?)`
     )
-    .bind(groupId, name, now)
+    .bind(groupId, name, ownerId, now)
     .run();
 
   return groupId;
@@ -108,7 +112,7 @@ export async function createMembership(
   db: D1Database,
   userId: string,
   groupId: string,
-  role: 'admin' | 'member'
+  role: MembershipRole
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
 
@@ -140,7 +144,7 @@ export async function getUserMemberships(
 ): Promise<MembershipWithGroup[]> {
   const result = await db
     .prepare(
-      `SELECT m.user_id, m.group_id, m.role, m.joined_at, g.name as group_name
+      `SELECT m.user_id, m.group_id, m.role, m.joined_at, g.name as group_name, g.owner_id as group_owner_id
        FROM memberships m
        JOIN groups g ON m.group_id = g.id
        WHERE m.user_id = ?
@@ -155,19 +159,25 @@ export async function getUserMemberships(
 export async function getGroupMembers(
   db: D1Database,
   groupId: string
-): Promise<MembershipWithUser[]> {
-  const result = await db
-    .prepare(
-      `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email
-       FROM memberships m
-       JOIN users u ON m.user_id = u.id
-       WHERE m.group_id = ?
-       ORDER BY m.joined_at ASC`
-    )
-    .bind(groupId)
-    .all<MembershipWithUser>();
+): Promise<{ members: MembershipWithUser[]; ownerId: string | null }> {
+  const [membersResult, group] = await Promise.all([
+    db
+      .prepare(
+        `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email
+         FROM memberships m
+         JOIN users u ON m.user_id = u.id
+         WHERE m.group_id = ?
+         ORDER BY m.joined_at ASC`
+      )
+      .bind(groupId)
+      .all<MembershipWithUser>(),
+    getGroup(db, groupId),
+  ]);
 
-  return result.results || [];
+  return {
+    members: membersResult.results || [],
+    ownerId: group?.owner_id ?? null,
+  };
 }
 
 export async function updateMembershipRole(
@@ -175,26 +185,38 @@ export async function updateMembershipRole(
   userId: string,
   groupId: string,
   role: 'admin' | 'member'
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: 'is_owner' }> {
+  // Check if the user is the group owner - owners' roles cannot be changed
+  const group = await getGroup(db, groupId);
+  if (group?.owner_id === userId) {
+    return { success: false, error: 'is_owner' };
+  }
+
   const result = await db
     .prepare('UPDATE memberships SET role = ? WHERE user_id = ? AND group_id = ?')
     .bind(role, userId, groupId)
     .run();
 
-  return result.success;
+  return { success: result.success };
 }
 
 export async function deleteMembership(
   db: D1Database,
   userId: string,
   groupId: string
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: 'is_owner' }> {
+  // Check if the user is the group owner - owners cannot be removed
+  const group = await getGroup(db, groupId);
+  if (group?.owner_id === userId) {
+    return { success: false, error: 'is_owner' };
+  }
+
   const result = await db
     .prepare('DELETE FROM memberships WHERE user_id = ? AND group_id = ?')
     .bind(userId, groupId)
     .run();
 
-  return result.success;
+  return { success: result.success };
 }
 
 export async function getUserById(db: D1Database, userId: string): Promise<User | null> {

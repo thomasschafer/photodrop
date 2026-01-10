@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { ROLE_DISPLAY_NAMES } from '../lib/roles';
+import { getNavDirection, isVerticalNavKey } from '../lib/keyboard';
 
 export function GroupSwitcher() {
-  const { currentGroup, groups, switchGroup } = useAuth();
+  const { user, currentGroup, groups, switchGroup } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -74,33 +76,28 @@ export function GroupSwitcher() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        focusOption(index + 1);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        focusOption(index - 1);
-        break;
-      case 'Home':
-        e.preventDefault();
-        focusOption(0);
-        break;
-      case 'End':
-        e.preventDefault();
-        focusOption(groups.length - 1);
-        break;
-      case 'Escape':
-        e.preventDefault();
-        setIsOpen(false);
-        triggerRef.current?.focus();
-        break;
+    const direction = getNavDirection(e.key);
+    if (direction === 'down') {
+      e.preventDefault();
+      focusOption(index + 1);
+    } else if (direction === 'up') {
+      e.preventDefault();
+      focusOption(index - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusOption(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusOption(groups.length - 1);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsOpen(false);
+      triggerRef.current?.focus();
     }
   };
 
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (isVerticalNavKey(e.key)) {
       e.preventDefault();
       setIsOpen(true);
     }
@@ -183,12 +180,14 @@ export function GroupSwitcher() {
               </span>
               <span
                 className={`text-xs px-2 py-0.5 rounded ${
-                  group.role === 'admin'
-                    ? 'bg-accent/10 text-accent'
-                    : 'bg-bg-tertiary text-text-tertiary'
+                  group.ownerId === user?.id
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    : group.role === 'admin'
+                      ? 'bg-accent/10 text-accent'
+                      : 'bg-bg-tertiary text-text-tertiary'
                 }`}
               >
-                {group.role}
+                {ROLE_DISPLAY_NAMES[group.ownerId === user?.id ? 'owner' : group.role]}
               </span>
             </button>
           ))}

@@ -3,6 +3,7 @@ import {
   createTestGroup,
   cleanupTestGroup,
   createTestMember,
+  createTestAdmin,
   createFreshMagicLink,
   TestGroup,
 } from './helpers/setup';
@@ -350,18 +351,20 @@ test.describe('Member management', () => {
     await expect(page.getByText(/is now a member/)).toBeVisible();
   });
 
-  test('admin cannot demote themselves if last admin', async ({ page }) => {
+  test('owner shows immutable owner badge instead of role dropdown', async ({ page }) => {
     await loginWithMagicLink(page, testGroup.magicLink);
 
     // Navigate to members
     await page.getByRole('tab', { name: 'Members' }).click();
 
-    // Find own row (marked with "(you)")
+    // Owner should have "Owner" badge with emerald styling (class is on the span itself)
+    const ownerBadge = page.locator('span[class*="emerald"]').filter({ hasText: 'Owner' });
+    await expect(ownerBadge).toBeVisible();
+
+    // There should be no select dropdown for the owner row
     const ownRow = page.locator('div').filter({ hasText: '(you)' }).first();
     const roleSelect = ownRow.locator('select');
-
-    // Select should be disabled
-    await expect(roleSelect).toBeDisabled();
+    await expect(roleSelect).not.toBeVisible();
   });
 
   test('admin can remove a member from the group', async ({ page }) => {
@@ -396,17 +399,17 @@ test.describe('Member management', () => {
     await expect(page.getByText('Removable Member', { exact: true })).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('admin cannot remove themselves if last admin', async ({ page }) => {
+  test('owner has no remove button', async ({ page }) => {
     await loginWithMagicLink(page, testGroup.magicLink);
 
     // Navigate to members
     await page.getByRole('tab', { name: 'Members' }).click();
 
-    // Find own row - remove button should be disabled
+    // Find owner row - should NOT have a remove button at all (not just disabled)
     const ownRow = page.locator('div').filter({ hasText: '(you)' }).first();
     const removeButton = ownRow.getByRole('button', { name: /remove/i });
 
-    await expect(removeButton).toBeDisabled();
+    await expect(removeButton).not.toBeVisible();
   });
 
   test('removed user no longer sees group in their list', async ({ page }) => {
@@ -454,6 +457,106 @@ test.describe('Member management', () => {
     await expect(page.getByRole('option', { name: /Member Mgmt Test/i })).not.toBeVisible();
 
     cleanupTestGroup(otherGroup.groupId);
+  });
+
+  test('API rejects changing owner role (403)', async ({ page, request }) => {
+    // Login as owner to create the user
+    await loginWithMagicLink(page, testGroup.magicLink);
+
+    // Get owner's user ID
+    const ownerId = getUserIdByEmail(testGroup.ownerEmail);
+    expect(ownerId).toBeTruthy();
+
+    // Get auth token
+    const token = await getAuthToken(page);
+    expect(token).toBeTruthy();
+
+    // Try to change owner's role via API
+    const response = await request.patch(
+      `http://localhost:8787/api/groups/${testGroup.groupId}/members/${ownerId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        data: { role: 'member' },
+      }
+    );
+
+    // Should return 403
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.error).toContain("owner");
+  });
+
+  test('API rejects removing owner (403)', async ({ page, request }) => {
+    // Login as owner to create the user
+    await loginWithMagicLink(page, testGroup.magicLink);
+
+    // Get owner's user ID
+    const ownerId = getUserIdByEmail(testGroup.ownerEmail);
+    expect(ownerId).toBeTruthy();
+
+    // Get auth token
+    const token = await getAuthToken(page);
+    expect(token).toBeTruthy();
+
+    // Try to remove owner via API
+    const response = await request.delete(
+      `http://localhost:8787/api/groups/${testGroup.groupId}/members/${ownerId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    // Should return 403
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.error).toContain("owner");
+  });
+
+  test('API rejects promoting to owner (400)', async ({ page, request }) => {
+    // Login as owner
+    await loginWithMagicLink(page, testGroup.magicLink);
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+
+    // Create a member
+    const member = createTestMember(testGroup.groupId, 'Cannot Be Owner');
+    await loginWithMagicLink(page, member.magicLink);
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+
+    // Login as owner again
+    const ownerLogin = createFreshMagicLink(testGroup.groupId, testGroup.ownerEmail, 'login');
+    await loginWithMagicLink(page, ownerLogin);
+
+    // Get member's user ID
+    const memberId = getUserIdByEmail(member.email);
+    expect(memberId).toBeTruthy();
+
+    // Get auth token
+    const token = await getAuthToken(page);
+    expect(token).toBeTruthy();
+
+    // Try to promote member to owner via API
+    const response = await request.patch(
+      `http://localhost:8787/api/groups/${testGroup.groupId}/members/${memberId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        data: { role: 'owner' },
+      }
+    );
+
+    // Should return 400
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.error).toContain("owner");
   });
 });
 

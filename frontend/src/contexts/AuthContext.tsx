@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { api } from '../lib/api';
+import type { MembershipRole } from '../lib/roles';
 
 interface User {
   id: string;
@@ -10,7 +11,8 @@ interface User {
 interface Group {
   id: string;
   name: string;
-  role: 'admin' | 'member';
+  role: MembershipRole;
+  ownerId: string;
 }
 
 interface AuthState {

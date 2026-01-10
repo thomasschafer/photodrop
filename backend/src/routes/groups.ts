@@ -6,6 +6,7 @@ import {
   updateMembershipRole,
   deleteMembership,
   updateUserName,
+  type MembershipRole,
 } from '../lib/db';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 
@@ -18,7 +19,7 @@ type Variables = {
   user: {
     id: string;
     groupId: string;
-    role: 'admin' | 'member';
+    role: MembershipRole;
   };
 };
 
@@ -35,6 +36,7 @@ groups.get('/', requireAuth, async (c) => {
         id: m.group_id,
         name: m.group_name,
         role: m.role,
+        ownerId: m.group_owner_id,
         joinedAt: m.joined_at,
       })),
     });
@@ -55,9 +57,10 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
       return c.json({ error: 'Cannot access members of a different group' }, 403);
     }
 
-    const members = await getGroupMembers(c.env.DB, groupId);
+    const { members, ownerId } = await getGroupMembers(c.env.DB, groupId);
 
     return c.json({
+      ownerId,
       members: members.map((m) => ({
         userId: m.user_id,
         name: m.user_name,
@@ -95,11 +98,22 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
 
     // Handle role update
     if (role !== undefined) {
+      // Cannot promote to owner - owner is set at group creation only
+      if (role === 'owner') {
+        return c.json({ error: 'Cannot promote to owner' }, 400);
+      }
+
       if (role !== 'admin' && role !== 'member') {
         return c.json({ error: 'Invalid role' }, 400);
       }
 
-      await updateMembershipRole(c.env.DB, userId, groupId, role);
+      const result = await updateMembershipRole(c.env.DB, userId, groupId, role);
+      if (!result.success) {
+        if (result.error === 'is_owner') {
+          return c.json({ error: "Cannot change owner's role" }, 403);
+        }
+        return c.json({ error: 'Failed to update role' }, 500);
+      }
     }
 
     // Handle name update
@@ -140,7 +154,13 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
       return c.json({ error: 'User is not a member of this group' }, 404);
     }
 
-    await deleteMembership(c.env.DB, userId, groupId);
+    const result = await deleteMembership(c.env.DB, userId, groupId);
+    if (!result.success) {
+      if (result.error === 'is_owner') {
+        return c.json({ error: 'Cannot remove the group owner' }, 403);
+      }
+      return c.json({ error: 'Failed to remove member' }, 500);
+    }
 
     return c.json({ message: 'Member removed successfully' });
   } catch (error) {

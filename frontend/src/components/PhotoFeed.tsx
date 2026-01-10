@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
+import { getNavDirection } from '../lib/keyboard';
 import { ConfirmModal } from './ConfirmModal';
 
 function useAuthToken() {
@@ -56,30 +57,24 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   );
 
   const handlePhotoKeyDown = (e: React.KeyboardEvent, index: number) => {
-    switch (e.key) {
-      case 'ArrowDown':
+    const direction = getNavDirection(e.key);
+    if (direction === 'down') {
+      e.preventDefault();
+      focusPhoto(index + 1);
+    } else if (direction === 'up') {
+      e.preventDefault();
+      focusPhoto(index - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusPhoto(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusPhoto(photos.length - 1);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      if (e.target === e.currentTarget) {
         e.preventDefault();
-        focusPhoto(index + 1);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        focusPhoto(index - 1);
-        break;
-      case 'Home':
-        e.preventDefault();
-        focusPhoto(0);
-        break;
-      case 'End':
-        e.preventDefault();
-        focusPhoto(photos.length - 1);
-        break;
-      case 'Enter':
-      case ' ':
-        if (e.target === e.currentTarget) {
-          e.preventDefault();
-          setSelectedPhotoIndex(index);
-        }
-        break;
+        setSelectedPhotoIndex(index);
+      }
     }
   };
 
@@ -164,7 +159,11 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     return (
       <div className="text-center py-16">
         <p className="text-text-secondary mb-2">No photos yet</p>
-        <p className="text-sm text-text-muted">Upload your first photo to get started.</p>
+        <p className="text-sm text-text-muted">
+          {isAdmin
+            ? 'Upload your first photo to get started.'
+            : 'Photos will appear here once they are uploaded.'}
+        </p>
       </div>
     );
   }
@@ -280,18 +279,17 @@ function Lightbox({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'Escape':
-          onClose();
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          onPrev?.();
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          onNext?.();
-          break;
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      const direction = getNavDirection(e.key);
+      if (direction === 'left') {
+        e.preventDefault();
+        onPrev?.();
+      } else if (direction === 'right') {
+        e.preventDefault();
+        onNext?.();
       }
     };
 

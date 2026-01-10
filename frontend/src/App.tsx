@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { getNavDirection } from './lib/keyboard';
 import { PhotoUpload } from './components/PhotoUpload';
 import { PhotoFeed } from './components/PhotoFeed';
 import { InviteForm } from './components/InviteForm';
@@ -53,23 +54,19 @@ function MainApp() {
   );
 
   const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
-    switch (e.key) {
-      case 'ArrowRight':
-        e.preventDefault();
-        focusTab(index + 1);
-        break;
-      case 'ArrowLeft':
-        e.preventDefault();
-        focusTab(index - 1);
-        break;
-      case 'Home':
-        e.preventDefault();
-        focusTab(0);
-        break;
-      case 'End':
-        e.preventDefault();
-        focusTab(visibleTabs.length - 1);
-        break;
+    const direction = getNavDirection(e.key);
+    if (direction === 'right') {
+      e.preventDefault();
+      focusTab(index + 1);
+    } else if (direction === 'left') {
+      e.preventDefault();
+      focusTab(index - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusTab(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusTab(visibleTabs.length - 1);
     }
   };
 

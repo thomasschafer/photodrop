@@ -47,6 +47,51 @@ function createMockDb(results: unknown[] = [], error?: Error) {
   };
 }
 
+// Creates a mock that returns different results for sequential first() calls
+function createSequentialMockDb(firstResults: (unknown | null)[], error?: Error) {
+  let callIndex = 0;
+
+  const mockFirst = vi.fn().mockImplementation(() => {
+    if (error) throw error;
+    const result = firstResults[callIndex] ?? null;
+    callIndex++;
+    return Promise.resolve(result);
+  });
+
+  const mockAll = vi.fn().mockImplementation(() => {
+    if (error) throw error;
+    return Promise.resolve({ results: [], success: true });
+  });
+
+  const mockRun = vi.fn().mockImplementation(() => {
+    if (error) throw error;
+    return Promise.resolve({ success: true, changes: 1 });
+  });
+
+  const mockBind = vi.fn().mockReturnValue({
+    first: mockFirst,
+    all: mockAll,
+    run: mockRun,
+  });
+
+  const mockPrepare = vi.fn().mockReturnValue({
+    bind: mockBind,
+  });
+
+  return {
+    prepare: mockPrepare,
+    _mocks: { mockPrepare, mockBind, mockFirst, mockAll, mockRun },
+  } as unknown as D1Database & {
+    _mocks: {
+      mockPrepare: ReturnType<typeof vi.fn>;
+      mockBind: ReturnType<typeof vi.fn>;
+      mockFirst: ReturnType<typeof vi.fn>;
+      mockAll: ReturnType<typeof vi.fn>;
+      mockRun: ReturnType<typeof vi.fn>;
+    };
+  };
+}
+
 describe('Membership functions', () => {
   describe('getUserMemberships', () => {
     it('returns all memberships for a user', async () => {
@@ -57,6 +102,7 @@ describe('Membership functions', () => {
           role: 'admin',
           joined_at: 1000,
           group_name: 'Family Photos',
+          group_owner_id: 'user-1',
         },
         {
           user_id: 'user-1',
@@ -64,6 +110,7 @@ describe('Membership functions', () => {
           role: 'member',
           joined_at: 2000,
           group_name: 'Work Team',
+          group_owner_id: 'user-2',
         },
       ];
       const db = createMockDb(memberships);
@@ -73,8 +120,10 @@ describe('Membership functions', () => {
       expect(result).toHaveLength(2);
       expect(result[0].group_name).toBe('Family Photos');
       expect(result[0].role).toBe('admin');
+      expect(result[0].group_owner_id).toBe('user-1');
       expect(result[1].group_name).toBe('Work Team');
       expect(result[1].role).toBe('member');
+      expect(result[1].group_owner_id).toBe('user-2');
       expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1');
     });
 
@@ -156,34 +205,119 @@ describe('Membership functions', () => {
   });
 
   describe('deleteMembership', () => {
-    it('removes membership and returns true', async () => {
-      const db = createMockDb([]);
+    it('removes non-owner membership and returns success', async () => {
+      // First call: getGroup returns group where user is not owner
+      // Second call (after getGroup in deleteMembership runs the delete)
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'other-user',
+        created_at: 1000,
+      };
+      const db = createSequentialMockDb([group]);
 
       const result = await deleteMembership(db, 'user-1', 'group-1');
 
-      expect(result).toBe(true);
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
       expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+
+    it('rejects removing owner and returns error', async () => {
+      // getGroup returns group where user IS the owner
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'owner-1',
+        created_at: 1000,
+      };
+      const db = createSequentialMockDb([group]);
+
+      const result = await deleteMembership(db, 'owner-1', 'group-1');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('is_owner');
+      // Should not have called run() since we reject early
+      expect(db._mocks.mockRun).not.toHaveBeenCalled();
+    });
+
+    it('removes member successfully', async () => {
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'owner-user',
+        created_at: 1000,
+      };
+      const db = createSequentialMockDb([group]);
+
+      const result = await deleteMembership(db, 'member-1', 'group-1');
+
+      expect(result.success).toBe(true);
     });
   });
 
   describe('updateMembershipRole', () => {
     it('updates role from member to admin', async () => {
-      const db = createMockDb([]);
+      // getGroup returns group where user is not owner
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'other-user',
+        created_at: 1000,
+      };
+      const db = createSequentialMockDb([group]);
 
       const result = await updateMembershipRole(db, 'user-1', 'group-1', 'admin');
 
-      expect(result).toBe(true);
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('admin', 'user-1', 'group-1');
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
     });
 
     it('updates role from admin to member', async () => {
-      const db = createMockDb([]);
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'owner-user',
+        created_at: 1000,
+      };
+      const db = createSequentialMockDb([group]);
 
-      const result = await updateMembershipRole(db, 'user-1', 'group-1', 'member');
+      const result = await updateMembershipRole(db, 'admin-1', 'group-1', 'member');
 
-      expect(result).toBe(true);
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('member', 'user-1', 'group-1');
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects changing owner role and returns error', async () => {
+      // getGroup returns group where user IS the owner
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'owner-1',
+        created_at: 1000,
+      };
+      const db = createSequentialMockDb([group]);
+
+      const result = await updateMembershipRole(db, 'owner-1', 'group-1', 'member');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('is_owner');
+      // Should not have called run() since we reject early
+      expect(db._mocks.mockRun).not.toHaveBeenCalled();
+    });
+
+    it('rejects demoting owner to admin and returns error', async () => {
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'owner-1',
+        created_at: 1000,
+      };
+      const db = createSequentialMockDb([group]);
+
+      const result = await updateMembershipRole(db, 'owner-1', 'group-1', 'admin');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('is_owner');
     });
   });
 });

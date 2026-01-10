@@ -7,7 +7,7 @@
 - ✅ Phase 1.5 (Email Auth): Complete - frontend done, magic links working, mock email for local dev
 - ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout, admin features
 - ✅ Phase 1.7 (Multi-group): Complete - users can belong to multiple groups
-- ❌ Phase 1.8 (Owner role): Not started - immutable owner role per group
+- ✅ Phase 1.8 (Owner role): Complete - immutable owner role per group
 - ❌ Phase 2+ (PWA, Notifications): Not started
 
 ---
@@ -96,11 +96,13 @@ A PWA for privately sharing photos within isolated groups. Each group has its ow
 ### Data models
 
 ```sql
--- Groups
+-- Groups (owner_id guarantees every group has an immutable owner)
 CREATE TABLE groups (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  owner_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES users(id)
 );
 
 -- Users (account info only, no group affiliation)
@@ -113,10 +115,11 @@ CREATE TABLE users (
 );
 
 -- Memberships (junction table: users can belong to multiple groups)
+-- Note: owner is stored in groups.owner_id, but also has 'admin' role here
 CREATE TABLE memberships (
   user_id TEXT NOT NULL,
   group_id TEXT NOT NULL,
-  role TEXT NOT NULL,  -- 'owner', 'admin', or 'member'
+  role TEXT NOT NULL,  -- 'admin' or 'member' (owner has 'admin' role)
   joined_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, group_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -416,54 +419,54 @@ E2E tests (Playwright):
 - [x] Admin can demote another admin to member
 - [x] Admin cannot demote themselves if they're the last admin
 
-### Phase 1.8: Owner role
+### Phase 1.8: Owner role ✅
 
-**Goal:** Add an "owner" role distinct from admin. Each group has exactly one owner who cannot be removed or have their role changed. Groups always start with an owner (created via CLI script). Owners have all admin permissions. This replaces the "last admin" protection - since every group has an immutable owner, there's always someone who can manage the group.
+**Goal:** Each group has exactly one owner who cannot be removed or have their role changed. The owner is stored in `groups.owner_id` (not as a separate role in memberships). The owner also has an 'admin' membership, so admin permission checks work unchanged. This replaces the "last admin" protection - since every group has an immutable owner, there's always someone who can manage the group.
+
+**Design approach:**
+- `groups.owner_id` = identifies who the owner is (source of truth)
+- Owner's membership has `role='admin'` (not a separate 'owner' role)
+- `memberships.role` is just `'admin' | 'member'`
+- Admin permission checks: just check `role = 'admin'` (owner has admin role)
+- Owner-specific checks (can't remove, can't change role): check `user_id === groups.owner_id`
+- Display: if `user_id === owner_id` → show "Owner" badge, else show membership role
 
 **Key invariants:**
-- Every group has exactly one owner
-- Owner role is immutable (cannot be changed or removed)
+- Every group has exactly one owner (enforced by NOT NULL constraint)
+- Owner cannot be removed or have their role changed
 - Groups are created via CLI with the owner specified
 - Owners cannot be invited (only admins/members can be invited)
 
 **Backend changes:**
 
-- [ ] Update `Membership` type to include `'owner'` in role union type
-- [ ] Update `updateMembershipRole()`:
-  - Reject attempts to change an owner's role (return 403)
-  - Reject attempts to promote someone to owner (owner is set at group creation only)
-- [ ] Update `deleteMembership()`:
-  - Reject attempts to remove an owner (return 403)
-- [ ] Update `requireAdmin` middleware to also allow owners
-- [x] Remove `countGroupAdmins()` function (no longer needed - owner guarantees group management)
-- [ ] Update `create-group` CLI script:
-  - Create initial user with `role='owner'` instead of `role='admin'`
-- [x] Remove `created_by` column from groups table (not needed)
+- [x] Add `owner_id TEXT NOT NULL` to groups table with FK to users
+- [x] Update role CHECK constraint to just `'admin', 'member'`
+- [x] Update `updateMembershipRole()`: check against `groups.owner_id` to reject changes
+- [x] Update `deleteMembership()`: check against `groups.owner_id` to reject removal
+- [x] `requireAdmin` middleware unchanged (owner has admin role)
+- [x] Remove `countGroupAdmins()` function (no longer needed)
+- [x] Update `create-group` CLI script: set `owner_id` and create membership with `role='admin'`
 
 **Frontend changes:**
 
-- [ ] Update role type to include `'owner'`
-- [ ] Update `MembersList` component:
-  - Display "Owner" badge with distinct styling (different color from admin)
-  - Hide role dropdown/toggle for owner (role is immutable)
-  - Hide remove button for owner
-- [ ] Update `GroupSwitcher` to show owner badge where applicable
-- [ ] Remove "last admin" validation from role change/remove UI
+- [x] Update `MembersList` component:
+  - Check `user_id === owner_id` to display "Owner" badge
+  - Hide role dropdown and remove button for owner
+- [x] Update `GroupSwitcher` to show owner badge based on `owner_id`
+- [x] Remove "last admin" validation from role change/remove UI
 
 **Testing:**
 
 Unit tests (Vitest):
-- [ ] `updateMembershipRole()` rejects changing owner's role
-- [ ] `updateMembershipRole()` rejects promoting to owner
-- [ ] `deleteMembership()` rejects removing owner
+- [x] `updateMembershipRole()` rejects changing owner's role
+- [x] `deleteMembership()` rejects removing owner
 
 E2E tests (Playwright):
-- [ ] Group created via CLI has owner role
-- [ ] Owner badge displays with distinct styling in members list
-- [ ] Owner role dropdown is not shown (immutable)
-- [ ] Owner has no remove button
-- [ ] Admin cannot change owner's role via API (403)
-- [ ] Admin cannot remove owner via API (403)
+- [x] Owner badge displays with distinct styling in members list
+- [x] Owner role dropdown is not shown (immutable)
+- [x] Owner has no remove button
+- [x] API rejects changing owner's role (403)
+- [x] API rejects removing owner (403)
 
 ### Phase 2: PWA features
 

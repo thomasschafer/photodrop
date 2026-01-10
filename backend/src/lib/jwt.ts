@@ -1,7 +1,9 @@
+import type { MembershipRole } from './db';
+
 export interface JWTPayload {
   sub: string; // user ID
   groupId: string; // group ID for multi-tenant isolation
-  role: 'admin' | 'member';
+  role: MembershipRole;
   type: 'access' | 'refresh';
   exp: number; // expiration timestamp
   iat: number; // issued at timestamp
@@ -96,7 +98,7 @@ export async function verifyJWT(token: string, secret: string): Promise<JWTPaylo
 export function generateAccessToken(
   userId: string,
   groupId: string,
-  role: 'admin' | 'member',
+  role: MembershipRole,
   secret: string
 ): Promise<string> {
   return generateJWT(
@@ -109,7 +111,7 @@ export function generateAccessToken(
 export function generateRefreshToken(
   userId: string,
   groupId: string,
-  role: 'admin' | 'member',
+  role: MembershipRole,
   secret: string
 ): Promise<string> {
   return generateJWT(

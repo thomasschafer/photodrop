@@ -2,10 +2,13 @@
 -- Multi-group architecture: users can belong to multiple groups with different roles
 
 -- Groups table: each group is completely isolated
+-- owner_id guarantees every group has exactly one immutable owner
 CREATE TABLE IF NOT EXISTS groups (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  owner_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES users(id)
 );
 
 -- Users table: stores all users (group membership is separate)
@@ -18,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Memberships table: junction table for user-group relationships
+-- Note: owner is stored in groups.owner_id and has 'admin' role here
 CREATE TABLE IF NOT EXISTS memberships (
   user_id TEXT NOT NULL,
   group_id TEXT NOT NULL,
@@ -78,6 +82,7 @@ CREATE TABLE IF NOT EXISTS photo_reactions (
 
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_groups_owner ON groups(owner_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_group ON memberships(group_id);
 CREATE INDEX IF NOT EXISTS idx_magic_link_email ON magic_link_tokens(email);

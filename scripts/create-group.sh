@@ -1,20 +1,21 @@
 #!/bin/bash
 set -e
 
-# Create a new group with an admin user
-# Usage: ./scripts/create-group.sh "Group Name" "admin@example.com" [--remote]
+# Create a new group with an owner
+# Usage: ./scripts/create-group.sh "Group Name" "Owner Name" "owner@example.com" [--remote]
 
-if [ "$#" -lt 2 ]; then
-    echo "Usage: $0 <group_name> <admin_email> [--remote]"
-    echo "Example: $0 \"Family Photos\" \"tom@example.com\""
+if [ "$#" -lt 3 ]; then
+    echo "Usage: $0 <group_name> <owner_name> <owner_email> [--remote]"
+    echo "Example: $0 \"Family Photos\" \"Tom\" \"tom@example.com\""
     exit 1
 fi
 
 GROUP_NAME="$1"
-ADMIN_EMAIL="$2"
+OWNER_NAME="$2"
+OWNER_EMAIL="$3"
 REMOTE_FLAG=""
 
-if [ "$3" = "--remote" ]; then
+if [ "$4" = "--remote" ]; then
     REMOTE_FLAG="--remote"
 else
     REMOTE_FLAG="--local"
@@ -35,46 +36,51 @@ NOW=$(date +%s)
 EXPIRES_AT=$((NOW + 900))  # 15 minutes
 
 echo "Creating group: $GROUP_NAME"
-echo "Admin email: $ADMIN_EMAIL"
+echo "Owner: $OWNER_NAME ($OWNER_EMAIL)"
 echo ""
 
 # Change to backend directory for wrangler
 cd "$(dirname "$0")/../backend"
 
-# Insert group
-wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
-INSERT INTO groups (id, name, created_at)
-VALUES ('$GROUP_ID', '$GROUP_NAME', $NOW);
-"
-
-echo "✓ Group created (ID: $GROUP_ID)"
-
-# Check if user already exists and create membership for them
+# Check if user already exists
 EXISTING_USER=$(wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
-SELECT id FROM users WHERE email = '$ADMIN_EMAIL';
+SELECT id FROM users WHERE email = '$OWNER_EMAIL';
 " 2>&1 | grep -oE '[a-f0-9]{32}' | head -1 || true)
 
 if [ -n "$EXISTING_USER" ]; then
     USER_ID="$EXISTING_USER"
-    echo "✓ Found existing user (ID: $USER_ID)"
-
-    # Create membership for existing user
+    echo "Found existing user (ID: $USER_ID)"
+else
+    # Create new user
+    USER_ID=$(generate_id)
     wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
+INSERT INTO users (id, name, email, created_at)
+VALUES ('$USER_ID', '$OWNER_NAME', '$OWNER_EMAIL', $NOW);
+"
+    echo "Created new user (ID: $USER_ID)"
+fi
+
+# Create group with owner_id
+wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
+INSERT INTO groups (id, name, owner_id, created_at)
+VALUES ('$GROUP_ID', '$GROUP_NAME', '$USER_ID', $NOW);
+"
+echo "Created group (ID: $GROUP_ID)"
+
+# Create membership for owner (with 'admin' role - owner is identified via groups.owner_id)
+wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
 INSERT INTO memberships (user_id, group_id, role, joined_at)
 VALUES ('$USER_ID', '$GROUP_ID', 'admin', $NOW);
 "
-    echo "✓ Admin membership created"
-else
-    echo "✓ New user - will be created when magic link is clicked"
-fi
+echo "Created owner membership"
 
-# Create magic link token for initial login (or to create new user)
+# Create magic link token for initial login
 wrangler d1 execute photodrop-db $REMOTE_FLAG --command "
 INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at)
-VALUES ('$TOKEN', '$GROUP_ID', '$ADMIN_EMAIL', 'invite', 'admin', $NOW, $EXPIRES_AT);
+VALUES ('$TOKEN', '$GROUP_ID', '$OWNER_EMAIL', 'login', NULL, $NOW, $EXPIRES_AT);
 "
+echo "Created magic link token"
 
-echo "✓ Magic link token created"
 echo ""
 echo "=========================================="
 echo "Setup complete!"

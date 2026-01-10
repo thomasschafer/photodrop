@@ -1,19 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
+import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
 import { ConfirmModal } from './ConfirmModal';
 
 interface Member {
   userId: string;
   name: string;
   email: string;
-  role: 'admin' | 'member';
+  role: MembershipRole;
   joinedAt: number;
 }
 
 export function MembersList() {
   const { user, currentGroup } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export function MembersList() {
   const [confirmRoleChange, setConfirmRoleChange] = useState<{
     memberId: string;
     memberName: string;
-    newRole: 'admin' | 'member';
+    newRole: 'admin' | 'member'; // Owners cannot be changed, so only admin/member allowed
   } | null>(null);
   const [editingName, setEditingName] = useState<{
     memberId: string;
@@ -40,6 +42,7 @@ export function MembersList() {
       setError(null);
       const data = await api.groups.getMembers(currentGroup.id);
       setMembers(data.members);
+      setOwnerId(data.ownerId);
     } catch (err) {
       console.error('Failed to fetch members:', err);
       setError('Failed to load members');
@@ -152,7 +155,7 @@ export function MembersList() {
     }
   };
 
-  const adminCount = members.filter((m) => m.role === 'admin').length;
+  // No longer need to track admin count - owner guarantees group management
 
   if (loading) {
     return (
@@ -189,7 +192,10 @@ export function MembersList() {
           message={
             <>
               Change {confirmRoleChange.memberName}'s role to{' '}
-              <span className="font-medium text-text-primary">{confirmRoleChange.newRole}</span>?
+              <span className="font-medium text-text-primary">
+                {ROLE_DISPLAY_NAMES[confirmRoleChange.newRole]}
+              </span>
+              ?
             </>
           }
           isLoading={actionLoading === confirmRoleChange.memberId}
@@ -238,7 +244,7 @@ export function MembersList() {
       <div className="divide-y divide-border">
         {members.map((member) => {
           const isCurrentUser = member.userId === user?.id;
-          const isLastAdmin = member.role === 'admin' && adminCount <= 1;
+          const isOwner = member.userId === ownerId;
           const isLoading = actionLoading === member.userId;
 
           return (
@@ -282,39 +288,45 @@ export function MembersList() {
                     </svg>
                   </button>
 
-                  <select
-                    value={member.role}
-                    onChange={(e) => {
-                      const newRole = e.target.value as 'admin' | 'member';
-                      if (newRole !== member.role) {
-                        handleRoleChangeRequest(member.userId, member.name, newRole);
-                        e.target.value = member.role;
-                      }
-                    }}
-                    disabled={isLoading || (isCurrentUser && isLastAdmin)}
-                    className="input-field py-1.5 px-2 text-sm min-w-[100px]"
-                    title={
-                      isCurrentUser && isLastAdmin
-                        ? 'Cannot demote yourself - you are the last admin'
-                        : undefined
-                    }
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="member">Member</option>
-                  </select>
+                  {isOwner ? (
+                    <span
+                      className="py-1.5 px-3 text-sm font-medium rounded-md min-w-[100px] text-center bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                      title="Owner role cannot be changed"
+                    >
+                      {ROLE_DISPLAY_NAMES.owner}
+                    </span>
+                  ) : (
+                    <select
+                      value={member.role}
+                      onChange={(e) => {
+                        const newRole = e.target.value as 'admin' | 'member';
+                        if (newRole !== member.role) {
+                          handleRoleChangeRequest(member.userId, member.name, newRole);
+                          e.target.value = member.role;
+                        }
+                      }}
+                      disabled={isLoading}
+                      className="input-field py-1.5 px-2 text-sm min-w-[100px]"
+                    >
+                      <option value="admin">{ROLE_DISPLAY_NAMES.admin}</option>
+                      <option value="member">{ROLE_DISPLAY_NAMES.member}</option>
+                    </select>
+                  )}
 
                   <button
                     onClick={() =>
                       setConfirmRemove({ memberId: member.userId, memberName: member.name })
                     }
-                    disabled={isLoading || (isCurrentUser && isLastAdmin)}
-                    className="p-2 text-text-tertiary hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                    title={
-                      isCurrentUser && isLastAdmin
-                        ? 'Cannot remove yourself - you are the last admin'
-                        : 'Remove from group'
+                    disabled={isLoading || isOwner}
+                    className={`p-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isOwner
+                        ? 'text-text-tertiary'
+                        : 'text-text-tertiary hover:text-red-600 dark:hover:text-red-400 cursor-pointer'
+                    }`}
+                    title={isOwner ? 'Owners cannot be removed' : 'Remove from group'}
+                    aria-label={
+                      isOwner ? 'Owners cannot be removed' : `Remove ${member.name} from group`
                     }
-                    aria-label={`Remove ${member.name} from group`}
                   >
                     <svg
                       width="18"
