@@ -497,14 +497,14 @@ E2E tests (Playwright):
 
 **Frontend changes:**
 
-- [ ] Create `InstallPrompt` component:
+- [x] Create `InstallPrompt` component:
   - Detect platform (iOS, Android, Desktop) and installed state
   - Show appropriate instructions per platform
   - Handle `beforeinstallprompt` event for Android/Desktop
   - Dismissible with "remind me later" or "don't show again"
-- [ ] Add install state detection hook (`useInstallState`)
-- [ ] Add "Install App" option accessible from header menu (for users who dismissed)
-- [ ] Store prompt dismissal in localStorage
+- [x] Add install state detection hook (`useInstallPrompt`)
+- [x] Add "Install App" button in header (for users who dismissed)
+- [x] Store prompt dismissal in localStorage
 
 **No backend changes required.**
 

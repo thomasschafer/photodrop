@@ -9,6 +9,7 @@ import { MembersList } from './components/MembersList';
 import { Logo } from './components/Logo';
 import { ThemeToggle } from './components/ThemeToggle';
 import { GroupSwitcher } from './components/GroupSwitcher';
+import { InstallPrompt, InstallButton } from './components/InstallPrompt';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
@@ -89,6 +90,7 @@ function MainApp() {
             </div>
 
             <div className="flex items-center gap-4">
+              <InstallButton />
               <ThemeToggle />
               <span className="text-sm text-text-secondary">{user.name}</span>
               <button
@@ -126,6 +128,8 @@ function MainApp() {
           )}
         </div>
       </header>
+
+      <InstallPrompt />
 
       <main id="main-content" className="max-w-[900px] mx-auto py-8 px-6">
         <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-label={`${activeTab} content`}>

@@ -157,6 +157,62 @@
     background-color: transparent;
   }
 
+  .btn-primary-sm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.375rem 0.75rem;
+    background-color: var(--color-accent);
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.5rem;
+    border: none;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+
+  .btn-primary-sm:hover {
+    background-color: var(--color-accent-hover);
+    text-decoration: none;
+  }
+
+  .btn-secondary-sm {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.375rem 0.75rem;
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 400;
+    border-radius: 0.375rem;
+    text-decoration: none;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .btn-secondary-sm:hover {
+    color: var(--color-text-primary);
+  }
+
+  .btn-link {
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 400;
+    text-decoration: none;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .btn-link:hover {
+    color: var(--color-text-primary);
+  }
+
   /* Input styles */
   .input-field {
     width: 100%;
