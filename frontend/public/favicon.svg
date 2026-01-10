@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c67d5a"/>
+      <stop offset="100%" stop-color="#a55d3d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.25"/>
+    </filter>
+    <clipPath id="photoClip">
+      <rect x="166" y="135" width="180" height="180" rx="16"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- Polaroid frame - slightly rotated -->
+  <g transform="rotate(-6, 256, 256)" filter="url(#shadow)">
+    <!-- White polaroid border (rx = inner rx + gap for proper nesting) -->
+    <rect x="146" y="115" width="220" height="270" rx="36" fill="#fff"/>
+    <!-- Photo area with rounded corners -->
+    <g clip-path="url(#photoClip)">
+      <rect x="166" y="135" width="180" height="180" fill="#a55d3d" fill-opacity="0.3"/>
+      <!-- Simple mountain/landscape in photo -->
+      <path d="M166 265 L220 200 L260 245 L290 210 L346 265 L346 315 L166 315 Z" fill="#a55d3d" fill-opacity="0.5"/>
+      <!-- Sun in photo -->
+      <circle cx="305" cy="175" r="24" fill="#fff" fill-opacity="0.8"/>
+    </g>
+  </g>
+
+</svg>
