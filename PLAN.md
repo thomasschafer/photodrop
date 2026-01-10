@@ -4,11 +4,14 @@
 
 **Current implementation:**
 - ✅ Phase 1 (Foundation): Complete - photo upload/feed, JWT auth, user management
-- ✅ Phase 1.5 (Email Auth): Complete - frontend done, magic links working, mock email for local dev
-- ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout, admin features
+- ✅ Phase 1.5 (Email Auth): Complete - magic links working, mock email for local dev
+- ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout
 - ✅ Phase 1.7 (Multi-group): Complete - users can belong to multiple groups
 - ✅ Phase 1.8 (Owner role): Complete - immutable owner role per group
-- ❌ Phase 2+ (PWA, Notifications): Not started
+- ❌ Phase 2 (PWA): Not started - install prompts, push notifications, offline caching
+- ❌ Phase 2.5 (Production): Not started - email delivery, domains, security hardening
+- ❌ Phase 3 (Polish): Not started - UX improvements, accessibility
+- ❌ Phase 4 (Launch): Not started - beta testing, full launch
 
 ---
 
@@ -471,22 +474,255 @@ E2E tests (Playwright):
 
 ### Phase 2: PWA features
 
-- [ ] Service worker with Workbox (offline caching)
-- [ ] Push notifications (VAPID, subscription storage)
-- [ ] Installation instructions UI (platform-specific)
+**Goal:** Make photodrop a fully-featured PWA with push notifications and offline support. Target audience includes older/less tech-savvy users, so installation and notification setup must be simple and guided.
+
+**User flow:**
+1. User logs in successfully
+2. If not installed → show install prompt with platform-specific instructions
+3. After install (or if already installed) → prompt to enable notifications
+4. Notification bell in header allows toggling notifications on/off
+
+#### Phase 2.1: Installation prompt
+
+**Design:**
+- Detect if app is running as installed PWA vs browser
+- Show friendly install banner after first successful login (not a modal - non-blocking)
+- Platform-specific instructions:
+  - **iOS/iPad Safari**: "Tap Share → Add to Home Screen" (required for notifications)
+  - **Android/Chrome/Edge**: Use native `beforeinstallprompt` event for one-tap install
+  - **macOS Safari**: "File → Add to Dock" or Share → Add to Dock
+  - **Firefox**: Skip install, notifications work in browser - show "Continue in browser" option
+- Banner can be dismissed, but add "Install App" option in settings/menu to revisit
+- Track install state in localStorage to avoid re-prompting
+
+**Frontend changes:**
+
+- [ ] Create `InstallPrompt` component:
+  - Detect platform (iOS, Android, Desktop) and installed state
+  - Show appropriate instructions per platform
+  - Handle `beforeinstallprompt` event for Android/Desktop
+  - Dismissible with "remind me later" or "don't show again"
+- [ ] Add install state detection hook (`useInstallState`)
+- [ ] Add "Install App" option accessible from header menu (for users who dismissed)
+- [ ] Store prompt dismissal in localStorage
+
+**No backend changes required.**
+
+#### Phase 2.2: Push notifications
+
+**Design:**
+- Notification bell icon in header (next to theme toggle)
+- Bell states: enabled (filled), disabled (outline), unsupported (hidden)
+- Click bell when disabled → browser permission prompt → if granted, subscribe
+- Click bell when enabled → confirmation modal → if confirmed, unsubscribe
+- Notifications sent when admin uploads a new photo
+- Each user can have multiple subscriptions (multiple devices)
+
+**Database changes:**
+
+- [ ] Add `push_subscriptions` table:
+  ```sql
+  CREATE TABLE push_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+  );
+  ```
+
+**Backend changes:**
+
+- [ ] Add subscription endpoints:
+  - `POST /api/push/subscribe` - Save subscription for current user+group
+  - `DELETE /api/push/subscribe` - Remove subscription by endpoint
+  - `GET /api/push/status` - Check if current device is subscribed
+- [ ] Add notification sending on photo upload:
+  - After successful photo upload, fetch all subscriptions for the group (excluding uploader)
+  - Send push notification with photo caption (or "New photo") and thumbnail
+  - Handle failed deliveries (remove invalid subscriptions)
+- [ ] Use web-push library for sending notifications
+
+**Frontend changes:**
+
+- [ ] Create `NotificationBell` component:
+  - Check notification permission state and subscription status
+  - Three states: subscribed (filled bell), not subscribed (outline bell), unsupported (hidden)
+  - On click when not subscribed: request permission → if granted, call subscribe API
+  - On click when subscribed: show ConfirmModal → if confirmed, call unsubscribe API
+- [ ] Add service worker push event handler:
+  - Display notification with photo info
+  - On notification click, open app to the group's photo feed
+- [ ] Register service worker on app load
+- [ ] Add VAPID public key to frontend config
+
+#### Phase 2.3: Offline caching
+
+**Design:**
+- Cache app shell (HTML, JS, CSS) for offline app loading
+- Cache thumbnails as viewed (small, ~200KB each)
+- Cache last ~20 full-size photos viewed, with ~100MB total cap
+- Cache photo list API response for offline browsing
+- Show "offline" indicator when no connection
+- Sync gracefully when back online
+
+**Frontend changes:**
+
+- [ ] Configure Workbox in Vite build:
+  - Precache app shell (index.html, JS, CSS, fonts)
+  - Runtime cache for thumbnails (cache-first, no expiry)
+  - Runtime cache for full photos (cache-first, max 20 entries, 100MB cap)
+  - Runtime cache for API responses (network-first, 24h fallback)
+- [ ] Add offline detection and indicator:
+  - Use `navigator.onLine` and `online`/`offline` events
+  - Show subtle banner when offline: "You're offline - showing cached photos"
+- [ ] Handle offline gracefully in API calls (show cached data, queue actions)
+
+**No backend changes required.**
+
+#### Testing
+
+**Unit tests (Vitest):**
+- [ ] Push subscription CRUD operations
+- [ ] Notification payload generation
+
+**E2E tests (Playwright):**
+- [ ] Install prompt appears for new users (can mock `beforeinstallprompt`)
+- [ ] Install prompt can be dismissed
+- [ ] Notification bell toggles subscription state
+- [ ] Unsubscribe shows confirmation modal
+- [ ] Photo upload triggers notification to other group members
+- [ ] App loads offline with cached shell
+- [ ] Cached photos display when offline
+
+**Manual testing checklist:**
+- [ ] iOS/iPad Safari: Install flow works with share sheet
+- [ ] Android Chrome: Native install prompt works
+- [ ] macOS Safari: Add to Dock works
+- [ ] Desktop Chrome/Edge: Install prompt works
+- [ ] Firefox: "Continue in browser" works, notifications work without install
+- [ ] Push notification received on mobile and desktop
+- [ ] Notification click opens correct group
+- [ ] Offline mode shows cached content
+- [ ] Multiple devices can subscribe independently
+
+### Phase 2.5: Production readiness
+
+**Goal:** Get the app deployable to production with real email delivery, custom domains, and proper security hardening.
+
+#### Email delivery
+
+**Design:**
+- Replace mock email with real delivery
+- Use **Resend** (simple API, good free tier, easy setup) or **MailChannels** (free with Workers but complex DNS setup)
+- Recommend Resend for simplicity
+
+**Backend changes:**
+
+- [ ] Add email provider integration:
+  - Sign up for Resend (or alternative)
+  - Add `RESEND_API_KEY` to secrets
+  - Update `sendEmail()` to call Resend API in production
+  - Keep mock mode for local dev (when `RESEND_API_KEY` not set)
+- [ ] Configure sender domain:
+  - Add DNS records (SPF, DKIM) for sender domain
+  - Verify domain in email provider dashboard
+
+#### Cloudflare Pages setup
+
+**Design:**
+- Frontend deployed to Cloudflare Pages
+- Can use `wrangler pages` CLI or connect GitHub for auto-deploy
+
+**Setup steps:**
+
+- [ ] Create Pages project:
+  - `wrangler pages project create photodrop`
+  - Or create via Cloudflare dashboard
+- [ ] Configure build settings:
+  - Build command: `npm run build`
+  - Output directory: `dist`
+  - Root directory: `frontend`
+- [ ] Update `setup-prod` script to create Pages project if missing
+- [ ] Update `deploy.sh` to handle first-time Pages deployment
+
+#### Custom domain configuration
+
+**Design:**
+- Assumes domain is already in Cloudflare (simplifies everything)
+- HTTPS automatic via Cloudflare
+- Two options:
+
+**Option A: Dedicated domain** (domain IS the product)
+- Frontend: `yourdomain.com` (apex domain)
+- API: `api.yourdomain.com`
+
+**Option B: Subdomain** (photodrop is part of a larger domain)
+- Frontend: `photos.yourdomain.com`
+- API: `api.photos.yourdomain.com`
+
+**Setup steps:**
+
+- [ ] Configure Pages custom domain:
+  - Pages project → Custom domains → Add domain (apex or subdomain)
+  - DNS record added automatically
+- [ ] Configure Workers custom domain:
+  - Workers → Settings → Domains → Add custom domain
+- [ ] Update `FRONTEND_URL` in production config to match chosen domain
+- [ ] Update CORS to allow production domain
+
+#### Security hardening
+
+**Backend changes:**
+
+- [ ] Add rate limiting:
+  - Use Cloudflare's built-in rate limiting (via dashboard or Workers)
+  - Limit auth endpoints (login, magic link) to prevent abuse
+  - Limit photo upload to reasonable rate
+- [ ] Configure CORS properly:
+  - Allow only production frontend domain
+  - Keep permissive for local dev
+- [ ] Review CSP headers:
+  - Add Content-Security-Policy header
+  - Restrict script sources, frame ancestors
+
+#### Monitoring and backups
+
+**Documentation:**
+
+- [ ] Document monitoring approach:
+  - Cloudflare dashboard shows Workers analytics, errors, and logs
+  - D1 metrics available in dashboard
+  - Consider adding `/health` endpoint checks via external monitor (e.g., UptimeRobot free tier)
+- [ ] Document backup/recovery:
+  - D1 has automatic point-in-time recovery (last 30 days)
+  - Document how to export/restore if needed
+  - R2 has no auto-backup - consider versioning for critical data
+
+#### Testing
+
+- [ ] Deploy to production with test group
+- [ ] Verify email delivery works end-to-end
+- [ ] Verify custom domain and HTTPS work
+- [ ] Test rate limiting doesn't block normal usage
 
 ### Phase 3: Polish
 
 - [x] Admin photo deletion UI
 - [x] Admin user management UI (role promotion, user removal) - moved to Phase 1.7
 - [ ] UX improvements (gallery navigation, reactions UI)
-- [ ] Domain setup and production deployment
 - [ ] Multi-device testing
+- [ ] Accessibility review (screen readers, keyboard navigation)
 
 ### Phase 4: Launch
 
-- [ ] Documentation
-- [ ] Beta testing (2-3 users)
+- [ ] Final documentation review (README, PLAN)
+- [ ] Beta testing with 2-3 real users
+- [ ] Collect feedback and fix critical issues
 - [ ] Full launch
 
 ## Future enhancements
