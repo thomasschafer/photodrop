@@ -10,9 +10,10 @@
 - ✅ Phase 1.8 (Owner role): Complete - immutable owner role per group
 - ✅ Phase 2.1 (Install prompts): Complete - PWA setup, platform-specific install instructions
 - ✅ Phase 2.1.5 (Production deployment): Complete - deployed with CI/CD
-- 🔄 Phase 2.2 (Push notifications): Next
-- ❌ Phase 2.3 (Offline caching): Not started
-- ❌ Phase 2.5 (Production hardening): Not started - email delivery, rate limiting, CSP
+- 🔄 Phase 2.2 (Email delivery): Next - Resend integration for magic links
+- ❌ Phase 2.3 (Push notifications): Not started
+- ❌ Phase 2.4 (Offline caching): Not started
+- ❌ Phase 2.5 (Production hardening): Not started - rate limiting, CSP
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 
@@ -563,7 +564,89 @@ The setup script prompts for configuration and automates resource creation:
 - [x] PWA install prompt appears
 - [x] App installs correctly on mobile device
 
-#### Phase 2.2: Push notifications
+#### Phase 2.2: Email delivery
+
+**Goal:** Replace mock email with real delivery via Resend, sending from `noreply@<domain>.com`.
+
+**Why Resend:**
+- Simple API (single HTTP call from Workers)
+- 3,000 emails/month free tier (more than enough for magic links)
+- Easy domain verification via DNS records
+- Good deliverability and debugging dashboard
+
+**One-time setup:**
+
+- [ ] Sign up at resend.com
+- [ ] Add and verify domain `<domain>.com`:
+  - Add SPF record (TXT): Resend provides the value
+  - Add DKIM records (TXT): Resend provides 2-3 records
+  - Add DMARC record (TXT, optional but recommended): `v=DMARC1; p=none;`
+  - Wait for verification (usually instant, can take up to 48h)
+- [ ] Create API key with send permission
+- [ ] Add `RESEND_API_KEY` to production secrets:
+  - Add to `.prod.vars` locally
+  - Add to GitHub Actions secrets
+  - Run `wrangler secret put RESEND_API_KEY`
+
+**Backend changes:**
+
+- [ ] Update `sendEmail()` in `src/services/email.ts`:
+  ```typescript
+  export async function sendEmail(env: Env, to: string, subject: string, html: string) {
+    // Local dev: log to console (no API key)
+    if (!env.RESEND_API_KEY) {
+      console.log(`[DEV EMAIL] To: ${to}, Subject: ${subject}`);
+      console.log(html);
+      return { success: true, mock: true };
+    }
+
+    // Production: send via Resend
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'photodrop <noreply@<domain>.com>',
+        to,
+        subject,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Resend error:', error);
+      throw new Error(`Failed to send email: ${response.status}`);
+    }
+
+    return { success: true };
+  }
+  ```
+- [ ] Add `RESEND_API_KEY` to `Env` type in `src/types.ts`
+- [ ] Update email templates if needed (ensure they look good in email clients)
+
+**Testing:**
+
+- [ ] Test locally: verify mock mode still logs to console
+- [ ] Test in production:
+  - Create a test group with your real email
+  - Verify invite email arrives
+  - Verify login link email arrives
+  - Check Resend dashboard for delivery status
+- [ ] Test error handling: verify graceful failure if Resend is down
+
+**Verification checklist:**
+
+- [ ] Domain verified in Resend dashboard
+- [ ] SPF/DKIM/DMARC records added to Cloudflare DNS
+- [ ] `RESEND_API_KEY` deployed to production
+- [ ] Invite emails deliver successfully
+- [ ] Login link emails deliver successfully
+- [ ] Emails not landing in spam (check with Gmail, iCloud)
+
+#### Phase 2.3: Push notifications
 
 **Design:**
 - Notification bell icon in header (next to theme toggle)
@@ -616,7 +699,7 @@ The setup script prompts for configuration and automates resource creation:
   - On notification click, open app to the group's photo feed
 - [ ] Add VAPID public key to frontend config
 
-#### Phase 2.3: Offline caching
+#### Phase 2.4: Offline caching
 
 **Design:**
 - Cache app shell (HTML, JS, CSS) for offline app loading
@@ -668,44 +751,9 @@ The setup script prompts for configuration and automates resource creation:
 
 ### Phase 2.5: Production hardening
 
-**Goal:** Add real email delivery and security hardening. The app is already deployed (Phase 2.1.5); this phase improves production robustness.
-
-#### Email delivery
-
-**Design:**
-- Replace mock email with real delivery
-- Use **Resend** (simple API, good free tier, easy setup) or **MailChannels** (free with Workers but complex DNS setup)
-- Recommend Resend for simplicity
-
-**Backend changes:**
-
-- [ ] Add email provider integration:
-  - Sign up for Resend (or alternative)
-  - Add `RESEND_API_KEY` to secrets
-  - Update `sendEmail()` to call Resend API in production
-  - Keep mock mode for local dev (when `RESEND_API_KEY` not set)
-- [ ] Configure sender domain:
-  - Add DNS records (SPF, DKIM) for sender domain
-  - Verify domain in email provider dashboard
-
-#### Cloudflare Pages setup ✅
-
-Completed in Phase 2.1.5:
-- [x] Create Pages project via `setup-prod` script
-- [x] Deploy via `deploy` script
-- [x] Custom domain configured
-
-#### Custom domain configuration ✅
-
-Completed in Phase 2.1.5:
-- [x] Pages custom domain configured
-- [x] Workers route configured for API subdomain
-- [x] CORS configured for production domain
-- [x] DNS AAAA record for API subdomain documented in README
+**Goal:** Add security hardening and monitoring. The app is deployed (Phase 2.1.5) with email working (Phase 2.2); this phase improves robustness.
 
 #### Security hardening
-
-**Backend changes:**
 
 - [ ] Add rate limiting:
   - Use Cloudflare's built-in rate limiting (via dashboard or Workers)
@@ -733,10 +781,9 @@ Completed in Phase 2.1.5:
 
 #### Testing
 
-- [ ] Deploy to production with test group
-- [ ] Verify email delivery works end-to-end
-- [ ] Verify custom domain and HTTPS work
 - [ ] Test rate limiting doesn't block normal usage
+- [ ] Verify CSP headers don't break functionality
+- [ ] Test CORS rejects unauthorized origins
 
 ### Phase 3: Polish
 

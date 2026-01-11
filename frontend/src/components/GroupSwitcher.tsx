@@ -76,7 +76,7 @@ export function GroupSwitcher() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
-    const direction = getNavDirection(e.key);
+    const direction = getNavDirection(e);
     if (direction === 'down') {
       e.preventDefault();
       focusOption(index + 1);
@@ -97,7 +97,7 @@ export function GroupSwitcher() {
   };
 
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
-    if (isVerticalNavKey(e.key)) {
+    if (isVerticalNavKey(e)) {
       e.preventDefault();
       setIsOpen(true);
     }

@@ -1,11 +1,24 @@
 export type NavDirection = 'up' | 'down' | 'left' | 'right';
 
+interface KeyboardEventLike {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+}
+
 /**
  * Maps keyboard keys to navigation directions.
  * Supports both arrow keys and vim-style hjkl keys.
+ * Returns null if any modifier key (Cmd, Ctrl, Alt) is pressed to avoid
+ * interfering with browser shortcuts like Cmd+L.
  */
-export function getNavDirection(key: string): NavDirection | null {
-  switch (key) {
+export function getNavDirection(event: KeyboardEventLike): NavDirection | null {
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return null;
+  }
+
+  switch (event.key) {
     case 'ArrowUp':
     case 'k':
       return 'up';
@@ -26,15 +39,15 @@ export function getNavDirection(key: string): NavDirection | null {
 /**
  * Checks if a key is a vertical navigation key (up/down).
  */
-export function isVerticalNavKey(key: string): boolean {
-  const dir = getNavDirection(key);
+export function isVerticalNavKey(event: KeyboardEventLike): boolean {
+  const dir = getNavDirection(event);
   return dir === 'up' || dir === 'down';
 }
 
 /**
  * Checks if a key is a horizontal navigation key (left/right).
  */
-export function isHorizontalNavKey(key: string): boolean {
-  const dir = getNavDirection(key);
+export function isHorizontalNavKey(event: KeyboardEventLike): boolean {
+  const dir = getNavDirection(event);
   return dir === 'left' || dir === 'right';
 }

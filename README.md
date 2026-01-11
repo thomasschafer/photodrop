@@ -1,6 +1,6 @@
 # photodrop
 
-A Progressive Web App (PWA) for privately sharing photos within isolated groups.
+A web app for privately sharing photos.
 
 See [PLAN.md](PLAN.md) for architecture details and implementation status.
 
@@ -130,7 +130,7 @@ nix run .#create-group -- "Family Photos" "Tom" "tom@example.com" --prod
 The magic link will be output. Since email isn't configured yet, you can also view magic links in Worker logs:
 
 ```bash
-wrangler tail
+wrangler tail --config backend/wrangler.prod.toml
 ```
 
 ## Architecture

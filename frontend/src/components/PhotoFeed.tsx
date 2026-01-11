@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api, API_BASE_URL } from '../lib/api';
 import { getNavDirection } from '../lib/keyboard';
 import { ConfirmModal } from './ConfirmModal';
@@ -22,14 +23,17 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const token = useAuthToken();
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
+  const navigate = useNavigate();
+  const { photoId } = useParams<{ photoId: string }>();
 
-  const selectedPhoto = selectedPhotoIndex !== null ? photos[selectedPhotoIndex] : null;
+  const selectedPhotoIndex = photoId ? photos.findIndex((p) => p.id === photoId) : null;
+  const selectedPhoto =
+    selectedPhotoIndex !== null && selectedPhotoIndex >= 0 ? photos[selectedPhotoIndex] : null;
 
   const loadPhotos = async () => {
     try {
@@ -48,6 +52,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     loadPhotos();
   }, []);
 
+  useEffect(() => {
+    if (!loading && photoId && photos.length > 0 && selectedPhotoIndex === -1) {
+      navigate('/', { replace: true });
+    }
+  }, [loading, photoId, photos.length, selectedPhotoIndex, navigate]);
+
   const focusPhoto = useCallback(
     (index: number) => {
       const clampedIndex = Math.max(0, Math.min(index, photos.length - 1));
@@ -57,7 +67,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   );
 
   const handlePhotoKeyDown = (e: React.KeyboardEvent, index: number) => {
-    const direction = getNavDirection(e.key);
+    const direction = getNavDirection(e);
     if (direction === 'down') {
       e.preventDefault();
       focusPhoto(index + 1);
@@ -73,30 +83,30 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     } else if (e.key === 'Enter' || e.key === ' ') {
       if (e.target === e.currentTarget) {
         e.preventDefault();
-        setSelectedPhotoIndex(index);
+        navigate(`/photo/${photos[index].id}`);
       }
     }
   };
 
   const handleLightboxNav = useCallback(
     (direction: 'prev' | 'next') => {
-      if (selectedPhotoIndex === null) return;
+      if (selectedPhotoIndex === null || selectedPhotoIndex < 0) return;
       const newIndex =
         direction === 'next'
           ? Math.min(selectedPhotoIndex + 1, photos.length - 1)
           : Math.max(selectedPhotoIndex - 1, 0);
-      setSelectedPhotoIndex(newIndex);
+      navigate(`/photo/${photos[newIndex].id}`, { replace: true });
     },
-    [selectedPhotoIndex, photos.length]
+    [selectedPhotoIndex, photos, navigate]
   );
 
   const handleLightboxClose = useCallback(() => {
     const indexToFocus = selectedPhotoIndex;
-    setSelectedPhotoIndex(null);
-    if (indexToFocus !== null) {
+    navigate('/');
+    if (indexToFocus !== null && indexToFocus >= 0) {
       setTimeout(() => focusPhoto(indexToFocus), 0);
     }
-  }, [selectedPhotoIndex, focusPhoto]);
+  }, [selectedPhotoIndex, focusPhoto, navigate]);
 
   const handleDeleteClick = (photoId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -178,7 +188,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               ref={(el) => {
                 photoRefs.current[index] = el;
               }}
-              onClick={() => setSelectedPhotoIndex(index)}
+              onClick={() => navigate(`/photo/${photo.id}`)}
               onKeyDown={(e) => handlePhotoKeyDown(e, index)}
               tabIndex={0}
               role="listitem"
@@ -219,7 +229,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
         </div>
       </div>
 
-      {selectedPhoto && selectedPhotoIndex !== null && (
+      {selectedPhoto && selectedPhotoIndex !== null && selectedPhotoIndex >= 0 && (
         <Lightbox
           photo={selectedPhoto}
           token={token}
@@ -283,7 +293,7 @@ function Lightbox({
         onClose();
         return;
       }
-      const direction = getNavDirection(e.key);
+      const direction = getNavDirection(e);
       if (direction === 'left') {
         e.preventDefault();
         onPrev?.();

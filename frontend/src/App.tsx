@@ -10,6 +10,7 @@ import { Logo } from './components/Logo';
 import { ThemeToggle } from './components/ThemeToggle';
 import { GroupSwitcher } from './components/GroupSwitcher';
 import { InstallPrompt, InstallButton } from './components/InstallPrompt';
+import { MobileMenu } from './components/MobileMenu';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
@@ -55,7 +56,7 @@ function MainApp() {
   );
 
   const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
-    const direction = getNavDirection(e.key);
+    const direction = getNavDirection(e);
     if (direction === 'right') {
       e.preventDefault();
       focusTab(index + 1);
@@ -86,19 +87,28 @@ function MainApp() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-4">
               <Logo size="sm" />
-              <GroupSwitcher />
+              <div className="hidden mobile:block">
+                <GroupSwitcher />
+              </div>
             </div>
 
             <div className="flex items-center gap-4">
-              <InstallButton />
-              <ThemeToggle />
-              <span className="text-sm text-text-secondary">{user.name}</span>
-              <button
-                onClick={logout}
-                className="text-sm font-medium text-accent bg-transparent border-none cursor-pointer transition-colors hover:text-accent-hover"
-              >
-                Sign out
-              </button>
+              <div className="hidden mobile:flex items-center gap-4">
+                <InstallButton />
+                <ThemeToggle />
+                <span className="text-sm text-text-secondary">{user.name}</span>
+                <button
+                  onClick={logout}
+                  className="text-sm font-medium text-accent bg-transparent border-none cursor-pointer transition-colors hover:text-accent-hover"
+                >
+                  Sign out
+                </button>
+              </div>
+
+              <div className="mobile:hidden flex items-center gap-2">
+                <InstallButton />
+                <MobileMenu />
+              </div>
             </div>
           </div>
 
@@ -180,6 +190,7 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/:token" element={<AuthVerifyPage />} />
       <Route path="/" element={<MainApp />} />
+      <Route path="/photo/:photoId" element={<MainApp />} />
       <Route path="/upload" element={<MainApp />} />
       <Route path="/invite" element={<MainApp />} />
       <Route path="/members" element={<MainApp />} />
