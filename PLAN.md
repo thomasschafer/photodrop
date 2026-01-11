@@ -8,9 +8,12 @@
 - ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout
 - ✅ Phase 1.7 (Multi-group): Complete - users can belong to multiple groups
 - ✅ Phase 1.8 (Owner role): Complete - immutable owner role per group
-- ❌ Phase 2 (PWA): Not started - install prompts, push notifications, offline caching
-- ❌ Phase 2.5 (Production): Not started - email delivery, domains, security hardening
-- ❌ Phase 3 (Polish): Not started - UX improvements, accessibility
+- ✅ Phase 2.1 (Install prompts): Complete - PWA setup, platform-specific install instructions
+- ✅ Phase 2.1.5 (Production deployment): Complete - deployed to Cloudflare with custom domain
+- 🔄 Phase 2.2 (Push notifications): Next
+- ❌ Phase 2.3 (Offline caching): Not started
+- 🔄 Phase 2.5 (Production readiness): Partial - custom domain done, email delivery pending
+- ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 
 ---
@@ -162,19 +165,19 @@ CREATE TABLE photos (
 ### API endpoints
 
 **Authentication:**
-- `POST /api/auth/send-invite` - Send invite email (admin only, scoped to admin's group)
-- `POST /api/auth/send-login-link` - Send login link (public, looks up user by email)
-- `POST /api/auth/verify-magic-link` - Verify token and issue JWT
-- `POST /api/auth/refresh` - Refresh JWT
-- `POST /api/auth/logout` - Invalidate refresh token
-- `POST /api/auth/switch-group` - Switch to different group (issues new tokens)
-- `POST /api/auth/select-group` - Initial group selection for multi-group users (after login)
+- `POST /auth/send-invite` - Send invite email (admin only, scoped to admin's group)
+- `POST /auth/send-login-link` - Send login link (public, looks up user by email)
+- `POST /auth/verify-magic-link` - Verify token and issue JWT
+- `POST /auth/refresh` - Refresh JWT
+- `POST /auth/logout` - Invalidate refresh token
+- `POST /auth/switch-group` - Switch to different group (issues new tokens)
+- `POST /auth/select-group` - Initial group selection for multi-group users (after login)
 
 **Groups:**
-- `GET /api/groups` - List groups current user is a member of (with roles)
-- `GET /api/groups/:groupId/members` - List members of a group (admin only)
-- `PATCH /api/groups/:groupId/members/:userId` - Update member role (admin only)
-- `DELETE /api/groups/:groupId/members/:userId` - Remove user from group (admin only)
+- `GET /groups` - List groups current user is a member of (with roles)
+- `GET /groups/:groupId/members` - List members of a group (admin only)
+- `PATCH /groups/:groupId/members/:userId` - Update member role (admin only)
+- `DELETE /groups/:groupId/members/:userId` - Remove user from group (admin only)
 
 **Group + admin creation:** CLI script only (no public endpoint)
 ```bash
@@ -182,18 +185,18 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 ```
 
 **Photos:** All endpoints validate group_id
-- `GET /api/photos` - List photos (paginated)
-- `POST /api/photos` - Upload (admin only)
-- `DELETE /api/photos/:id` - Delete (admin only)
-- `POST /api/photos/:id/view` - Mark viewed
-- `POST /api/photos/:id/react` - Add reaction
-- `GET /api/photos/:id/url` - Get signed URL
+- `GET /photos` - List photos (paginated)
+- `POST /photos` - Upload (admin only)
+- `DELETE /photos/:id` - Delete (admin only)
+- `POST /photos/:id/view` - Mark viewed
+- `POST /photos/:id/react` - Add reaction
+- `GET /photos/:id/url` - Get signed URL
 
 **Users:** All endpoints validate group_id
-- `GET /api/users` - List users (admin only)
-- `GET /api/users/me` - Current user
-- `PATCH /api/users/:id/role` - Update role (admin only)
-- `DELETE /api/users/:id` - Remove user (admin only)
+- `GET /users` - List users (admin only)
+- `GET /users/me` - Current user
+- `PATCH /users/:id/role` - Update role (admin only)
+- `DELETE /users/:id` - Remove user (admin only)
 
 ### Security model
 
@@ -259,7 +262,8 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 - [x] JWT auth system (HMAC-SHA256, refresh rotation)
 - [x] Photo upload/feed with R2 storage and thumbnails
 - [x] User management endpoints
-- [x] Infrastructure automation (Nix, GitHub Actions, migrations)
+- [x] Infrastructure automation (Nix, migrations)
+- [x] GitHub Actions CI (lint, format, build, test, e2e, secrets scan, deploy)
 
 ### Phase 1.5: Email auth + multi-group ✅
 
@@ -320,19 +324,19 @@ nix run .#dev      # Start servers (auto-setup on first run)
 - [x] Update `User` type: remove `group_id` and `role` fields
 - [x] Update `createUser()`: no longer takes groupId/role
 - [x] Update `getUserByEmail()`: returns user without group context
-- [x] New auth endpoint `POST /api/auth/switch-group`:
+- [x] New auth endpoint `POST /auth/switch-group`:
   - Verify user has membership in requested group
   - Issue new access/refresh tokens with that groupId
   - Return new tokens + group info
-- [x] New endpoint `GET /api/groups`:
+- [x] New endpoint `GET /groups`:
   - Return all groups the current user is a member of
   - Include role for each group
-- [x] New endpoint `GET /api/groups/:groupId/members`:
+- [x] New endpoint `GET /groups/:groupId/members`:
   - Admin only - list all members of a group with their roles
-- [x] New endpoint `PATCH /api/groups/:groupId/members/:userId`:
+- [x] New endpoint `PATCH /groups/:groupId/members/:userId`:
   - Admin only - update member role
   - Cannot demote yourself if you're the last admin
-- [x] New endpoint `DELETE /api/groups/:groupId/members/:userId`:
+- [x] New endpoint `DELETE /groups/:groupId/members/:userId`:
   - Admin only - remove a user from the group
   - Deletes membership record (user account remains)
   - Cannot remove yourself if you're the last admin
@@ -508,6 +512,57 @@ E2E tests (Playwright):
 
 **No backend changes required.**
 
+#### Phase 2.1.5: Production deployment
+
+**Goal:** Get the current app deployed to production as quickly as possible with a custom domain. This enables real-device testing and iterating with actual users. Defer email delivery and advanced security to Phase 2.5.
+
+**Prerequisites:**
+- Cloudflare account with Workers, D1, R2, and Pages enabled
+- `wrangler` CLI authenticated (`wrangler login`)
+- Domain already in Cloudflare (for custom domain setup)
+
+**One-time setup (`nix run .#setup-prod`):**
+
+The setup script prompts for configuration and automates resource creation:
+
+- [x] Prompt for domain configuration (domain name, API subdomain)
+- [x] Create D1 database and run migrations
+- [x] Create R2 bucket
+- [x] Generate secrets (JWT_SECRET, VAPID keys)
+- [x] Create Pages project
+- [x] Generate `wrangler.prod.toml` production config
+- [x] Output summary with URLs and next steps
+
+**Manual deployment (`nix run .#deploy`):**
+
+- [x] Deploy backend Worker with secrets
+- [x] Deploy frontend to Pages
+- [x] Health check verification
+
+**CI/CD setup (GitHub Actions):**
+
+- [x] Create `.github/workflows/deploy.yml`
+- [ ] Add secrets to GitHub repo (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, JWT_SECRET, VAPID keys)
+- [ ] Add variables to GitHub repo (DOMAIN, API_DOMAIN, ZONE_NAME, PAGES_PROJECT)
+- [ ] Test auto-deploy on push to main
+
+**Creating groups in production:**
+
+- [x] `create-group` script supports `--prod` flag
+- [x] Magic links output to console (view via `wrangler tail`)
+
+**Verification checklist:**
+
+- [x] `https://api.{domain}/health` returns OK
+- [x] `https://{domain}` loads frontend correctly
+- [x] HTTPS works (auto-configured by Cloudflare)
+- [x] Can create group via CLI with `--prod`
+- [x] Can view magic link in Worker logs (`wrangler tail`)
+- [x] Can complete login flow
+- [x] Can upload and view photos
+- [ ] PWA install prompt appears
+- [ ] App installs correctly on mobile device
+
 #### Phase 2.2: Push notifications
 
 **Design:**
@@ -538,9 +593,9 @@ E2E tests (Playwright):
 **Backend changes:**
 
 - [ ] Add subscription endpoints:
-  - `POST /api/push/subscribe` - Save subscription for current user+group
-  - `DELETE /api/push/subscribe` - Remove subscription by endpoint
-  - `GET /api/push/status` - Check if current device is subscribed
+  - `POST /push/subscribe` - Save subscription for current user+group
+  - `DELETE /push/subscribe` - Remove subscription by endpoint
+  - `GET /push/status` - Check if current device is subscribed
 - [ ] Add notification sending on photo upload:
   - After successful photo upload, fetch all subscriptions for the group (excluding uploader)
   - Send push notification with photo caption (or "New photo") and thumbnail
@@ -632,48 +687,20 @@ E2E tests (Playwright):
   - Add DNS records (SPF, DKIM) for sender domain
   - Verify domain in email provider dashboard
 
-#### Cloudflare Pages setup
+#### Cloudflare Pages setup ✅
 
-**Design:**
-- Frontend deployed to Cloudflare Pages
-- Can use `wrangler pages` CLI or connect GitHub for auto-deploy
+Completed in Phase 2.1.5:
+- [x] Create Pages project via `setup-prod` script
+- [x] Deploy via `deploy` script
+- [x] Custom domain configured
 
-**Setup steps:**
+#### Custom domain configuration ✅
 
-- [ ] Create Pages project:
-  - `wrangler pages project create photodrop`
-  - Or create via Cloudflare dashboard
-- [ ] Configure build settings:
-  - Build command: `npm run build`
-  - Output directory: `dist`
-  - Root directory: `frontend`
-- [ ] Update `setup-prod` script to create Pages project if missing
-- [ ] Update `deploy.sh` to handle first-time Pages deployment
-
-#### Custom domain configuration
-
-**Design:**
-- Assumes domain is already in Cloudflare (simplifies everything)
-- HTTPS automatic via Cloudflare
-- Two options:
-
-**Option A: Dedicated domain** (domain IS the product)
-- Frontend: `yourdomain.com` (apex domain)
-- API: `api.yourdomain.com`
-
-**Option B: Subdomain** (photodrop is part of a larger domain)
-- Frontend: `photos.yourdomain.com`
-- API: `api.photos.yourdomain.com`
-
-**Setup steps:**
-
-- [ ] Configure Pages custom domain:
-  - Pages project → Custom domains → Add domain (apex or subdomain)
-  - DNS record added automatically
-- [ ] Configure Workers custom domain:
-  - Workers → Settings → Domains → Add custom domain
-- [ ] Update `FRONTEND_URL` in production config to match chosen domain
-- [ ] Update CORS to allow production domain
+Completed in Phase 2.1.5:
+- [x] Pages custom domain configured
+- [x] Workers route configured for API subdomain
+- [x] CORS configured for production domain
+- [x] DNS AAAA record for API subdomain documented in README
 
 #### Security hardening
 
@@ -714,9 +741,16 @@ E2E tests (Playwright):
 
 - [x] Admin photo deletion UI
 - [x] Admin user management UI (role promotion, user removal) - moved to Phase 1.7
-- [ ] UX improvements (gallery navigation, reactions UI)
+- [x] Keyboard navigation (lightbox, group switcher, theme toggle, photo feed)
+- [ ] Reactions UI (backend API already exists)
+- [ ] Comments
+- [ ] Photo view tracking UI for admins (backend API already exists)
+- [ ] Video upload
+- [ ] Add emails as an alternative to notifications
+- [ ] Allow admins to toggle on or off whether users can react and comment, and view whether others have
+- [ ] Make it harder for users to download or save images/videos
 - [ ] Multi-device testing
-- [ ] Accessibility review (screen readers, keyboard navigation)
+- [ ] Accessibility review (screen readers, ARIA improvements)
 
 ### Phase 4: Launch
 
@@ -727,9 +761,11 @@ E2E tests (Playwright):
 
 ## Future enhancements
 
-**Nice-to-haves:** Batch upload, video support, albums, comments, ownership transfer (allow owner to transfer ownership to another member)
+**Nice-to-haves:** Batch upload, albums, ownership transfer (allow owner to transfer ownership to another member)
 
 **Technical:** Progressive image loading, CDN optimization, accessibility improvements
+
+**Note:** Reactions and photo view tracking have backend API support but no frontend UI yet. These are planned for Phase 3.
 
 ## Testing strategy
 
@@ -739,15 +775,17 @@ E2E tests (Playwright):
 1. JWT generation/validation with group_id ✅
 2. Crypto utilities ✅
 3. Image compression utilities ✅
-4. Membership DB functions (Phase 1.7)
-5. Switch-group token validation (Phase 1.7)
+4. Membership DB functions ✅
+5. Switch-group token validation ✅
+6. Owner role protection ✅
 
 **E2E tests (Playwright):**
 1. Admin workflow (login, upload, delete, invite) ✅
 2. Member workflow (view-only permissions) ✅
 3. Tenant isolation (critical security tests) ✅
 4. Auth edge cases (expiry, reuse, persistence) ✅
-5. Multi-group membership (login flow, group switching, per-group roles) (Phase 1.7)
+5. Multi-group membership (login flow, group switching, per-group roles) ✅
+6. Owner role (immutable, cannot be removed/changed) ✅
 
 **Running tests:**
 ```bash
@@ -775,16 +813,16 @@ Schema is defined in `backend/migrations/0001_initial_schema.sql`. For schema ch
 
 ## Security checklist
 
-- [ ] HTTPS enforced
-- [ ] CORS configured
-- [ ] JWT with strong signing
-- [ ] httpOnly cookies
+- [x] HTTPS enforced (Cloudflare automatic)
+- [x] CORS configured (production domain only)
+- [x] JWT with strong signing (HS256)
+- [x] httpOnly cookies (refresh tokens)
 - [ ] Rate limiting
 - [ ] CSP headers
-- [ ] R2 bucket private
-- [ ] Signed URLs expire
-- [ ] Magic links single-use
-- [ ] Admin endpoints protected
+- [x] R2 bucket private
+- [x] Signed URLs expire (1 hour)
+- [x] Magic links single-use (15 min expiry)
+- [x] Admin endpoints protected
 
 ## Troubleshooting
 

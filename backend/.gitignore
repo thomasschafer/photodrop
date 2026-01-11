@@ -3,6 +3,7 @@ node_modules/
 .dev.vars
 .prod.vars
 .prod.secrets.txt
+wrangler.prod.toml
 dist/
 *.log
 .DS_Store

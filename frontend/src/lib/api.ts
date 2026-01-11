@@ -1,4 +1,16 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+function getApiBaseUrl(): string {
+  const hostname = window.location.hostname;
+
+  // Local development
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:8787';
+  }
+
+  // Production - API is at api.{domain}
+  return `https://api.${hostname}`;
+}
+
+export const API_BASE_URL = getApiBaseUrl();
 
 class ApiError extends Error {
   status: number;
@@ -57,7 +69,7 @@ export const api = {
   auth: {
     sendLoginLink: async (email: string) => {
       const response = await fetchWithAuth(
-        '/api/auth/send-login-link',
+        '/auth/send-login-link',
         {
           method: 'POST',
           body: JSON.stringify({ email }),
@@ -68,7 +80,7 @@ export const api = {
     },
 
     sendInvite: async (email: string, role: 'admin' | 'member' = 'member') => {
-      const response = await fetchWithAuth('/api/auth/send-invite', {
+      const response = await fetchWithAuth('/auth/send-invite', {
         method: 'POST',
         body: JSON.stringify({ email, role }),
       });
@@ -77,7 +89,7 @@ export const api = {
 
     verifyMagicLink: async (token: string, name?: string) => {
       const response = await fetchWithAuth(
-        '/api/auth/verify-magic-link',
+        '/auth/verify-magic-link',
         {
           method: 'POST',
           body: JSON.stringify({ token, name }),
@@ -88,19 +100,19 @@ export const api = {
     },
 
     refresh: async () => {
-      const response = await fetchWithAuth('/api/auth/refresh', { method: 'POST' }, false);
+      const response = await fetchWithAuth('/auth/refresh', { method: 'POST' }, false);
       return response.json();
     },
 
     logout: async () => {
-      const response = await fetchWithAuth('/api/auth/logout', {
+      const response = await fetchWithAuth('/auth/logout', {
         method: 'POST',
       });
       return response.json();
     },
 
     switchGroup: async (groupId: string) => {
-      const response = await fetchWithAuth('/api/auth/switch-group', {
+      const response = await fetchWithAuth('/auth/switch-group', {
         method: 'POST',
         body: JSON.stringify({ groupId }),
       });
@@ -109,7 +121,7 @@ export const api = {
 
     selectGroup: async (userId: string, groupId: string) => {
       const response = await fetchWithAuth(
-        '/api/auth/select-group',
+        '/auth/select-group',
         {
           method: 'POST',
           body: JSON.stringify({ userId, groupId }),
@@ -122,17 +134,17 @@ export const api = {
 
   groups: {
     list: async () => {
-      const response = await fetchWithAuth('/api/groups');
+      const response = await fetchWithAuth('/groups');
       return response.json();
     },
 
     getMembers: async (groupId: string) => {
-      const response = await fetchWithAuth(`/api/groups/${groupId}/members`);
+      const response = await fetchWithAuth(`/groups/${groupId}/members`);
       return response.json();
     },
 
     updateMemberRole: async (groupId: string, userId: string, role: 'admin' | 'member') => {
-      const response = await fetchWithAuth(`/api/groups/${groupId}/members/${userId}`, {
+      const response = await fetchWithAuth(`/groups/${groupId}/members/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ role }),
       });
@@ -140,7 +152,7 @@ export const api = {
     },
 
     updateMemberName: async (groupId: string, userId: string, name: string) => {
-      const response = await fetchWithAuth(`/api/groups/${groupId}/members/${userId}`, {
+      const response = await fetchWithAuth(`/groups/${groupId}/members/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ name }),
       });
@@ -148,7 +160,7 @@ export const api = {
     },
 
     removeMember: async (groupId: string, userId: string) => {
-      const response = await fetchWithAuth(`/api/groups/${groupId}/members/${userId}`, {
+      const response = await fetchWithAuth(`/groups/${groupId}/members/${userId}`, {
         method: 'DELETE',
       });
       return response.json();
@@ -157,17 +169,17 @@ export const api = {
 
   users: {
     getMe: async () => {
-      const response = await fetchWithAuth('/api/users/me');
+      const response = await fetchWithAuth('/users/me');
       return response.json();
     },
 
     getAll: async () => {
-      const response = await fetchWithAuth('/api/users');
+      const response = await fetchWithAuth('/users');
       return response.json();
     },
 
     updateRole: async (userId: string, role: 'admin' | 'viewer') => {
-      const response = await fetchWithAuth(`/api/users/${userId}/role`, {
+      const response = await fetchWithAuth(`/users/${userId}/role`, {
         method: 'PATCH',
         body: JSON.stringify({ role }),
       });
@@ -175,7 +187,7 @@ export const api = {
     },
 
     delete: async (userId: string) => {
-      const response = await fetchWithAuth(`/api/users/${userId}`, {
+      const response = await fetchWithAuth(`/users/${userId}`, {
         method: 'DELETE',
       });
       return response.json();
@@ -184,7 +196,7 @@ export const api = {
 
   photos: {
     list: async (limit: number = 20, offset: number = 0) => {
-      const response = await fetchWithAuth(`/api/photos?limit=${limit}&offset=${offset}`);
+      const response = await fetchWithAuth(`/photos?limit=${limit}&offset=${offset}`);
       return response.json();
     },
 
@@ -196,7 +208,7 @@ export const api = {
         formData.append('caption', caption);
       }
 
-      const response = await fetchWithAuth('/api/photos', {
+      const response = await fetchWithAuth('/photos', {
         method: 'POST',
         body: formData,
       });
@@ -204,41 +216,41 @@ export const api = {
     },
 
     get: async (photoId: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}`);
+      const response = await fetchWithAuth(`/photos/${photoId}`);
       return response.json();
     },
 
     getUrl: async (photoId: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}/url`);
+      const response = await fetchWithAuth(`/photos/${photoId}/url`);
       return response.json();
     },
 
     getThumbnailUrl: async (photoId: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}/thumbnail-url`);
+      const response = await fetchWithAuth(`/photos/${photoId}/thumbnail-url`);
       return response.json();
     },
 
     delete: async (photoId: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}`, {
+      const response = await fetchWithAuth(`/photos/${photoId}`, {
         method: 'DELETE',
       });
       return response.json();
     },
 
     recordView: async (photoId: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}/view`, {
+      const response = await fetchWithAuth(`/photos/${photoId}/view`, {
         method: 'POST',
       });
       return response.json();
     },
 
     getViewers: async (photoId: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}/viewers`);
+      const response = await fetchWithAuth(`/photos/${photoId}/viewers`);
       return response.json();
     },
 
     addReaction: async (photoId: string, emoji: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}/react`, {
+      const response = await fetchWithAuth(`/photos/${photoId}/react`, {
         method: 'POST',
         body: JSON.stringify({ emoji }),
       });
@@ -246,14 +258,14 @@ export const api = {
     },
 
     removeReaction: async (photoId: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}/react`, {
+      const response = await fetchWithAuth(`/photos/${photoId}/react`, {
         method: 'DELETE',
       });
       return response.json();
     },
 
     getReactions: async (photoId: string) => {
-      const response = await fetchWithAuth(`/api/photos/${photoId}/reactions`);
+      const response = await fetchWithAuth(`/photos/${photoId}/reactions`);
       return response.json();
     },
   },

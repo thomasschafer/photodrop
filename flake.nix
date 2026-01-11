@@ -196,7 +196,7 @@
         create-group = pkgs.writeShellScriptBin "create-group" ''
           export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
           if [ "$#" -lt 3 ]; then
-            echo "Usage: nix run .#create-group -- <group_name> <owner_name> <owner_email> [--remote]"
+            echo "Usage: nix run .#create-group -- <group_name> <owner_name> <owner_email> [--prod]"
             echo "Example: nix run .#create-group -- \"Family Photos\" \"Tom\" \"tom@example.com\""
             exit 1
           fi

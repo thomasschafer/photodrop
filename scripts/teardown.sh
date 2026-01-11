@@ -58,7 +58,7 @@ teardown_prod() {
     if command -v wrangler &> /dev/null; then
         WRANGLER_CMD="wrangler"
     else
-        WRANGLER_CMD="npx wrangler"
+        WRANGLER_CMD="npx --yes wrangler"
     fi
 
     # Delete R2 bucket

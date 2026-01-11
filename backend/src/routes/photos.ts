@@ -167,7 +167,7 @@ photos.get('/:id/url', requireAuth, async (c) => {
     }
 
     const url = new URL(c.req.url);
-    const signedUrl = `${url.origin}/api/photos/${photoId}/download`;
+    const signedUrl = `${url.origin}/photos/${photoId}/download`;
 
     return c.json({
       url: signedUrl,
@@ -217,7 +217,7 @@ photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
     }
 
     const url = new URL(c.req.url);
-    const signedUrl = `${url.origin}/api/photos/${photoId}/thumbnail`;
+    const signedUrl = `${url.origin}/photos/${photoId}/thumbnail`;
 
     return c.json({
       url: signedUrl,

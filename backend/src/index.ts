@@ -19,10 +19,15 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.use(
   '/*',
   cors({
-    origin: (origin) => {
+    origin: (origin, c) => {
       if (!origin) return '';
-      const allowedOrigins = ['http://localhost:5173', 'http://localhost:8787'];
-      return allowedOrigins.includes(origin) ? origin : '';
+      // Allow localhost for development
+      const devOrigins = ['http://localhost:5173', 'http://localhost:8787'];
+      if (devOrigins.includes(origin)) return origin;
+      // Allow configured frontend URL in production
+      const frontendUrl = c.env.FRONTEND_URL;
+      if (frontendUrl && origin === frontendUrl) return origin;
+      return '';
     },
     credentials: true,
   })
@@ -36,9 +41,9 @@ app.get('/health', (c) => {
   return c.json({ status: 'ok' });
 });
 
-app.route('/api/auth', auth);
-app.route('/api/users', users);
-app.route('/api/photos', photos);
-app.route('/api/groups', groups);
+app.route('/auth', auth);
+app.route('/users', users);
+app.route('/photos', photos);
+app.route('/groups', groups);
 
 export default app;

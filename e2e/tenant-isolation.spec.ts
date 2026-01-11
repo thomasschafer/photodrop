@@ -21,12 +21,12 @@ test.describe('Tenant isolation', () => {
     groupB = createTestGroup('Group B - Tenant Isolation');
 
     // Consume invite links via API to create users and get tokens
-    const groupALoginResponse = await request.post('http://localhost:8787/api/auth/verify-magic-link', {
+    const groupALoginResponse = await request.post('http://localhost:8787/auth/verify-magic-link', {
       data: { token: groupA.magicLink.split('/auth/')[1] },
     });
     const groupAAuth = await groupALoginResponse.json();
 
-    const groupBLoginResponse = await request.post('http://localhost:8787/api/auth/verify-magic-link', {
+    const groupBLoginResponse = await request.post('http://localhost:8787/auth/verify-magic-link', {
       data: { token: groupB.magicLink.split('/auth/')[1] },
     });
     const groupBAuth = await groupBLoginResponse.json();
@@ -74,7 +74,7 @@ test.describe('Tenant isolation', () => {
     expect(token).toBeTruthy();
 
     // Try to get Group B's photo - should return 404 (not 403 to avoid leaking existence)
-    const response = await makeDirectApiCall(request, 'GET', `/api/photos/${groupBPhotoId}`, token!);
+    const response = await makeDirectApiCall(request, 'GET', `/photos/${groupBPhotoId}`, token!);
     expect(response.status).toBe(404);
   });
 
@@ -86,7 +86,7 @@ test.describe('Tenant isolation', () => {
     expect(token).toBeTruthy();
 
     // Try to get Group A's photo - should return 404
-    const response = await makeDirectApiCall(request, 'GET', `/api/photos/${groupAPhotoId}`, token!);
+    const response = await makeDirectApiCall(request, 'GET', `/photos/${groupAPhotoId}`, token!);
     expect(response.status).toBe(404);
   });
 
@@ -98,7 +98,7 @@ test.describe('Tenant isolation', () => {
     expect(token).toBeTruthy();
 
     // Try to delete Group B's photo - should return 404
-    const response = await makeDirectApiCall(request, 'DELETE', `/api/photos/${groupBPhotoId}`, token!);
+    const response = await makeDirectApiCall(request, 'DELETE', `/photos/${groupBPhotoId}`, token!);
     expect(response.status).toBe(404);
   });
 
@@ -139,7 +139,7 @@ test.describe('Tenant isolation', () => {
     const member = createTestMember(groupA.groupId, 'Group A Member');
 
     // Consume the invite link to create the member user (with name)
-    await request.post('http://localhost:8787/api/auth/verify-magic-link', {
+    await request.post('http://localhost:8787/auth/verify-magic-link', {
       data: { token: member.magicLink.split('/auth/')[1], name: member.name },
     });
 
@@ -151,7 +151,7 @@ test.describe('Tenant isolation', () => {
     expect(token).toBeTruthy();
 
     // Try to access Group B photo - should fail
-    const response = await makeDirectApiCall(request, 'GET', `/api/photos/${groupBPhotoId}`, token!);
+    const response = await makeDirectApiCall(request, 'GET', `/photos/${groupBPhotoId}`, token!);
     expect(response.status).toBe(404);
   });
 });

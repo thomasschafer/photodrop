@@ -12,7 +12,7 @@ test.describe('Auth edge cases', () => {
 
     // Consume the admin invite link via API to create the user
     const inviteToken = testGroup.magicLink.split('/auth/')[1];
-    await request.post('http://localhost:8787/api/auth/verify-magic-link', {
+    await request.post('http://localhost:8787/auth/verify-magic-link', {
       data: { token: inviteToken },
     });
   });
@@ -115,7 +115,7 @@ test.describe('Auth edge cases', () => {
   });
 
   test('API request with invalid token returns 401', async ({ request }) => {
-    const response = await request.get('http://localhost:8787/api/photos', {
+    const response = await request.get('http://localhost:8787/photos', {
       headers: {
         Authorization: 'Bearer invalid-token-here',
       },
@@ -125,7 +125,7 @@ test.describe('Auth edge cases', () => {
   });
 
   test('API request without token returns 401', async ({ request }) => {
-    const response = await request.get('http://localhost:8787/api/photos');
+    const response = await request.get('http://localhost:8787/photos');
 
     expect(response.status()).toBe(401);
   });

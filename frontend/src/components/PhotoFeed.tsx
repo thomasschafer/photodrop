@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { api } from '../lib/api';
+import { api, API_BASE_URL } from '../lib/api';
 import { getNavDirection } from '../lib/keyboard';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -187,7 +187,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             >
               <div className="relative bg-bg-secondary">
                 <img
-                  src={`/api/photos/${photo.id}/thumbnail?token=${token}`}
+                  src={`${API_BASE_URL}/photos/${photo.id}/thumbnail?token=${token}`}
                   alt={photo.caption || ''}
                   className="w-full h-auto block max-h-[400px] object-cover"
                   loading="lazy"
@@ -391,7 +391,7 @@ function Lightbox({
         className="mx-2 md:mx-16 max-w-[98vw] md:max-w-[90vw] max-h-[90vh]"
       >
         <img
-          src={`/api/photos/${photo.id}/download?token=${token}`}
+          src={`${API_BASE_URL}/photos/${photo.id}/download?token=${token}`}
           alt={photo.caption || 'Photo'}
           className="max-w-full max-h-[90vh] object-contain rounded-lg"
         />

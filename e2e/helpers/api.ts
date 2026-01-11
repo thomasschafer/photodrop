@@ -18,12 +18,12 @@ export function createApiClient(request: APIRequestContext, token: string): ApiC
 
   return {
     async getPhotos() {
-      const response = await request.get(`${API_BASE}/api/photos`, { headers });
+      const response = await request.get(`${API_BASE}/photos`, { headers });
       return response.json();
     },
 
     async getPhoto(photoId: string) {
-      const response = await request.get(`${API_BASE}/api/photos/${photoId}`, { headers });
+      const response = await request.get(`${API_BASE}/photos/${photoId}`, { headers });
       if (!response.ok()) {
         throw new Error(`Failed to get photo: ${response.status()}`);
       }
@@ -31,16 +31,16 @@ export function createApiClient(request: APIRequestContext, token: string): ApiC
     },
 
     async deletePhoto(photoId: string) {
-      return request.delete(`${API_BASE}/api/photos/${photoId}`, { headers });
+      return request.delete(`${API_BASE}/photos/${photoId}`, { headers });
     },
 
     async getUsers() {
-      const response = await request.get(`${API_BASE}/api/users`, { headers });
+      const response = await request.get(`${API_BASE}/users`, { headers });
       return response.json();
     },
 
     async getCurrentUser() {
-      const response = await request.get(`${API_BASE}/api/users/me`, { headers });
+      const response = await request.get(`${API_BASE}/users/me`, { headers });
       return response.json();
     },
   };
@@ -87,7 +87,7 @@ export async function uploadPhotoViaApi(
     formData.append('caption', caption);
   }
 
-  const response = await request.post(`${API_BASE}/api/photos`, {
+  const response = await request.post(`${API_BASE}/photos`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

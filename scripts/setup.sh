@@ -28,6 +28,11 @@ if ! command -v openssl &> /dev/null; then
     exit 1
 fi
 
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required"
+    exit 1
+fi
+
 #
 # DEV SETUP - Local only, no Cloudflare resources needed
 #
@@ -39,9 +44,13 @@ if [ "$ENV" = "dev" ]; then
         JWT_SECRET=$(openssl rand -base64 32)
 
         # Generate VAPID keys
-        VAPID_OUTPUT=$(npx --yes web-push generate-vapid-keys --json 2>/dev/null)
+        VAPID_OUTPUT=$(npx --yes web-push generate-vapid-keys --json)
         VAPID_PUBLIC=$(echo "$VAPID_OUTPUT" | grep -o '"publicKey":"[^"]*' | sed 's/"publicKey":"//')
         VAPID_PRIVATE=$(echo "$VAPID_OUTPUT" | grep -o '"privateKey":"[^"]*' | sed 's/"privateKey":"//')
+        if [ -z "$VAPID_PUBLIC" ] || [ -z "$VAPID_PRIVATE" ]; then
+            echo "Error: Failed to generate VAPID keys"
+            exit 1
+        fi
 
         cat > .dev.vars << EOF
 JWT_SECRET=$JWT_SECRET
@@ -72,7 +81,7 @@ echo ""
 if command -v wrangler &> /dev/null; then
     WRANGLER_CMD="wrangler"
 else
-    WRANGLER_CMD="npx wrangler"
+    WRANGLER_CMD="npx --yes wrangler"
 fi
 
 # Check authentication
@@ -83,22 +92,78 @@ fi
 echo "Authenticated with Cloudflare"
 echo ""
 
+# Get account ID from wrangler whoami output
+# The output contains a table with "Account ID" column - extract the hex ID
+# Try 32-char format first, then UUID format (with dashes)
+WHOAMI_OUTPUT=$($WRANGLER_CMD whoami 2>&1 || true)
+ACCOUNT_ID=$(echo "$WHOAMI_OUTPUT" | grep -oEi '[a-f0-9]{32}' | head -1 || true)
+if [ -z "$ACCOUNT_ID" ]; then
+    # Try UUID format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+    ACCOUNT_ID=$(echo "$WHOAMI_OUTPUT" | grep -oEi '[a-f0-9-]{36}' | head -1 || true)
+fi
+if [ -z "$ACCOUNT_ID" ]; then
+    echo "Could not determine Cloudflare account ID."
+    echo "Please enter your Cloudflare Account ID (found in Workers & Pages dashboard URL):"
+    read -r ACCOUNT_ID
+fi
+echo "Using account: $ACCOUNT_ID"
+echo ""
+
+#
+# DOMAIN CONFIGURATION
+#
+echo "=== Domain Configuration ==="
+echo ""
+echo "Enter your root domain (must already be in your Cloudflare account):"
+echo "  Example: example.com"
+echo ""
+read -rp "Root domain: " ZONE_NAME
+
+if [ -z "$ZONE_NAME" ]; then
+    echo "Error: Domain is required"
+    exit 1
+fi
+
+echo ""
+echo "Would you like to use a subdomain? (leave empty for apex domain)"
+echo "  Example: entering 'photos' → photos.$ZONE_NAME"
+echo ""
+read -rp "Subdomain (optional): " SUBDOMAIN
+
+if [ -n "$SUBDOMAIN" ]; then
+    DOMAIN="${SUBDOMAIN}.${ZONE_NAME}"
+else
+    DOMAIN="$ZONE_NAME"
+fi
+
+API_DOMAIN="api.$DOMAIN"
+
+echo ""
+echo "Frontend will be at: https://$DOMAIN"
+echo "API will be at:      https://$API_DOMAIN"
+echo "Zone (root domain):  $ZONE_NAME"
+echo ""
+read -rp "Is this correct? (y/n): " CONFIRM
+if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+    echo "Aborted. Please run setup again."
+    exit 1
+fi
+echo ""
+
 DB_NAME="photodrop-db-prod"
 BUCKET_NAME="photodrop-photos-prod"
+PAGES_PROJECT="photodrop"
 
 # Create D1 database
 echo "Creating D1 database ($DB_NAME)..."
-if command -v jq &> /dev/null; then
-    DATABASE_ID=$($WRANGLER_CMD d1 list --json 2>/dev/null | jq -r ".[] | select(.name==\"$DB_NAME\") | .uuid" 2>/dev/null | head -1)
-else
-    DATABASE_ID=""
-fi
+DATABASE_ID=$($WRANGLER_CMD d1 list --json 2>/dev/null | jq -r ".[] | select(.name==\"$DB_NAME\") | .uuid" 2>/dev/null | head -1 || true)
 
 if [ -n "$DATABASE_ID" ]; then
     echo "Database already exists: $DATABASE_ID"
 else
     OUTPUT=$($WRANGLER_CMD d1 create "$DB_NAME" 2>&1)
-    DATABASE_ID=$(echo "$OUTPUT" | grep -oE '[a-f0-9-]{36}' | head -1)
+    # Match UUID format: 8-4-4-4-12 hex characters
+    DATABASE_ID=$(echo "$OUTPUT" | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1)
     if [ -z "$DATABASE_ID" ]; then
         echo "Failed to create database"
         echo "$OUTPUT"
@@ -121,54 +186,135 @@ else
 fi
 echo ""
 
+# Create Pages project
+echo "Creating Pages project ($PAGES_PROJECT)..."
+if $WRANGLER_CMD pages project list 2>/dev/null | grep -q "$PAGES_PROJECT"; then
+    echo "Pages project already exists"
+else
+    if ! $WRANGLER_CMD pages project create "$PAGES_PROJECT" --production-branch main 2>&1; then
+        echo "Error: Failed to create Pages project"
+        exit 1
+    fi
+    echo "Created Pages project"
+fi
+echo ""
+
 # Generate secrets if needed
 if [ -f .prod.vars ]; then
     echo "Loading existing secrets from .prod.vars..."
+    # shellcheck source=/dev/null
     source .prod.vars
 else
     echo "Generating new secrets..."
     JWT_SECRET=$(openssl rand -base64 32)
-    VAPID_OUTPUT=$(npx --yes web-push generate-vapid-keys --json 2>/dev/null)
+    VAPID_OUTPUT=$(npx --yes web-push generate-vapid-keys --json)
     VAPID_PUBLIC_KEY=$(echo "$VAPID_OUTPUT" | grep -o '"publicKey":"[^"]*' | sed 's/"publicKey":"//')
     VAPID_PRIVATE_KEY=$(echo "$VAPID_OUTPUT" | grep -o '"privateKey":"[^"]*' | sed 's/"privateKey":"//')
+    if [ -z "$VAPID_PUBLIC_KEY" ] || [ -z "$VAPID_PRIVATE_KEY" ]; then
+        echo "Error: Failed to generate VAPID keys"
+        exit 1
+    fi
 fi
 
-# Save prod vars
+# Save prod vars (with domain info)
 cat > .prod.vars << EOF
+# Domain configuration
+DOMAIN=$DOMAIN
+API_DOMAIN=$API_DOMAIN
+ZONE_NAME=$ZONE_NAME
+
+# Cloudflare resources
+ACCOUNT_ID=$ACCOUNT_ID
 D1_DATABASE_ID=$DATABASE_ID
+PAGES_PROJECT=$PAGES_PROJECT
+
+# Secrets (keep these secure!)
 JWT_SECRET=$JWT_SECRET
 VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY
 VAPID_PRIVATE_KEY=$VAPID_PRIVATE_KEY
-FRONTEND_URL=https://photodrop.pages.dev
+
+# URLs
+FRONTEND_URL=https://$DOMAIN
+API_URL=https://$API_DOMAIN
 EOF
 chmod 600 .prod.vars
 echo "Saved .prod.vars"
 echo ""
 
+# Generate wrangler.prod.toml for migrations and deployment
+echo "Generating wrangler.prod.toml..."
+cat > wrangler.prod.toml << EOF
+name = "photodrop-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-04"
+
+routes = [
+  { pattern = "$API_DOMAIN/*", zone_name = "$ZONE_NAME" }
+]
+
+[vars]
+FRONTEND_URL = "https://$DOMAIN"
+ENVIRONMENT = "production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "$DB_NAME"
+database_id = "$DATABASE_ID"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "$BUCKET_NAME"
+EOF
+echo "Generated wrangler.prod.toml"
+echo ""
+
 # Run migrations
 echo "Running database migrations..."
-$WRANGLER_CMD d1 migrations apply "$DB_NAME" --remote
+$WRANGLER_CMD d1 migrations apply "$DB_NAME" --remote --config wrangler.prod.toml
 echo ""
 
 # Save GitHub secrets reference
 cat > .prod.secrets.txt << EOF
-GitHub Secrets for Production Deployment
-========================================
+GitHub Secrets for CI/CD Deployment
+===================================
 
-Add these to: Settings > Secrets and variables > Actions
+Add these to your GitHub repo: Settings > Secrets and variables > Actions
 
-CLOUDFLARE_API_TOKEN    = (create at https://dash.cloudflare.com/profile/api-tokens)
-CLOUDFLARE_ACCOUNT_ID   = (from Workers & Pages dashboard)
-D1_DATABASE_ID          = $DATABASE_ID
-JWT_SECRET              = $JWT_SECRET
-VAPID_PUBLIC_KEY        = $VAPID_PUBLIC_KEY
-VAPID_PRIVATE_KEY       = $VAPID_PRIVATE_KEY
+Required secrets:
+  CLOUDFLARE_API_TOKEN    = (create at https://dash.cloudflare.com/profile/api-tokens)
+                            Permissions needed: Workers Scripts:Edit, D1:Edit, Pages:Edit,
+                            Account Settings:Read, Zone:Read
+  CLOUDFLARE_ACCOUNT_ID   = $ACCOUNT_ID
+
+The following are set via wrangler secret during deploy (not needed in GitHub):
+  JWT_SECRET              = (auto-configured)
+  VAPID_PUBLIC_KEY        = (auto-configured)
+  VAPID_PRIVATE_KEY       = (auto-configured)
+
+Domain Configuration:
+  Frontend: https://$DOMAIN
+  API:      https://$API_DOMAIN
 EOF
 chmod 600 .prod.secrets.txt
 
+echo ""
+echo "==========================================="
 echo "Production setup complete!"
+echo "==========================================="
+echo ""
+echo "Your configuration:"
+echo "  Frontend: https://$DOMAIN"
+echo "  API:      https://$API_DOMAIN"
+echo "  Database: $DATABASE_ID"
 echo ""
 echo "Next steps:"
-echo "  1. Add secrets to GitHub (see backend/.prod.secrets.txt)"
-echo "  2. Update FRONTEND_URL in .prod.vars"
-echo "  3. Deploy with: nix run .#deploy"
+echo "  1. Deploy: nix run .#deploy"
+echo "  2. Add custom domain in Cloudflare dashboard:"
+echo "     Workers & Pages > photodrop > Custom domains > Add '$DOMAIN'"
+echo "  3. Create your first group:"
+echo "     nix run .#create-group -- \"My Group\" \"Your Name\" \"your@email.com\" --prod"
+echo "  4. Check Worker logs for magic link: wrangler tail"
+echo ""
+echo "For CI/CD setup, see: backend/.prod.secrets.txt"
+echo ""

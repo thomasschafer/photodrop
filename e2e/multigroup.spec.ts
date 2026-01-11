@@ -473,7 +473,7 @@ test.describe('Member management', () => {
 
     // Try to change owner's role via API
     const response = await request.patch(
-      `http://localhost:8787/api/groups/${testGroup.groupId}/members/${ownerId}`,
+      `http://localhost:8787/groups/${testGroup.groupId}/members/${ownerId}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -503,7 +503,7 @@ test.describe('Member management', () => {
 
     // Try to remove owner via API
     const response = await request.delete(
-      `http://localhost:8787/api/groups/${testGroup.groupId}/members/${ownerId}`,
+      `http://localhost:8787/groups/${testGroup.groupId}/members/${ownerId}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -543,7 +543,7 @@ test.describe('Member management', () => {
 
     // Try to promote member to owner via API
     const response = await request.patch(
-      `http://localhost:8787/api/groups/${testGroup.groupId}/members/${memberId}`,
+      `http://localhost:8787/groups/${testGroup.groupId}/members/${memberId}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
