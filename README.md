@@ -110,8 +110,7 @@ For automatic deployments on push to `main`:
       - Account / D1: Edit
       - Account / Cloudflare Pages: Edit
       - Account / Account Settings: Read
-      - Zone / Zone: Read
-   - `CLOUDFLARE_ACCOUNT_ID` - Found in your Cloudflare dashboard URL
+   - `CLOUDFLARE_ACCOUNT_ID` - From `backend/.prod.vars`
    - `D1_DATABASE_ID` - From `backend/.prod.vars`
    - `JWT_SECRET` - From `backend/.prod.vars`
    - `VAPID_PUBLIC_KEY` - From `backend/.prod.vars`
@@ -120,8 +119,7 @@ For automatic deployments on push to `main`:
 2. Add **variables** to GitHub (Settings → Secrets and variables → Actions → Variables):
    - `DOMAIN` - Your frontend domain (e.g., `photos.example.com`)
    - `API_DOMAIN` - Your API domain (e.g., `api.photos.example.com`)
-   - `ZONE_NAME` - Root domain in Cloudflare (e.g., `example.com`)
-   - `PAGES_PROJECT` - `photodrop`
+   - `PAGES_PROJECT` - `photodrop` (optional, defaults to `photodrop`)
 
 ### Creating groups in production
 

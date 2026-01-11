@@ -32,7 +32,6 @@ REQUIRED_VARS=(
     "VAPID_PRIVATE_KEY"
     "DOMAIN"
     "API_DOMAIN"
-    "ZONE_NAME"
 )
 
 for var in "${REQUIRED_VARS[@]}"; do
@@ -55,11 +54,6 @@ name = "photodrop-api"
 main = "src/index.ts"
 compatibility_date = "2025-01-04"
 
-# Custom domain route
-routes = [
-  { pattern = "$API_DOMAIN/*", zone_name = "$ZONE_NAME" }
-]
-
 # Environment variables (non-secret)
 [vars]
 FRONTEND_URL = "https://$DOMAIN"
@@ -75,7 +69,7 @@ migrations_dir = "migrations"
 binding = "PHOTOS"
 bucket_name = "photodrop-photos-prod"
 EOF
-echo "Generated wrangler.prod.toml with route: $API_DOMAIN/*"
+echo "Generated wrangler.prod.toml"
 echo ""
 
 # Install dependencies if needed
@@ -90,33 +84,47 @@ npm run test:run
 echo "Tests passed"
 echo ""
 
-# Set Worker secrets
-echo "Setting Worker secrets..."
-echo "$JWT_SECRET" | npx --yes wrangler secret put JWT_SECRET --config wrangler.prod.toml
-echo "$VAPID_PUBLIC_KEY" | npx --yes wrangler secret put VAPID_PUBLIC_KEY --config wrangler.prod.toml
-echo "$VAPID_PRIVATE_KEY" | npx --yes wrangler secret put VAPID_PRIVATE_KEY --config wrangler.prod.toml
-echo "Worker secrets configured"
-echo ""
-
 # Apply database migrations
 echo "Applying database migrations..."
 npx --yes wrangler d1 migrations apply photodrop-db-prod --remote --config wrangler.prod.toml
 echo "Migrations applied"
 echo ""
 
-# Deploy Worker
+# Deploy Worker first (creates it if it doesn't exist)
 echo "Deploying Worker..."
-WORKER_OUTPUT=$(npx --yes wrangler deploy --config wrangler.prod.toml 2>&1)
-WORKER_EXIT_CODE=$?
-echo "$WORKER_OUTPUT"
-
-if [ $WORKER_EXIT_CODE -ne 0 ]; then
+if ! npx --yes wrangler deploy --config wrangler.prod.toml; then
     echo "Error: Worker deployment failed"
     exit 1
 fi
 
 echo "Worker deployed"
 echo ""
+
+# Set Worker secrets only in CI (local deploys use secrets set by setup-prod)
+if [ ! -f .prod.vars ]; then
+    echo "Setting Worker secrets (CI mode)..."
+
+    if ! echo "$JWT_SECRET" | npx --yes wrangler secret put JWT_SECRET --config wrangler.prod.toml; then
+        echo "Error: Failed to set JWT_SECRET"
+        exit 1
+    fi
+
+    if ! echo "$VAPID_PUBLIC_KEY" | npx --yes wrangler secret put VAPID_PUBLIC_KEY --config wrangler.prod.toml; then
+        echo "Error: Failed to set VAPID_PUBLIC_KEY"
+        exit 1
+    fi
+
+    if ! echo "$VAPID_PRIVATE_KEY" | npx --yes wrangler secret put VAPID_PRIVATE_KEY --config wrangler.prod.toml; then
+        echo "Error: Failed to set VAPID_PRIVATE_KEY"
+        exit 1
+    fi
+
+    echo "Worker secrets configured"
+    echo ""
+else
+    echo "Skipping secrets (already set by setup-prod)"
+    echo ""
+fi
 
 # Build and deploy frontend
 echo "Building frontend..."
@@ -163,19 +171,6 @@ echo "================================"
 echo "Deployment complete!"
 echo "================================"
 echo ""
-echo "Your app is live at:"
 echo "  Frontend: https://$DOMAIN"
 echo "  API:      https://$API_DOMAIN"
-echo ""
-echo "If this is your first deploy, you need to set up the Pages custom domain:"
-echo "  1. Go to: https://dash.cloudflare.com/"
-echo "  2. Navigate to: Workers & Pages > photodrop > Custom domains"
-echo "  3. Add custom domain: $DOMAIN"
-echo "  4. Cloudflare will auto-configure DNS"
-echo ""
-echo "Then create your first group:"
-echo "  nix run .#create-group -- \"My Group\" \"Your Name\" \"you@example.com\" --prod"
-echo ""
-echo "View magic links in logs:"
-echo "  wrangler tail"
 echo ""

@@ -33,6 +33,5 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           DOMAIN: ${{ vars.DOMAIN }}
           API_DOMAIN: ${{ vars.API_DOMAIN }}
-          ZONE_NAME: ${{ vars.ZONE_NAME }}
           PAGES_PROJECT: ${{ vars.PAGES_PROJECT }}
           FRONTEND_URL: https://${{ vars.DOMAIN }}

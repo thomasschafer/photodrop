@@ -9,10 +9,10 @@
 - ✅ Phase 1.7 (Multi-group): Complete - users can belong to multiple groups
 - ✅ Phase 1.8 (Owner role): Complete - immutable owner role per group
 - ✅ Phase 2.1 (Install prompts): Complete - PWA setup, platform-specific install instructions
-- ✅ Phase 2.1.5 (Production deployment): Complete - deployed to Cloudflare with custom domain
+- ✅ Phase 2.1.5 (Production deployment): Complete - deployed with CI/CD
 - 🔄 Phase 2.2 (Push notifications): Next
 - ❌ Phase 2.3 (Offline caching): Not started
-- 🔄 Phase 2.5 (Production readiness): Partial - custom domain done, email delivery pending
+- ❌ Phase 2.5 (Production hardening): Not started - email delivery, rate limiting, CSP
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 
@@ -542,9 +542,9 @@ The setup script prompts for configuration and automates resource creation:
 **CI/CD setup (GitHub Actions):**
 
 - [x] Create `.github/workflows/deploy.yml`
-- [ ] Add secrets to GitHub repo (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, JWT_SECRET, VAPID keys)
-- [ ] Add variables to GitHub repo (DOMAIN, API_DOMAIN, ZONE_NAME, PAGES_PROJECT)
-- [ ] Test auto-deploy on push to main
+- [x] Add secrets to GitHub repo (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, JWT_SECRET, VAPID keys)
+- [x] Add variables to GitHub repo (DOMAIN, API_DOMAIN, ZONE_NAME, PAGES_PROJECT)
+- [x] Auto-deploy on push to main
 
 **Creating groups in production:**
 
@@ -560,8 +560,8 @@ The setup script prompts for configuration and automates resource creation:
 - [x] Can view magic link in Worker logs (`wrangler tail`)
 - [x] Can complete login flow
 - [x] Can upload and view photos
-- [ ] PWA install prompt appears
-- [ ] App installs correctly on mobile device
+- [x] PWA install prompt appears
+- [x] App installs correctly on mobile device
 
 #### Phase 2.2: Push notifications
 
@@ -609,10 +609,11 @@ The setup script prompts for configuration and automates resource creation:
   - Three states: subscribed (filled bell), not subscribed (outline bell), unsupported (hidden)
   - On click when not subscribed: request permission → if granted, call subscribe API
   - On click when subscribed: show ConfirmModal → if confirmed, call unsubscribe API
-- [ ] Add service worker push event handler:
+- [ ] Add custom service worker for push events:
+  - Current PWA uses vite-plugin-pwa's auto-generated SW (basic caching only)
+  - Need to add `src/sw.ts` with push event handler using `injectManifest` mode
   - Display notification with photo info
   - On notification click, open app to the group's photo feed
-- [ ] Register service worker on app load
 - [ ] Add VAPID public key to frontend config
 
 #### Phase 2.3: Offline caching
@@ -665,9 +666,9 @@ The setup script prompts for configuration and automates resource creation:
 - [ ] Offline mode shows cached content
 - [ ] Multiple devices can subscribe independently
 
-### Phase 2.5: Production readiness
+### Phase 2.5: Production hardening
 
-**Goal:** Get the app deployable to production with real email delivery, custom domains, and proper security hardening.
+**Goal:** Add real email delivery and security hardening. The app is already deployed (Phase 2.1.5); this phase improves production robustness.
 
 #### Email delivery
 

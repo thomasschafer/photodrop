@@ -63,11 +63,7 @@ EOF
     fi
 
     echo ""
-    echo "Dev setup complete!"
-    echo ""
-    echo "Next steps:"
-    echo "  nix run .#dev     # Start development servers"
-    echo "  nix run .#db-seed # (Optional) Seed test users"
+    echo "Dev setup complete! See README.md for next steps."
     exit 0
 fi
 
@@ -224,7 +220,7 @@ API_DOMAIN=$API_DOMAIN
 ZONE_NAME=$ZONE_NAME
 
 # Cloudflare resources
-ACCOUNT_ID=$ACCOUNT_ID
+CLOUDFLARE_ACCOUNT_ID=$ACCOUNT_ID
 D1_DATABASE_ID=$DATABASE_ID
 PAGES_PROJECT=$PAGES_PROJECT
 
@@ -274,47 +270,22 @@ echo "Running database migrations..."
 $WRANGLER_CMD d1 migrations apply "$DB_NAME" --remote --config wrangler.prod.toml
 echo ""
 
-# Save GitHub secrets reference
-cat > .prod.secrets.txt << EOF
-GitHub Secrets for CI/CD Deployment
-===================================
-
-Add these to your GitHub repo: Settings > Secrets and variables > Actions
-
-Required secrets:
-  CLOUDFLARE_API_TOKEN    = (create at https://dash.cloudflare.com/profile/api-tokens)
-                            Permissions needed: Workers Scripts:Edit, D1:Edit, Pages:Edit,
-                            Account Settings:Read, Zone:Read
-  CLOUDFLARE_ACCOUNT_ID   = $ACCOUNT_ID
-
-The following are set via wrangler secret during deploy (not needed in GitHub):
-  JWT_SECRET              = (auto-configured)
-  VAPID_PUBLIC_KEY        = (auto-configured)
-  VAPID_PRIVATE_KEY       = (auto-configured)
-
-Domain Configuration:
-  Frontend: https://$DOMAIN
-  API:      https://$API_DOMAIN
-EOF
-chmod 600 .prod.secrets.txt
+# Deploy Worker to create the route (one-time setup)
+echo "Deploying Worker to create route..."
+if ! $WRANGLER_CMD deploy --config wrangler.prod.toml; then
+    echo "Error: Initial Worker deployment failed"
+    exit 1
+fi
+echo "Worker deployed with route: $API_DOMAIN/*"
 
 echo ""
 echo "==========================================="
 echo "Production setup complete!"
 echo "==========================================="
 echo ""
-echo "Your configuration:"
 echo "  Frontend: https://$DOMAIN"
 echo "  API:      https://$API_DOMAIN"
-echo "  Database: $DATABASE_ID"
 echo ""
-echo "Next steps:"
-echo "  1. Deploy: nix run .#deploy"
-echo "  2. Add custom domain in Cloudflare dashboard:"
-echo "     Workers & Pages > photodrop > Custom domains > Add '$DOMAIN'"
-echo "  3. Create your first group:"
-echo "     nix run .#create-group -- \"My Group\" \"Your Name\" \"your@email.com\" --prod"
-echo "  4. Check Worker logs for magic link: wrangler tail"
-echo ""
-echo "For CI/CD setup, see: backend/.prod.secrets.txt"
+echo "Configuration saved to .prod.vars"
+echo "Continue with README.md for next steps."
 echo ""
