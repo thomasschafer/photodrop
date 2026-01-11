@@ -129,4 +129,95 @@ test.describe('Auth edge cases', () => {
 
     expect(response.status()).toBe(401);
   });
+
+  test('user with no groups sees "No groups yet" page', async ({ page }) => {
+    // Create a group and user, then remove their membership
+    const noGroupsTestGroup = createTestGroup('No Groups Test');
+    const userId = noGroupsTestGroup.ownerId;
+    const userEmail = noGroupsTestGroup.ownerEmail;
+
+    try {
+      // Remove the user's membership from the group
+      execSync(
+        `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM memberships WHERE user_id = '${userId}';"`,
+        { stdio: 'pipe' }
+      );
+
+      // Create a login magic link for this user (link is for the group, but user has no membership)
+      const magicLink = createFreshMagicLink(noGroupsTestGroup.groupId, userEmail, 'login');
+
+      // Login - this should work but user won't have access to the group
+      await page.goto(magicLink);
+
+      // Should see "No groups yet" page
+      await expect(page.getByText('No groups yet')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(/not a member of any groups/i)).toBeVisible();
+
+      // Should show sign out option
+      await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+
+      // Should NOT show landing page "Sign in" link
+      await expect(page.getByRole('link', { name: 'Sign in' })).not.toBeVisible();
+
+      // Clicking sign out should work
+      await page.getByRole('button', { name: 'Sign out' }).click();
+      await expectLoggedOut(page);
+    } finally {
+      cleanupTestGroup(noGroupsTestGroup.groupId);
+    }
+  });
+
+  test('user with multiple groups but none selected sees group picker', async ({ page }) => {
+    // Create two groups with the same user as a member of both
+    const group1 = createTestGroup('Multi Group Test 1');
+    const group2Id = randomBytes(16).toString('hex');
+    const now = Math.floor(Date.now() / 1000);
+
+    // Create second group with a different owner
+    const group2OwnerId = randomBytes(16).toString('hex');
+    execSync(
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, created_at) VALUES ('${group2OwnerId}', 'Group 2 Owner', 'owner-${group2Id.slice(0, 8)}@test.local', ${now});"`,
+      { stdio: 'pipe' }
+    );
+    execSync(
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO groups (id, name, owner_id, created_at) VALUES ('${group2Id}', 'Multi Group Test 2', '${group2OwnerId}', ${now});"`,
+      { stdio: 'pipe' }
+    );
+    execSync(
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO memberships (user_id, group_id, role, joined_at) VALUES ('${group2OwnerId}', '${group2Id}', 'admin', ${now});"`,
+      { stdio: 'pipe' }
+    );
+
+    // Add group1's owner to group2 as a member
+    execSync(
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO memberships (user_id, group_id, role, joined_at) VALUES ('${group1.ownerId}', '${group2Id}', 'member', ${now});"`,
+      { stdio: 'pipe' }
+    );
+
+    try {
+      // Create a fresh login link for the user
+      const magicLink = createFreshMagicLink(group1.groupId, group1.ownerEmail, 'login');
+
+      // Login
+      await page.goto(magicLink);
+
+      // Should see group picker with both groups
+      await expect(page.getByText('Choose a group')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText('Multi Group Test 1')).toBeVisible();
+      await expect(page.getByText('Multi Group Test 2')).toBeVisible();
+
+      // Should NOT show "No groups yet"
+      await expect(page.getByText('No groups yet')).not.toBeVisible();
+
+      // Should have sign out option
+      await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+
+      // Selecting a group should take us to the main app
+      await page.getByRole('button', { name: /Multi Group Test 1/i }).click();
+      await expectLoggedIn(page);
+    } finally {
+      cleanupTestGroup(group1.groupId);
+      cleanupTestGroup(group2Id);
+    }
+  });
 });

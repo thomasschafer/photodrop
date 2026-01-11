@@ -118,8 +118,9 @@ test.describe('Group deletion', () => {
     await dialog.getByPlaceholder('Type "delete" to confirm').fill('delete');
     await dialog.getByRole('button', { name: 'Delete group' }).click();
 
-    // User has no other groups, should see landing page (logged out state)
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible({ timeout: 10000 });
+    // User has no other groups, should see "No groups yet" page (still logged in)
+    await expect(page.getByText('No groups yet')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
     // Verify the group no longer exists via API
     const api = createApiClient(request, token!);

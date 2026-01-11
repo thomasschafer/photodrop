@@ -36,8 +36,8 @@ test.describe('Admin workflow', () => {
     // Verify we're on the main app
     await expect(page.getByRole('tab', { name: 'Photos' })).toBeVisible();
 
-    // Verify admin sees the Upload tab
-    await expect(page.getByRole('tab', { name: /upload/i })).toBeVisible();
+    // Verify admin sees the Upload button
+    await expect(page.getByRole('button', { name: /upload/i })).toBeVisible();
   });
 
   test('admin can upload a photo with caption', async ({ page, request }) => {
@@ -107,8 +107,11 @@ test.describe('Admin workflow', () => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
-    // Navigate to invite tab
-    await page.getByRole('tab', { name: /invite/i }).click();
+    // Navigate to Group tab
+    await page.getByRole('tab', { name: 'Group' }).click();
+
+    // Click the Invite button to open the modal
+    await page.getByRole('button', { name: 'Invite' }).click();
 
     // Fill in invite form (only email and role, no name field)
     await page.getByLabel(/email/i).fill('newmember@test.local');

@@ -241,16 +241,16 @@ test.describe('Per-group roles', () => {
     await page.reload();
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
-    // In group A (admin) - should see Upload tab
-    await expect(page.getByRole('tab', { name: 'Upload' })).toBeVisible();
+    // In group A (admin) - should see Upload button
+    await expect(page.getByRole('button', { name: /upload/i })).toBeVisible();
 
     // Switch to group B
     await page.getByRole('button', { name: /Role Test Alpha/i }).click();
     await page.getByRole('option', { name: /Role Test Beta/i }).click();
     await expect(page.getByText('Role Test Beta')).toBeVisible();
 
-    // In group B (member) - should NOT see Upload tab
-    await expect(page.getByRole('tab', { name: 'Upload' })).not.toBeVisible();
+    // In group B (member) - should NOT see Upload button
+    await expect(page.getByRole('button', { name: /upload/i })).not.toBeVisible();
   });
 });
 
@@ -269,7 +269,7 @@ test.describe('Member management', () => {
     await loginWithMagicLink(page, testGroup.magicLink);
 
     // Navigate to members tab
-    await page.getByRole('tab', { name: 'Members' }).click();
+    await page.getByRole('tab', { name: 'Group' }).click();
 
     // Should see the admin in the list
     await expect(page.getByText(testGroup.adminName)).toBeVisible();
@@ -295,7 +295,7 @@ test.describe('Member management', () => {
     await loginWithMagicLink(page, adminLink);
 
     // Navigate to members
-    await page.getByRole('tab', { name: 'Members' }).click();
+    await page.getByRole('tab', { name: 'Group' }).click();
 
     // Find the select that's a sibling of the remove button for this member
     // Each member has a unique remove button, and the select is in the same actions container
@@ -337,7 +337,7 @@ test.describe('Member management', () => {
     await loginWithMagicLink(page, adminLink);
 
     // Navigate to members
-    await page.getByRole('tab', { name: 'Members' }).click();
+    await page.getByRole('tab', { name: 'Group' }).click();
 
     // Demote the other admin - find select via the unique remove button
     const otherAdminSelect = page.getByRole('button', { name: 'Remove Other Admin from group' }).locator('..').locator('select');
@@ -355,7 +355,7 @@ test.describe('Member management', () => {
     await loginWithMagicLink(page, testGroup.magicLink);
 
     // Navigate to members
-    await page.getByRole('tab', { name: 'Members' }).click();
+    await page.getByRole('tab', { name: 'Group' }).click();
 
     // Owner should have "Owner" badge with emerald styling (class is on the span itself)
     const ownerBadge = page.locator('span[class*="emerald"]').filter({ hasText: 'Owner' });
@@ -386,7 +386,7 @@ test.describe('Member management', () => {
     await loginWithMagicLink(page, adminLink);
 
     // Navigate to members
-    await page.getByRole('tab', { name: 'Members' }).click();
+    await page.getByRole('tab', { name: 'Group' }).click();
     await expect(page.getByText('Removable Member')).toBeVisible();
 
     // Find and click remove button using aria-label which is unique per member
@@ -403,7 +403,7 @@ test.describe('Member management', () => {
     await loginWithMagicLink(page, testGroup.magicLink);
 
     // Navigate to members
-    await page.getByRole('tab', { name: 'Members' }).click();
+    await page.getByRole('tab', { name: 'Group' }).click();
 
     // Find owner row - should NOT have a remove button at all (not just disabled)
     const ownRow = page.locator('div').filter({ hasText: '(you)' }).first();
@@ -437,7 +437,7 @@ test.describe('Member management', () => {
     const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
     await loginWithMagicLink(page, adminLink);
 
-    await page.getByRole('tab', { name: 'Members' }).click();
+    await page.getByRole('tab', { name: 'Group' }).click();
     await page.getByRole('button', { name: 'Remove Member To Remove from group' }).click();
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText('Member To Remove', { exact: true })).not.toBeVisible({ timeout: 5000 });

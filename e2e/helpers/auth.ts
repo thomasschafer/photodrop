@@ -7,9 +7,13 @@ export async function loginWithMagicLink(
 ): Promise<void> {
   await page.goto(magicLink);
 
+  // Wait for verification to complete - could land on name input, group picker, or main app
+  // First wait for the "Verifying your link..." to disappear
+  await expect(page.locator('text=Verifying your link')).not.toBeVisible({ timeout: 15000 });
+
   // Check if we need to enter a name (new user via invite link)
-  const nameInput = page.getByLabel('Your name');
-  const needsName = await nameInput.isVisible({ timeout: 3000 }).catch(() => false);
+  const nameInput = page.getByPlaceholder('Jane Smith');
+  const needsName = await nameInput.isVisible({ timeout: 2000 }).catch(() => false);
 
   if (needsName) {
     if (!name) {
@@ -19,12 +23,8 @@ export async function loginWithMagicLink(
     await page.getByRole('button', { name: 'Continue' }).click();
   }
 
-  // Wait for verification to complete - either redirect to feed or show group picker
-  // The sign out button is present in both states
+  // Wait for sign out button to appear (present in main app, group picker, and no-groups page)
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({ timeout: 15000 });
-
-  // Also verify we're not still on the auth page
-  await expect(page.locator('text=Verifying your link')).not.toBeVisible({ timeout: 5000 });
 }
 
 export async function loginWithMagicLinkExpectPicker(page: Page, magicLink: string): Promise<void> {

@@ -145,7 +145,7 @@ function MainApp() {
 }
 
 function App() {
-  const { user, needsGroupSelection, loading } = useAuth();
+  const { user, currentGroup, loading } = useAuth();
 
   if (loading) {
     return (
@@ -155,8 +155,8 @@ function App() {
     );
   }
 
-  // User is logged in but needs to select a group
-  if (user && needsGroupSelection) {
+  // User is logged in but needs to select a group (or has no groups)
+  if (user && !currentGroup) {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
