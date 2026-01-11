@@ -3,6 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
 import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
 import { ConfirmModal } from './ConfirmModal';
+import { Modal } from './Modal';
+import { InviteForm } from './InviteForm';
 
 interface Member {
   userId: string;
@@ -13,7 +15,7 @@ interface Member {
 }
 
 export function MembersList() {
-  const { user, currentGroup } = useAuth();
+  const { user, currentGroup, onGroupDeleted } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,6 +36,13 @@ export function MembersList() {
     currentName: string;
     newName: string;
   } | null>(null);
+  const [deleteGroupModal, setDeleteGroupModal] = useState<{
+    stage: 'closed' | 'loading-count' | 'confirm' | 'deleting' | 'error';
+    confirmText: string;
+    photoCount: number | null;
+    error: string | null;
+  }>({ stage: 'closed', confirmText: '', photoCount: null, error: null });
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   const fetchMembers = useCallback(async () => {
     if (!currentGroup) return;
@@ -155,7 +164,44 @@ export function MembersList() {
     }
   };
 
-  // No longer need to track admin count - owner guarantees group management
+  const isOwner = user?.id === ownerId;
+
+  const openDeleteGroupModal = async () => {
+    if (!currentGroup) return;
+
+    setDeleteGroupModal({ stage: 'loading-count', confirmText: '', photoCount: null, error: null });
+
+    try {
+      const { count } = await api.groups.getPhotoCount(currentGroup.id);
+      setDeleteGroupModal({ stage: 'confirm', confirmText: '', photoCount: count, error: null });
+    } catch (err) {
+      console.error('Failed to get photo count:', err);
+      // Still allow deletion even if we can't get the count
+      setDeleteGroupModal({ stage: 'confirm', confirmText: '', photoCount: null, error: null });
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!currentGroup) return;
+
+    setDeleteGroupModal((prev) => ({ ...prev, stage: 'deleting', error: null }));
+
+    try {
+      await api.groups.deleteGroup(currentGroup.id);
+      onGroupDeleted(currentGroup.id);
+    } catch (err) {
+      console.error('Failed to delete group:', err);
+      let errorMessage = 'Failed to delete group';
+      if (err instanceof ApiError) {
+        errorMessage = err.message;
+      }
+      setDeleteGroupModal((prev) => ({
+        ...prev,
+        stage: 'error',
+        error: errorMessage,
+      }));
+    }
+  };
 
   if (loading) {
     return (
@@ -167,11 +213,24 @@ export function MembersList() {
 
   return (
     <div className="card">
-      <div className="mb-6">
-        <h2 className="text-lg font-medium text-text-primary mb-1">Group members</h2>
-        <p className="text-sm text-text-secondary">
-          {members.length} {members.length === 1 ? 'member' : 'members'} in {currentGroup?.name}
-        </p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-medium text-text-primary mb-1">Group members</h2>
+          <p className="text-sm text-text-secondary">
+            {members.length} {members.length === 1 ? 'member' : 'members'} in {currentGroup?.name}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowInviteModal(true)}
+          className="btn-primary-sm flex items-center gap-2 -mt-1"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M19 8v6M22 11h-6" />
+          </svg>
+          Invite
+        </button>
       </div>
 
       {error && (
@@ -244,7 +303,7 @@ export function MembersList() {
       <div className="divide-y divide-border">
         {members.map((member) => {
           const isCurrentUser = member.userId === user?.id;
-          const isOwner = member.userId === ownerId;
+          const memberIsOwner = member.userId === ownerId;
           const isLoading = actionLoading === member.userId;
 
           return (
@@ -288,7 +347,7 @@ export function MembersList() {
                     </svg>
                   </button>
 
-                  {isOwner ? (
+                  {memberIsOwner ? (
                     <span
                       className="py-1.5 px-3 text-sm font-medium rounded-md min-w-[100px] text-center bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                       title="Owner role cannot be changed"
@@ -317,15 +376,15 @@ export function MembersList() {
                     onClick={() =>
                       setConfirmRemove({ memberId: member.userId, memberName: member.name })
                     }
-                    disabled={isLoading || isOwner}
+                    disabled={isLoading || memberIsOwner}
                     className={`p-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                      isOwner
+                      memberIsOwner
                         ? 'text-text-tertiary'
                         : 'text-text-tertiary hover:text-red-600 dark:hover:text-red-400 cursor-pointer'
                     }`}
-                    title={isOwner ? 'Owners cannot be removed' : 'Remove from group'}
+                    title={memberIsOwner ? 'Owners cannot be removed' : 'Remove from group'}
                     aria-label={
-                      isOwner ? 'Owners cannot be removed' : `Remove ${member.name} from group`
+                      memberIsOwner ? 'Owners cannot be removed' : `Remove ${member.name} from group`
                     }
                   >
                     <svg
@@ -352,6 +411,121 @@ export function MembersList() {
         <div className="text-center py-8">
           <p className="text-text-secondary">No members yet</p>
         </div>
+      )}
+
+      {isOwner && (
+        <div className="mt-8 pt-6 border-t border-border">
+          <h3 className="text-base font-medium text-red-600 dark:text-red-400 mb-2">Danger zone</h3>
+          <p className="text-sm text-text-secondary mb-4">
+            Permanently delete this group and all its photos. This action cannot be undone.
+          </p>
+          <button
+            onClick={openDeleteGroupModal}
+            className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
+          >
+            Delete group
+          </button>
+        </div>
+      )}
+
+      {deleteGroupModal.stage === 'loading-count' && (
+        <Modal title="Delete group" onClose={() => setDeleteGroupModal({ stage: 'closed', confirmText: '', photoCount: null, error: null })}>
+          <div className="flex items-center justify-center py-8">
+            <div className="spinner" />
+          </div>
+        </Modal>
+      )}
+
+      {deleteGroupModal.stage === 'confirm' && (
+        <ConfirmModal
+          title="Delete group"
+          message={
+            <>
+              This will <strong>permanently delete</strong> <strong>{currentGroup?.name}</strong>
+              {deleteGroupModal.photoCount !== null && deleteGroupModal.photoCount > 0 && (
+                <> and <strong>{deleteGroupModal.photoCount} {deleteGroupModal.photoCount === 1 ? 'photo' : 'photos'}</strong></>
+              )}
+              . This action cannot be undone.
+              <br />
+              <br />
+              Type <strong>delete</strong> to confirm.
+            </>
+          }
+          confirmLabel="Delete group"
+          variant="danger"
+          isLoading={false}
+          confirmDisabled={deleteGroupModal.confirmText.toLowerCase() !== 'delete'}
+          onConfirm={handleDeleteGroup}
+          onCancel={() =>
+            setDeleteGroupModal({ stage: 'closed', confirmText: '', photoCount: null, error: null })
+          }
+        >
+          <input
+            type="text"
+            value={deleteGroupModal.confirmText}
+            onChange={(e) =>
+              setDeleteGroupModal((prev) => ({ ...prev, confirmText: e.target.value }))
+            }
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && deleteGroupModal.confirmText.toLowerCase() === 'delete') {
+                handleDeleteGroup();
+              }
+            }}
+            placeholder='Type "delete" to confirm'
+            className="input-field w-full"
+            autoFocus
+          />
+        </ConfirmModal>
+      )}
+
+      {deleteGroupModal.stage === 'deleting' && (
+        <Modal title="Deleting group" onClose={() => {}}>
+          <div className="flex flex-col items-center justify-center py-8 gap-4">
+            <div className="spinner" />
+            <p className="text-text-secondary text-center">
+              Deleting <strong>{currentGroup?.name}</strong>
+              {deleteGroupModal.photoCount !== null && deleteGroupModal.photoCount > 0 && (
+                <> and {deleteGroupModal.photoCount} {deleteGroupModal.photoCount === 1 ? 'photo' : 'photos'}</>
+              )}
+              ...
+            </p>
+          </div>
+        </Modal>
+      )}
+
+      {deleteGroupModal.stage === 'error' && (
+        <ConfirmModal
+          title="Deletion failed"
+          message={
+            <>
+              <div className="text-red-600 dark:text-red-400 mb-4">
+                {deleteGroupModal.error}
+              </div>
+              <p className="text-text-secondary text-sm">
+                Please try again. If the problem persists, contact support.
+              </p>
+            </>
+          }
+          confirmLabel="Try again"
+          variant="danger"
+          isLoading={false}
+          onConfirm={() => setDeleteGroupModal((prev) => ({ ...prev, stage: 'confirm' }))}
+          onCancel={() =>
+            setDeleteGroupModal({ stage: 'closed', confirmText: '', photoCount: null, error: null })
+          }
+        />
+      )}
+
+      {showInviteModal && (
+        <Modal title="Invite someone" onClose={() => setShowInviteModal(false)}>
+          <InviteForm
+            isModal
+            onInviteSent={(email) => {
+              setShowInviteModal(false);
+              showSuccess(`Invite sent to ${email}`);
+            }}
+          />
+        </Modal>
       )}
     </div>
   );

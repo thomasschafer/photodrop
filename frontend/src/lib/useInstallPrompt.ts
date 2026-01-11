@@ -16,6 +16,7 @@ interface InstallState {
 }
 
 const STORAGE_KEY = 'installPrompt';
+const DISMISS_EVENT = 'installPromptDismissed';
 
 interface StoredState {
   dismissed?: boolean;
@@ -120,6 +121,16 @@ export function useInstallPrompt() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
+  // Listen for dismiss events from other hook instances
+  useEffect(() => {
+    const handleDismissEvent = () => {
+      setState((prev) => ({ ...prev, isDismissed: true }));
+    };
+
+    window.addEventListener(DISMISS_EVENT, handleDismissEvent);
+    return () => window.removeEventListener(DISMISS_EVENT, handleDismissEvent);
+  }, []);
+
   const triggerNativePrompt = useCallback(async (): Promise<boolean> => {
     if (!state.deferredPrompt) return false;
 
@@ -148,6 +159,7 @@ export function useInstallPrompt() {
       saveStoredState({ dismissed: true, dismissedAt: Date.now() });
     }
     setState((prev) => ({ ...prev, isDismissed: true }));
+    window.dispatchEvent(new Event(DISMISS_EVENT));
   }, []);
 
   const resetDismissal = useCallback(() => {

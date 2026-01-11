@@ -110,6 +110,10 @@ export function ThemeToggle() {
   };
 
   const handleSelect = (value: Theme) => {
+    if (value === theme) {
+      setIsOpen(false);
+      return;
+    }
     setTheme(value);
     setIsOpen(false);
     triggerRef.current?.focus();

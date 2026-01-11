@@ -6,12 +6,16 @@ import {
   updateMembershipRole,
   deleteMembership,
   updateUserName,
+  getGroupPhotoKeys,
+  getGroupPhotoCount,
+  deleteGroup,
   type MembershipRole,
 } from '../lib/db';
-import { requireAuth, requireAdmin } from '../middleware/auth';
+import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
 
 type Bindings = {
   DB: D1Database;
+  PHOTOS: R2Bucket;
   JWT_SECRET: string;
 };
 
@@ -166,6 +170,90 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
   } catch (error) {
     console.error('Error removing member:', error);
     return c.json({ error: 'Failed to remove member' }, 500);
+  }
+});
+
+// Get photo count for a group (owner only - used for deletion confirmation)
+groups.get('/:groupId/photo-count', requireOwner, async (c) => {
+  try {
+    const groupId = c.req.param('groupId');
+    const user = c.get('user');
+
+    if (groupId !== user.groupId) {
+      return c.json({ error: 'Cannot access a different group' }, 403);
+    }
+
+    const count = await getGroupPhotoCount(c.env.DB, groupId);
+    return c.json({ count });
+  } catch (error) {
+    console.error('Error getting photo count:', error);
+    return c.json({ error: 'Failed to get photo count' }, 500);
+  }
+});
+
+// Delete the entire group (owner only)
+groups.delete('/:groupId', requireOwner, async (c) => {
+  try {
+    const groupId = c.req.param('groupId');
+    const user = c.get('user');
+
+    if (groupId !== user.groupId) {
+      return c.json({ error: 'Cannot delete a different group' }, 403);
+    }
+
+    const photoKeys = await getGroupPhotoKeys(c.env.DB, groupId);
+    const totalFiles = photoKeys.length + photoKeys.filter((p) => p.thumbnail_r2_key).length;
+
+    // Delete all R2 files - fail if any deletion fails
+    const r2Failures: Array<{ key: string; error: string }> = [];
+    for (const photo of photoKeys) {
+      try {
+        await c.env.PHOTOS.delete(photo.r2_key);
+      } catch (e) {
+        const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+        console.error(`Failed to delete R2 key: ${photo.r2_key}`, e);
+        r2Failures.push({ key: photo.r2_key, error: errorMsg });
+      }
+      if (photo.thumbnail_r2_key) {
+        try {
+          await c.env.PHOTOS.delete(photo.thumbnail_r2_key);
+        } catch (e) {
+          const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+          console.error(`Failed to delete R2 thumbnail: ${photo.thumbnail_r2_key}`, e);
+          r2Failures.push({ key: photo.thumbnail_r2_key, error: errorMsg });
+        }
+      }
+    }
+
+    // If any R2 deletions failed, abort and return error
+    if (r2Failures.length > 0) {
+      return c.json(
+        {
+          error: 'Failed to delete some photos from storage',
+          details: {
+            failedCount: r2Failures.length,
+            totalFiles,
+            failures: r2Failures.slice(0, 5), // Limit to first 5 failures
+          },
+        },
+        500
+      );
+    }
+
+    // All R2 files deleted successfully, now delete from database
+    const success = await deleteGroup(c.env.DB, groupId);
+    if (!success) {
+      return c.json({ error: 'Failed to delete group from database' }, 500);
+    }
+
+    return c.json({
+      message: 'Group deleted successfully',
+      deletedFiles: totalFiles,
+    });
+  } catch (error) {
+    console.error('Error deleting group:', error);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: 'Failed to delete group', details: errorMsg }, 500);
   }
 });
 

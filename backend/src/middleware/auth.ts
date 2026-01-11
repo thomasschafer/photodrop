@@ -1,6 +1,6 @@
 import { Context, Next } from 'hono';
 import { verifyJWT } from '../lib/jwt';
-import { getMembership, type MembershipRole } from '../lib/db';
+import { getMembership, getGroup, type MembershipRole } from '../lib/db';
 
 export type AuthContext = {
   Variables: {
@@ -83,6 +83,26 @@ export async function requireAdmin(c: Context, next: Next) {
 
   // Update context with current role from DB
   c.set('user', { ...user, role: membership.role });
+
+  await next();
+}
+
+export async function requireOwner(c: Context, next: Next) {
+  const authenticated = await authenticateUser(c);
+  if (!authenticated) {
+    return;
+  }
+
+  const user = c.get('user');
+  if (!user) {
+    return c.json({ error: 'Owner access required' }, 403);
+  }
+
+  // Check if user is the group owner
+  const group = await getGroup(c.env.DB, user.groupId);
+  if (!group || group.owner_id !== user.id) {
+    return c.json({ error: 'Only the group owner can perform this action' }, 403);
+  }
 
   await next();
 }

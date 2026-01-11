@@ -1,10 +1,8 @@
-import { useState, useRef, useCallback } from 'react';
-import { Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
+import { useRef, useCallback } from 'react';
+import { Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { getNavDirection } from './lib/keyboard';
-import { PhotoUpload } from './components/PhotoUpload';
 import { PhotoFeed } from './components/PhotoFeed';
-import { InviteForm } from './components/InviteForm';
 import { MembersList } from './components/MembersList';
 import { Logo } from './components/Logo';
 import { ThemeToggle } from './components/ThemeToggle';
@@ -18,34 +16,25 @@ import { GroupPickerPage } from './pages/GroupPickerPage';
 
 const tabs = [
   { id: 'feed' as const, path: '/', label: 'Photos' },
-  { id: 'upload' as const, path: '/upload', label: 'Upload' },
-  { id: 'invite' as const, path: '/invite', label: 'Invite' },
-  { id: 'members' as const, path: '/members', label: 'Members' },
+  { id: 'members' as const, path: '/members', label: 'Group' },
 ];
 
 function MainApp() {
   const { user, currentGroup, logout } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
-  const [feedKey, setFeedKey] = useState(0);
   const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
   const isAdmin = currentGroup?.role === 'admin';
 
-  // Filter tabs based on role
+  // Filter tabs based on role - only admins can see the Group tab
   const visibleTabs = tabs.filter((tab) => {
-    if (tab.id === 'upload' || tab.id === 'invite' || tab.id === 'members') {
+    if (tab.id === 'members') {
       return isAdmin;
     }
     return true;
   });
 
   const activeTab = visibleTabs.find((tab) => tab.path === location.pathname)?.id ?? 'feed';
-
-  const handleUploadComplete = () => {
-    setFeedKey((prev) => prev + 1);
-    navigate('/');
-  };
 
   const focusTab = useCallback(
     (index: number) => {
@@ -143,15 +132,7 @@ function MainApp() {
 
       <main id="main-content" className="max-w-[900px] mx-auto py-8 px-6">
         <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-label={`${activeTab} content`}>
-          {activeTab === 'feed' && <PhotoFeed key={feedKey} isAdmin={isAdmin} />}
-          {activeTab === 'upload' && isAdmin && (
-            <PhotoUpload onUploadComplete={handleUploadComplete} />
-          )}
-          {activeTab === 'invite' && isAdmin && (
-            <div className="max-w-[480px] mx-auto">
-              <InviteForm />
-            </div>
-          )}
+          {activeTab === 'feed' && <PhotoFeed isAdmin={isAdmin} />}
           {activeTab === 'members' && isAdmin && (
             <div className="max-w-[600px] mx-auto">
               <MembersList />
@@ -191,8 +172,6 @@ function App() {
       <Route path="/auth/:token" element={<AuthVerifyPage />} />
       <Route path="/" element={<MainApp />} />
       <Route path="/photo/:photoId" element={<MainApp />} />
-      <Route path="/upload" element={<MainApp />} />
-      <Route path="/invite" element={<MainApp />} />
       <Route path="/members" element={<MainApp />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

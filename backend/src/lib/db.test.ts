@@ -5,6 +5,9 @@ import {
   createMembership,
   deleteMembership,
   updateMembershipRole,
+  getGroupPhotoKeys,
+  getGroupPhotoCount,
+  deleteGroup,
 } from './db';
 
 function createMockDb(results: unknown[] = [], error?: Error) {
@@ -318,6 +321,89 @@ describe('Membership functions', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('is_owner');
+    });
+  });
+});
+
+describe('Group deletion functions', () => {
+  describe('getGroupPhotoKeys', () => {
+    it('returns all photo keys for a group', async () => {
+      const photoKeys = [
+        { r2_key: 'photos/abc123.jpg', thumbnail_r2_key: 'thumbnails/abc123.jpg' },
+        { r2_key: 'photos/def456.jpg', thumbnail_r2_key: 'thumbnails/def456.jpg' },
+      ];
+      const db = createMockDb(photoKeys);
+
+      const result = await getGroupPhotoKeys(db, 'group-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].r2_key).toBe('photos/abc123.jpg');
+      expect(result[0].thumbnail_r2_key).toBe('thumbnails/abc123.jpg');
+      expect(result[1].r2_key).toBe('photos/def456.jpg');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1');
+    });
+
+    it('returns empty array for group with no photos', async () => {
+      const db = createMockDb([]);
+
+      const result = await getGroupPhotoKeys(db, 'empty-group');
+
+      expect(result).toEqual([]);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('empty-group');
+    });
+
+    it('handles photos without thumbnails', async () => {
+      const photoKeys = [{ r2_key: 'photos/abc123.jpg', thumbnail_r2_key: null }];
+      const db = createMockDb(photoKeys);
+
+      const result = await getGroupPhotoKeys(db, 'group-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].r2_key).toBe('photos/abc123.jpg');
+      expect(result[0].thumbnail_r2_key).toBeNull();
+    });
+  });
+
+  describe('getGroupPhotoCount', () => {
+    it('returns count for group with photos', async () => {
+      const db = createMockDb([{ count: 42 }]);
+
+      const result = await getGroupPhotoCount(db, 'group-1');
+
+      expect(result).toBe(42);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'SELECT COUNT(*) as count FROM photos WHERE group_id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1');
+    });
+
+    it('returns 0 for group with no photos', async () => {
+      const db = createMockDb([{ count: 0 }]);
+
+      const result = await getGroupPhotoCount(db, 'empty-group');
+
+      expect(result).toBe(0);
+    });
+
+    it('returns 0 when result is null', async () => {
+      const db = createMockDb([]);
+
+      const result = await getGroupPhotoCount(db, 'nonexistent-group');
+
+      expect(result).toBe(0);
+    });
+  });
+
+  describe('deleteGroup', () => {
+    it('deletes group and returns success', async () => {
+      const db = createMockDb([]);
+
+      const result = await deleteGroup(db, 'group-1');
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith('DELETE FROM groups WHERE id = ?');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
     });
   });
 });

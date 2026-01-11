@@ -433,3 +433,30 @@ export async function getPhotoReactions(db: D1Database, photoId: string): Promis
 
   return result.results || [];
 }
+
+export async function getGroupPhotoKeys(
+  db: D1Database,
+  groupId: string
+): Promise<Array<{ r2_key: string; thumbnail_r2_key: string | null }>> {
+  const result = await db
+    .prepare('SELECT r2_key, thumbnail_r2_key FROM photos WHERE group_id = ?')
+    .bind(groupId)
+    .all<{ r2_key: string; thumbnail_r2_key: string | null }>();
+
+  return result.results || [];
+}
+
+export async function getGroupPhotoCount(db: D1Database, groupId: string): Promise<number> {
+  const result = await db
+    .prepare('SELECT COUNT(*) as count FROM photos WHERE group_id = ?')
+    .bind(groupId)
+    .first<{ count: number }>();
+
+  return result?.count ?? 0;
+}
+
+export async function deleteGroup(db: D1Database, groupId: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM groups WHERE id = ?').bind(groupId).run();
+
+  return result.success;
+}

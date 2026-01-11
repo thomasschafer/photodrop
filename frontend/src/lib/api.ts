@@ -165,6 +165,18 @@ export const api = {
       });
       return response.json();
     },
+
+    deleteGroup: async (groupId: string) => {
+      const response = await fetchWithAuth(`/groups/${groupId}`, {
+        method: 'DELETE',
+      });
+      return response.json();
+    },
+
+    getPhotoCount: async (groupId: string): Promise<{ count: number }> => {
+      const response = await fetchWithAuth(`/groups/${groupId}/photo-count`);
+      return response.json();
+    },
   },
 
   users: {

@@ -39,6 +39,7 @@ interface AuthContextType {
   refreshAuth: () => Promise<void>;
   switchGroup: (groupId: string) => Promise<void>;
   selectGroup: (groupId: string) => Promise<void>;
+  onGroupDeleted: (deletedGroupId: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -92,12 +93,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshAuth = useCallback(async () => {
     try {
       const data = await api.auth.refresh();
-      localStorage.setItem('accessToken', data.accessToken);
+      if (data.accessToken) {
+        localStorage.setItem('accessToken', data.accessToken);
+      } else {
+        localStorage.removeItem('accessToken');
+      }
       setAuthState({
         user: data.user,
         currentGroup: data.currentGroup,
         groups: data.groups,
-        needsGroupSelection: false,
+        needsGroupSelection: data.needsGroupSelection || (!data.currentGroup && data.groups.length > 0),
       });
     } catch (error) {
       console.error('Refresh error:', error);
@@ -150,6 +155,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [authState.user]
   );
 
+  const onGroupDeleted = useCallback((deletedGroupId: string) => {
+    const remainingGroups = authState.groups.filter((g) => g.id !== deletedGroupId);
+    localStorage.removeItem('accessToken');
+    setAuthState({
+      user: authState.user,
+      currentGroup: null,
+      groups: remainingGroups,
+      needsGroupSelection: remainingGroups.length > 0,
+    });
+  }, [authState.groups, authState.user]);
+
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem('accessToken');
@@ -168,15 +184,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             groups: userData.groups,
             needsGroupSelection: !userData.currentGroup,
           });
+          setLoading(false);
+          return;
         } catch {
-          // Token invalid, try to refresh
-          try {
-            await refreshAuth();
-          } catch (refreshError) {
-            console.error('Failed to refresh auth:', refreshError);
-            localStorage.removeItem('accessToken');
-          }
+          // Token invalid, will try to refresh below
+          localStorage.removeItem('accessToken');
         }
+      }
+
+      // No token or token invalid - try to refresh using httpOnly cookie
+      try {
+        await refreshAuth();
+      } catch {
+        // No valid session
       }
 
       setLoading(false);
@@ -212,6 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshAuth,
         switchGroup,
         selectGroup,
+        onGroupDeleted,
       }}
     >
       {children}

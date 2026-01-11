@@ -548,9 +548,28 @@ auth.post('/refresh', async (c) => {
     // Get membership for the group in the token
     const membership = await getMembership(c.env.DB, user.id, payload.groupId);
 
+    // Get all memberships for the response
+    const memberships = await getUserMemberships(c.env.DB, user.id);
+
     if (!membership) {
-      // User is no longer a member of this group
-      return c.json({ error: 'No longer a member of this group' }, 401);
+      // User is no longer a member of this group (e.g., group was deleted)
+      // Return user info with their remaining groups so they can pick a new one
+      return c.json({
+        accessToken: null,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+        },
+        currentGroup: null,
+        groups: memberships.map((m) => ({
+          id: m.group_id,
+          name: m.group_name,
+          role: m.role,
+          ownerId: m.group_owner_id,
+        })),
+        needsGroupSelection: memberships.length > 0,
+      });
     }
 
     // Get group info
@@ -578,9 +597,6 @@ auth.post('/refresh', async (c) => {
       maxAge: 30 * 24 * 60 * 60,
       path: '/',
     });
-
-    // Get all memberships for the response
-    const memberships = await getUserMemberships(c.env.DB, user.id);
 
     return c.json({
       accessToken,

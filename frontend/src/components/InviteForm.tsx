@@ -2,10 +2,11 @@ import { useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
 
 interface InviteFormProps {
-  onInviteSent?: () => void;
+  onInviteSent?: (email: string) => void;
+  isModal?: boolean;
 }
 
-export function InviteForm({ onInviteSent }: InviteFormProps) {
+export function InviteForm({ onInviteSent, isModal = false }: InviteFormProps) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'member' | 'admin'>('member');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -25,12 +26,13 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
     setErrorMessage('');
 
     try {
-      await api.auth.sendInvite(email.trim(), role);
-      setSuccessEmail(email);
+      const sentEmail = email.trim();
+      await api.auth.sendInvite(sentEmail, role);
+      setSuccessEmail(sentEmail);
       setStatus('success');
       setEmail('');
       setRole('member');
-      onInviteSent?.();
+      onInviteSent?.(sentEmail);
 
       setTimeout(() => {
         setStatus('idle');
@@ -52,10 +54,14 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
     }
   };
 
-  return (
-    <div className="card">
-      <h2 className="text-lg font-medium text-text-primary mb-1">Invite someone</h2>
-      <p className="text-sm text-text-secondary mb-4">Add a new member to your group</p>
+  const formContent = (
+    <>
+      {!isModal && (
+        <>
+          <h2 className="text-lg font-medium text-text-primary mb-1">Invite someone</h2>
+          <p className="text-sm text-text-secondary mb-4">Add a new member to your group</p>
+        </>
+      )}
 
       {status === 'success' && (
         <div className="mb-4 p-3 bg-accent-light border border-accent rounded-lg text-sm text-accent">
@@ -116,6 +122,12 @@ export function InviteForm({ onInviteSent }: InviteFormProps) {
           )}
         </button>
       </form>
-    </div>
+    </>
   );
+
+  if (isModal) {
+    return formContent;
+  }
+
+  return <div className="card">{formContent}</div>;
 }

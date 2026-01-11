@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, API_BASE_URL } from '../lib/api';
 import { getNavDirection } from '../lib/keyboard';
 import { ConfirmModal } from './ConfirmModal';
+import { Modal } from './Modal';
+import { PhotoUpload } from './PhotoUpload';
 
 function useAuthToken() {
   return useMemo(() => localStorage.getItem('accessToken') || '', []);
@@ -26,6 +28,8 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const token = useAuthToken();
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
   const navigate = useNavigate();
@@ -130,6 +134,13 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   };
 
+  const handleUploadComplete = () => {
+    setShowUploadModal(false);
+    loadPhotos();
+    setSuccessMessage('Photo uploaded successfully');
+    setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
     const now = new Date();
@@ -167,20 +178,55 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
   if (photos.length === 0) {
     return (
-      <div className="text-center py-16">
-        <p className="text-text-secondary mb-2">No photos yet</p>
-        <p className="text-sm text-text-muted">
-          {isAdmin
-            ? 'Upload your first photo to get started.'
-            : 'Photos will appear here once they are uploaded.'}
-        </p>
-      </div>
+      <>
+        <div className="text-center py-16">
+          <p className="text-text-secondary mb-2">No photos yet</p>
+          <p className="text-sm text-text-muted mb-4">
+            {isAdmin
+              ? 'Upload your first photo to get started.'
+              : 'Photos will appear here once they are uploaded.'}
+          </p>
+          {isAdmin && (
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="btn-primary"
+            >
+              Upload photo
+            </button>
+          )}
+        </div>
+        {showUploadModal && (
+          <Modal title="Upload photo" onClose={() => setShowUploadModal(false)} maxWidth="md">
+            <PhotoUpload isModal onUploadComplete={handleUploadComplete} />
+          </Modal>
+        )}
+      </>
     );
   }
 
   return (
     <>
       <div className="max-w-[540px] mx-auto">
+        {isAdmin && (
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="btn-primary-sm flex items-center gap-2"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              Upload
+            </button>
+          </div>
+        )}
+        {successMessage && (
+          <div className="mb-4 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-sm">
+            {successMessage}
+          </div>
+        )}
         <div className="flex flex-col gap-6" role="list" aria-label="Photo feed">
           {photos.map((photo, index) => (
             <article
@@ -258,6 +304,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             setDeleteError(null);
           }}
         />
+      )}
+
+      {showUploadModal && (
+        <Modal title="Upload photo" onClose={() => setShowUploadModal(false)} maxWidth="md">
+          <PhotoUpload isModal onUploadComplete={handleUploadComplete} />
+        </Modal>
       )}
     </>
   );

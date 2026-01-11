@@ -1,35 +1,62 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
+import { Modal } from './Modal';
 
 // Small button for header - shows when dismissed, allows re-showing the prompt
 export function InstallButton() {
-  const { isInstalled, isDismissed, canSkipInstall, resetDismissal } = useInstallPrompt();
+  const { platform, isInstalled, isDismissed, canSkipInstall, dismiss } = useInstallPrompt();
+  const [showInstructions, setShowInstructions] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Don't show if installed, not dismissed, or Firefox (can skip install)
   if (isInstalled || !isDismissed || canSkipInstall) {
     return null;
   }
 
+  const handleClose = () => {
+    setShowInstructions(false);
+    buttonRef.current?.focus();
+  };
+
   return (
-    <button
-      onClick={resetDismissal}
-      className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-secondary transition-colors"
-      aria-label="Install app"
-      title="Install app"
-    >
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
+    <>
+      <button
+        ref={buttonRef}
+        onClick={() => setShowInstructions(true)}
+        className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-secondary transition-colors cursor-pointer"
+        aria-label="Install app"
+        title="Install app"
       >
-        <path d="M12 2v13" />
-        <polyline points="8,11 12,15 16,11" />
-        <path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
-      </svg>
-    </button>
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M12 2v13" />
+          <polyline points="8,11 12,15 16,11" />
+          <path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+        </svg>
+      </button>
+      {showInstructions && (
+        <Modal title="Install photodrop" onClose={handleClose} maxWidth="md">
+          <PlatformInstructions platform={platform} />
+          <div className="mt-4">
+            <button
+              onClick={() => {
+                dismiss(true);
+                setShowInstructions(false);
+              }}
+              className="btn-link"
+            >
+              Don't show again
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -95,63 +122,45 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
     );
   }
 
-  if (showInstructions) {
-    return (
-      <div className="bg-accent/10 border-b border-accent/20">
-        <div className="max-w-[900px] mx-auto px-6 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-text-primary mb-2">Install photodrop</p>
-              <PlatformInstructions platform={platform} />
-            </div>
+  return (
+    <>
+      {showInstructions && (
+        <Modal title="Install photodrop" onClose={() => setShowInstructions(false)} maxWidth="md">
+          <PlatformInstructions platform={platform} />
+          <div className="mt-4">
             <button
-              onClick={() => handleDismiss(false)}
-              className="shrink-0 p-1 text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-              aria-label="Close"
+              onClick={() => handleDismiss(true)}
+              className="btn-link"
             >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M5 5l10 10M15 5L5 15" />
-              </svg>
-            </button>
-          </div>
-          <div className="mt-3">
-            <button onClick={() => handleDismiss(true)} className="btn-link">
               Don't show again
             </button>
           </div>
+        </Modal>
+      )}
+      <div className="bg-accent/10 border-b border-accent/20">
+        <div className="max-w-[900px] mx-auto px-6 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-text-primary">
+                <span className="font-medium">Install photodrop</span>
+                <span className="text-text-secondary"> for easy access and notifications</span>
+              </p>
+            </div>
+            <div className="shrink-0 flex items-center gap-3">
+              <button onClick={() => handleDismiss(true)} className="btn-link text-sm">
+                Don't show again
+              </button>
+              <button onClick={() => handleDismiss(false)} className="btn-secondary-sm">
+                Later
+              </button>
+              <button onClick={handleInstallClick} className="btn-primary-sm">
+                Install
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div className="bg-accent/10 border-b border-accent/20">
-      <div className="max-w-[900px] mx-auto px-6 py-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-text-primary">
-              <span className="font-medium">Install photodrop</span>
-              <span className="text-text-secondary"> for easy access and notifications</span>
-            </p>
-          </div>
-          <div className="shrink-0 flex items-center gap-2">
-            <button onClick={() => handleDismiss(false)} className="btn-secondary-sm">
-              Later
-            </button>
-            <button onClick={handleInstallClick} className="btn-primary-sm">
-              Install
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </>
   );
 }
 
