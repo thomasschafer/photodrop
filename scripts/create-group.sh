@@ -109,15 +109,47 @@ VALUES ('$TOKEN', '$GROUP_ID', '$OWNER_EMAIL', 'login', NULL, $NOW, $EXPIRES_AT)
 "
 echo "Created magic link token"
 
+MAGIC_LINK="$FRONTEND_URL/auth/$TOKEN"
+
+# In production, send email via Resend API
+EMAIL_SENT=false
+if [ "$IS_PROD" = true ] && [ -n "${RESEND_API_KEY:-}" ] && [ -n "${DOMAIN:-}" ]; then
+    echo "Sending invite email..."
+
+    # Escape special characters for JSON
+    JSON_GROUP_NAME=$(echo "$1" | sed 's/"/\\"/g')
+    JSON_OWNER_NAME=$(echo "$2" | sed 's/"/\\"/g')
+
+    EMAIL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.resend.com/emails" \
+        -H "Authorization: Bearer $RESEND_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"from\": \"photodrop <noreply@$DOMAIN>\",
+            \"to\": \"$3\",
+            \"subject\": \"Welcome to $JSON_GROUP_NAME!\",
+            \"html\": \"<h1>Welcome to photodrop!</h1><p>Hi $JSON_OWNER_NAME!</p><p>Your group <strong>$JSON_GROUP_NAME</strong> has been created.</p><p>Click the link below to get started (expires in 15 minutes):</p><p><a href='$MAGIC_LINK'>$MAGIC_LINK</a></p>\"
+        }")
+
+    HTTP_CODE=$(echo "$EMAIL_RESPONSE" | tail -n1)
+    if [ "$HTTP_CODE" = "200" ]; then
+        EMAIL_SENT=true
+        echo "Email sent successfully!"
+    else
+        echo "Warning: Failed to send email (HTTP $HTTP_CODE)"
+        echo "Response: $(echo "$EMAIL_RESPONSE" | head -n -1)"
+    fi
+fi
+
 echo ""
 echo "=========================================="
 echo "Setup complete!"
 echo ""
-echo "Magic link (expires in 15 minutes):"
-echo "$FRONTEND_URL/auth/$TOKEN"
-echo ""
-if [ "$IS_PROD" = true ]; then
-    echo "Note: For production, magic links are logged to Worker logs."
-    echo "You can also view them with: wrangler tail"
+if [ "$EMAIL_SENT" = true ]; then
+    echo "Invite email sent to: $3"
+    echo ""
+    echo "Magic link (for reference):"
+else
+    echo "Magic link (expires in 15 minutes):"
 fi
+echo "$MAGIC_LINK"
 echo "=========================================="

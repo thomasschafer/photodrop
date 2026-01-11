@@ -263,7 +263,9 @@ export function MobileMenu() {
                         <path d="M20 6L9 17l-5-5" />
                       </svg>
                     )}
-                    <span className={currentGroup?.id !== group.id ? 'ml-5' : ''}>{group.name}</span>
+                    <span className={currentGroup?.id !== group.id ? 'ml-5' : ''}>
+                      {group.name}
+                    </span>
                   </span>
                   <span
                     className={`text-xs px-2 py-0.5 rounded ${

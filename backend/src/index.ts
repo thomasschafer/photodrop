@@ -4,15 +4,7 @@ import auth from './routes/auth';
 import users from './routes/users';
 import photos from './routes/photos';
 import groups from './routes/groups';
-
-type Bindings = {
-  DB: D1Database;
-  PHOTOS: R2Bucket;
-  JWT_SECRET: string;
-  VAPID_PUBLIC_KEY: string;
-  VAPID_PRIVATE_KEY: string;
-  FRONTEND_URL: string;
-};
+import type { Bindings } from './types';
 
 const app = new Hono<{ Bindings: Bindings }>();
 

@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
+import { useFocusRestore } from '../lib/hooks';
 import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
@@ -43,6 +44,12 @@ export function MembersList() {
     error: string | null;
   }>({ stage: 'closed', confirmText: '', photoCount: null, error: null });
   const [showInviteModal, setShowInviteModal] = useState(false);
+
+  const [inviteButtonRef, restoreInviteFocus] = useFocusRestore<HTMLButtonElement>();
+  const [deleteGroupButtonRef, restoreDeleteGroupFocus] = useFocusRestore<HTMLButtonElement>();
+  const editNameButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const removeButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const roleSelectRefs = useRef<Map<string, HTMLSelectElement>>(new Map());
 
   const fetchMembers = useCallback(async () => {
     if (!currentGroup) return;
@@ -89,6 +96,7 @@ export function MembersList() {
       await api.groups.updateMemberRole(currentGroup.id, memberId, newRole);
       setMembers((prev) => prev.map((m) => (m.userId === memberId ? { ...m, role: newRole } : m)));
       setConfirmRoleChange(null);
+      roleSelectRefs.current.get(memberId)?.focus();
       showSuccess(`${memberName} is now ${newRole === 'admin' ? 'an admin' : 'a member'}`);
     } catch (err) {
       console.error('Failed to update role:', err);
@@ -99,6 +107,14 @@ export function MembersList() {
       }
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleRoleChangeCancel = () => {
+    const memberIdToFocus = confirmRoleChange?.memberId;
+    setConfirmRoleChange(null);
+    if (memberIdToFocus) {
+      roleSelectRefs.current.get(memberIdToFocus)?.focus();
     }
   };
 
@@ -114,6 +130,7 @@ export function MembersList() {
 
     if (trimmedName === currentName) {
       setEditingName(null);
+      editNameButtonRefs.current.get(memberId)?.focus();
       return;
     }
 
@@ -126,6 +143,7 @@ export function MembersList() {
         prev.map((m) => (m.userId === memberId ? { ...m, name: trimmedName } : m))
       );
       setEditingName(null);
+      editNameButtonRefs.current.get(memberId)?.focus();
       showSuccess(`Name updated to ${trimmedName}`);
     } catch (err) {
       console.error('Failed to update name:', err);
@@ -136,6 +154,14 @@ export function MembersList() {
       }
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleEditNameCancel = () => {
+    const memberIdToFocus = editingName?.memberId;
+    setEditingName(null);
+    if (memberIdToFocus) {
+      editNameButtonRefs.current.get(memberIdToFocus)?.focus();
     }
   };
 
@@ -164,7 +190,25 @@ export function MembersList() {
     }
   };
 
+  const handleRemoveCancel = () => {
+    const memberIdToFocus = confirmRemove?.memberId;
+    setConfirmRemove(null);
+    if (memberIdToFocus) {
+      removeButtonRefs.current.get(memberIdToFocus)?.focus();
+    }
+  };
+
   const isOwner = user?.id === ownerId;
+
+  const handleInviteModalClose = () => {
+    setShowInviteModal(false);
+    restoreInviteFocus();
+  };
+
+  const handleDeleteGroupModalClose = () => {
+    setDeleteGroupModal({ stage: 'closed', confirmText: '', photoCount: null, error: null });
+    restoreDeleteGroupFocus();
+  };
 
   const openDeleteGroupModal = async () => {
     if (!currentGroup) return;
@@ -221,10 +265,18 @@ export function MembersList() {
           </p>
         </div>
         <button
+          ref={inviteButtonRef}
           onClick={() => setShowInviteModal(true)}
           className="btn-primary-sm flex items-center gap-2 -mt-1"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
             <circle cx="9" cy="7" r="4" />
             <path d="M19 8v6M22 11h-6" />
@@ -259,7 +311,7 @@ export function MembersList() {
           }
           isLoading={actionLoading === confirmRoleChange.memberId}
           onConfirm={handleRoleChangeConfirm}
-          onCancel={() => setConfirmRoleChange(null)}
+          onCancel={handleRoleChangeCancel}
         />
       )}
 
@@ -271,7 +323,7 @@ export function MembersList() {
           isLoading={actionLoading === editingName.memberId}
           confirmDisabled={editingName.newName.trim().length === 0}
           onConfirm={handleEditNameConfirm}
-          onCancel={() => setEditingName(null)}
+          onCancel={handleEditNameCancel}
         >
           <input
             type="text"
@@ -296,7 +348,7 @@ export function MembersList() {
           variant="danger"
           isLoading={actionLoading === confirmRemove.memberId}
           onConfirm={handleRemoveConfirm}
-          onCancel={() => setConfirmRemove(null)}
+          onCancel={handleRemoveCancel}
         />
       )}
 
@@ -308,7 +360,7 @@ export function MembersList() {
 
           return (
             <div key={member.userId} className="py-4 first:pt-0 last:pb-0">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col mobile:flex-row mobile:items-center mobile:justify-between gap-3 mobile:gap-4">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
                     <span className="text-accent font-semibold">
@@ -326,8 +378,15 @@ export function MembersList() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 flex-shrink-0">
+                <div className="flex items-center gap-3 flex-shrink-0 ml-auto mobile:ml-0">
                   <button
+                    ref={(el) => {
+                      if (el) {
+                        editNameButtonRefs.current.set(member.userId, el);
+                      } else {
+                        editNameButtonRefs.current.delete(member.userId);
+                      }
+                    }}
                     onClick={() => handleEditNameRequest(member.userId, member.name)}
                     disabled={isLoading}
                     className="p-2 text-text-tertiary hover:text-accent transition-colors disabled:opacity-50 cursor-pointer"
@@ -349,13 +408,20 @@ export function MembersList() {
 
                   {memberIsOwner ? (
                     <span
-                      className="py-1.5 px-3 text-sm font-medium rounded-md min-w-[100px] text-center bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                      className="py-1.5 px-3 text-sm font-medium rounded-md w-[100px] text-center bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                       title="Owner role cannot be changed"
                     >
                       {ROLE_DISPLAY_NAMES.owner}
                     </span>
                   ) : (
                     <select
+                      ref={(el) => {
+                        if (el) {
+                          roleSelectRefs.current.set(member.userId, el);
+                        } else {
+                          roleSelectRefs.current.delete(member.userId);
+                        }
+                      }}
                       value={member.role}
                       onChange={(e) => {
                         const newRole = e.target.value as 'admin' | 'member';
@@ -365,7 +431,7 @@ export function MembersList() {
                         }
                       }}
                       disabled={isLoading}
-                      className="input-field py-1.5 px-2 text-sm min-w-[100px]"
+                      className="input-field py-1.5 px-2 text-sm w-[100px]"
                     >
                       <option value="admin">{ROLE_DISPLAY_NAMES.admin}</option>
                       <option value="member">{ROLE_DISPLAY_NAMES.member}</option>
@@ -373,6 +439,13 @@ export function MembersList() {
                   )}
 
                   <button
+                    ref={(el) => {
+                      if (el) {
+                        removeButtonRefs.current.set(member.userId, el);
+                      } else {
+                        removeButtonRefs.current.delete(member.userId);
+                      }
+                    }}
                     onClick={() =>
                       setConfirmRemove({ memberId: member.userId, memberName: member.name })
                     }
@@ -384,7 +457,9 @@ export function MembersList() {
                     }`}
                     title={memberIsOwner ? 'Owners cannot be removed' : 'Remove from group'}
                     aria-label={
-                      memberIsOwner ? 'Owners cannot be removed' : `Remove ${member.name} from group`
+                      memberIsOwner
+                        ? 'Owners cannot be removed'
+                        : `Remove ${member.name} from group`
                     }
                   >
                     <svg
@@ -420,6 +495,7 @@ export function MembersList() {
             Permanently delete this group and all its photos. This action cannot be undone.
           </p>
           <button
+            ref={deleteGroupButtonRef}
             onClick={openDeleteGroupModal}
             className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
           >
@@ -429,7 +505,7 @@ export function MembersList() {
       )}
 
       {deleteGroupModal.stage === 'loading-count' && (
-        <Modal title="Delete group" onClose={() => setDeleteGroupModal({ stage: 'closed', confirmText: '', photoCount: null, error: null })}>
+        <Modal title="Delete group" onClose={handleDeleteGroupModalClose}>
           <div className="flex items-center justify-center py-8">
             <div className="spinner" />
           </div>
@@ -443,7 +519,14 @@ export function MembersList() {
             <>
               This will <strong>permanently delete</strong> <strong>{currentGroup?.name}</strong>
               {deleteGroupModal.photoCount !== null && deleteGroupModal.photoCount > 0 && (
-                <> and <strong>{deleteGroupModal.photoCount} {deleteGroupModal.photoCount === 1 ? 'photo' : 'photos'}</strong></>
+                <>
+                  {' '}
+                  and{' '}
+                  <strong>
+                    {deleteGroupModal.photoCount}{' '}
+                    {deleteGroupModal.photoCount === 1 ? 'photo' : 'photos'}
+                  </strong>
+                </>
               )}
               . This action cannot be undone.
               <br />
@@ -456,9 +539,7 @@ export function MembersList() {
           isLoading={false}
           confirmDisabled={deleteGroupModal.confirmText.toLowerCase() !== 'delete'}
           onConfirm={handleDeleteGroup}
-          onCancel={() =>
-            setDeleteGroupModal({ stage: 'closed', confirmText: '', photoCount: null, error: null })
-          }
+          onCancel={handleDeleteGroupModalClose}
         >
           <input
             type="text"
@@ -485,7 +566,11 @@ export function MembersList() {
             <p className="text-text-secondary text-center">
               Deleting <strong>{currentGroup?.name}</strong>
               {deleteGroupModal.photoCount !== null && deleteGroupModal.photoCount > 0 && (
-                <> and {deleteGroupModal.photoCount} {deleteGroupModal.photoCount === 1 ? 'photo' : 'photos'}</>
+                <>
+                  {' '}
+                  and {deleteGroupModal.photoCount}{' '}
+                  {deleteGroupModal.photoCount === 1 ? 'photo' : 'photos'}
+                </>
               )}
               ...
             </p>
@@ -498,9 +583,7 @@ export function MembersList() {
           title="Deletion failed"
           message={
             <>
-              <div className="text-red-600 dark:text-red-400 mb-4">
-                {deleteGroupModal.error}
-              </div>
+              <div className="text-red-600 dark:text-red-400 mb-4">{deleteGroupModal.error}</div>
               <p className="text-text-secondary text-sm">
                 Please try again. If the problem persists, contact support.
               </p>
@@ -510,18 +593,17 @@ export function MembersList() {
           variant="danger"
           isLoading={false}
           onConfirm={() => setDeleteGroupModal((prev) => ({ ...prev, stage: 'confirm' }))}
-          onCancel={() =>
-            setDeleteGroupModal({ stage: 'closed', confirmText: '', photoCount: null, error: null })
-          }
+          onCancel={handleDeleteGroupModalClose}
         />
       )}
 
       {showInviteModal && (
-        <Modal title="Invite someone" onClose={() => setShowInviteModal(false)}>
+        <Modal title="Invite someone" onClose={handleInviteModalClose}>
           <InviteForm
             isModal
             onInviteSent={(email) => {
               setShowInviteModal(false);
+              restoreInviteFocus();
               showSuccess(`Invite sent to ${email}`);
             }}
           />

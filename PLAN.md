@@ -576,61 +576,28 @@ The setup script prompts for configuration and automates resource creation:
 
 **One-time setup:**
 
-- [ ] Sign up at resend.com
-- [ ] Add and verify domain `<domain>.com`:
-  - Add SPF record (TXT): Resend provides the value
-  - Add DKIM records (TXT): Resend provides 2-3 records
-  - Add DMARC record (TXT, optional but recommended): `v=DMARC1; p=none;`
-  - Wait for verification (usually instant, can take up to 48h)
-- [ ] Create API key with send permission
-- [ ] Add `RESEND_API_KEY` to production secrets:
+- [x] Sign up at resend.com
+- [x] Add domain and configure DNS
+- [x] Create API key with send permission
+- [x] Add `RESEND_API_KEY` to production secrets:
   - Add to `.prod.vars` locally
-  - Add to GitHub Actions secrets
-  - Run `wrangler secret put RESEND_API_KEY`
+  - Run deploy script
 
 **Backend changes:**
 
-- [ ] Update `sendEmail()` in `src/services/email.ts`:
-  ```typescript
-  export async function sendEmail(env: Env, to: string, subject: string, html: string) {
-    // Local dev: log to console (no API key)
-    if (!env.RESEND_API_KEY) {
-      console.log(`[DEV EMAIL] To: ${to}, Subject: ${subject}`);
-      console.log(html);
-      return { success: true, mock: true };
-    }
-
-    // Production: send via Resend
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'photodrop <noreply@<domain>.com>',
-        to,
-        subject,
-        html,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('Resend error:', error);
-      throw new Error(`Failed to send email: ${response.status}`);
-    }
-
-    return { success: true };
-  }
-  ```
-- [ ] Add `RESEND_API_KEY` to `Env` type in `src/types.ts`
-- [ ] Update email templates if needed (ensure they look good in email clients)
+- [x] Update `sendEmail()` in `src/lib/email.ts`:
+  - Uses `env.RESEND_API_KEY` to detect production mode
+  - Uses `env.EMAIL_FROM` for sender address (configured from `DOMAIN`)
+  - Falls back to console logging in development
+- [x] Add `RESEND_API_KEY` and `EMAIL_FROM` to Bindings type
+- [x] Update auth routes to pass env to email functions
+- [x] Update deploy script to set `EMAIL_FROM` from `DOMAIN` and handle `RESEND_API_KEY`
+- [x] Update GitHub Actions to include `RESEND_API_KEY` secret
 
 **Testing:**
 
 - [ ] Test locally: verify mock mode still logs to console
-- [ ] Test in production:
+- [x] Test in production:
   - Create a test group with your real email
   - Verify invite email arrives
   - Verify login link email arrives
@@ -639,12 +606,12 @@ The setup script prompts for configuration and automates resource creation:
 
 **Verification checklist:**
 
-- [ ] Domain verified in Resend dashboard
-- [ ] SPF/DKIM/DMARC records added to Cloudflare DNS
-- [ ] `RESEND_API_KEY` deployed to production
-- [ ] Invite emails deliver successfully
-- [ ] Login link emails deliver successfully
-- [ ] Emails not landing in spam (check with Gmail, iCloud)
+- [x] Domain verified in Resend dashboard
+- [x] SPF/DKIM/DMARC records added to Cloudflare DNS
+- [x] `RESEND_API_KEY` deployed to production
+- [x] Invite emails deliver successfully
+- [x] Login link emails deliver successfully
+- [x] Emails not landing in spam (check with Gmail, iCloud)
 
 #### Phase 2.3: Push notifications
 

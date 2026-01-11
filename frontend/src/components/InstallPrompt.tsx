@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
+import { useFocusRestore } from '../lib/hooks';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
 import { Modal } from './Modal';
 
@@ -6,7 +7,7 @@ import { Modal } from './Modal';
 export function InstallButton() {
   const { platform, isInstalled, isDismissed, canSkipInstall, dismiss } = useInstallPrompt();
   const [showInstructions, setShowInstructions] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [buttonRef, restoreFocus] = useFocusRestore<HTMLButtonElement>();
 
   // Don't show if installed, not dismissed, or Firefox (can skip install)
   if (isInstalled || !isDismissed || canSkipInstall) {
@@ -15,7 +16,7 @@ export function InstallButton() {
 
   const handleClose = () => {
     setShowInstructions(false);
-    buttonRef.current?.focus();
+    restoreFocus();
   };
 
   return (
@@ -76,6 +77,7 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
   } = useInstallPrompt();
 
   const [showInstructions, setShowInstructions] = useState(false);
+  const [installButtonRef, restoreInstallFocus] = useFocusRestore<HTMLButtonElement>();
 
   if (!shouldShowPrompt) {
     return null;
@@ -90,6 +92,11 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
     } else {
       setShowInstructions(true);
     }
+  };
+
+  const handleInstructionsClose = () => {
+    setShowInstructions(false);
+    restoreInstallFocus();
   };
 
   const handleDismiss = (permanently: boolean) => {
@@ -125,13 +132,10 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
   return (
     <>
       {showInstructions && (
-        <Modal title="Install photodrop" onClose={() => setShowInstructions(false)} maxWidth="md">
+        <Modal title="Install photodrop" onClose={handleInstructionsClose} maxWidth="md">
           <PlatformInstructions platform={platform} />
           <div className="mt-4">
-            <button
-              onClick={() => handleDismiss(true)}
-              className="btn-link"
-            >
+            <button onClick={() => handleDismiss(true)} className="btn-link">
               Don't show again
             </button>
           </div>
@@ -153,7 +157,11 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
               <button onClick={() => handleDismiss(false)} className="btn-secondary-sm">
                 Later
               </button>
-              <button onClick={handleInstallClick} className="btn-primary-sm">
+              <button
+                ref={installButtonRef}
+                onClick={handleInstallClick}
+                className="btn-primary-sm"
+              >
                 Install
               </button>
             </div>

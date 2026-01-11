@@ -115,6 +115,7 @@ For automatic deployments on push to `main`:
    - `JWT_SECRET` - From `backend/.prod.vars`
    - `VAPID_PUBLIC_KEY` - From `backend/.prod.vars`
    - `VAPID_PRIVATE_KEY` - From `backend/.prod.vars`
+   - `RESEND_API_KEY` - (Optional) Only needed if you want CI to manage this secret
 
 2. Add **variables** to GitHub (Settings → Secrets and variables → Actions → Variables):
    - `DOMAIN` - Your frontend domain (e.g., `photos.example.com`)
@@ -123,15 +124,43 @@ For automatic deployments on push to `main`:
 
 ### Creating groups in production
 
+**Note:** Email must be configured before creating groups. See "Email setup" below.
+
 ```bash
 nix run .#create-group -- "Family Photos" "Tom" "tom@example.com" --prod
 ```
 
-The magic link will be output. Since email isn't configured yet, you can also view magic links in Worker logs:
+The magic link will be sent to the email address provided.
 
-```bash
-wrangler tail --config backend/wrangler.prod.toml
-```
+### Email setup (Resend)
+
+Email is required for magic link authentication. We use [Resend](https://resend.com) (3,000 emails/month free).
+
+1. **Sign up** at https://resend.com
+
+2. **Add your domain**:
+   - Go to Resend dashboard → Domains → Add Domain
+   - Enter your domain (e.g., `example.com`)
+   - Follow the automated flow to add DNS records to Cloudflare
+   - Wait for verification (usually instant, can take up to 48h)
+
+3. **Create API key**:
+   - Go to Resend dashboard → API Keys → Create API Key
+   - Give it a name and "Sending access" permission
+   - Copy the key (you won't see it again)
+
+4. **Add to production**:
+   ```bash
+   # Add to your local .prod.vars
+   echo 'RESEND_API_KEY="re_xxxxx"' >> backend/.prod.vars
+
+   # Deploy the secret to Cloudflare (persists across deploys)
+   echo "re_xxxxx" | wrangler secret put RESEND_API_KEY --config backend/wrangler.prod.toml
+   ```
+
+5. **Test**: Create a group with your real email address and verify the invite email arrives.
+
+Emails are sent from `noreply@your-domain.com` (configured automatically from your `DOMAIN` setting).
 
 ## Architecture
 

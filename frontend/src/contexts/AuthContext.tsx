@@ -102,7 +102,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: data.user,
         currentGroup: data.currentGroup,
         groups: data.groups,
-        needsGroupSelection: data.needsGroupSelection || (!data.currentGroup && data.groups.length > 0),
+        needsGroupSelection:
+          data.needsGroupSelection || (!data.currentGroup && data.groups.length > 0),
       });
     } catch (error) {
       console.error('Refresh error:', error);
@@ -155,16 +156,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [authState.user]
   );
 
-  const onGroupDeleted = useCallback((deletedGroupId: string) => {
-    const remainingGroups = authState.groups.filter((g) => g.id !== deletedGroupId);
-    localStorage.removeItem('accessToken');
-    setAuthState({
-      user: authState.user,
-      currentGroup: null,
-      groups: remainingGroups,
-      needsGroupSelection: remainingGroups.length > 0,
-    });
-  }, [authState.groups, authState.user]);
+  const onGroupDeleted = useCallback(
+    (deletedGroupId: string) => {
+      const remainingGroups = authState.groups.filter((g) => g.id !== deletedGroupId);
+      localStorage.removeItem('accessToken');
+      setAuthState({
+        user: authState.user,
+        currentGroup: null,
+        groups: remainingGroups,
+        needsGroupSelection: remainingGroups.length > 0,
+      });
+    },
+    [authState.groups, authState.user]
+  );
 
   useEffect(() => {
     const initAuth = async () => {

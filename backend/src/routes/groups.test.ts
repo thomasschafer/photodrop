@@ -171,9 +171,7 @@ describe('DELETE /groups/:groupId', () => {
       owner_id: 'owner-user',
       created_at: 1000,
     });
-    mockGetGroupPhotoKeys.mockResolvedValue([
-      { r2_key: 'photos/abc.jpg', thumbnail_r2_key: null },
-    ]);
+    mockGetGroupPhotoKeys.mockResolvedValue([{ r2_key: 'photos/abc.jpg', thumbnail_r2_key: null }]);
     mockR2Delete.mockRejectedValue(new Error('R2 error'));
     mockDeleteGroup.mockResolvedValue(true);
 

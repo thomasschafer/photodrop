@@ -42,6 +42,15 @@ for var in "${REQUIRED_VARS[@]}"; do
     fi
 done
 
+# For local deploys, require RESEND_API_KEY (email is required for the app to work)
+if [ -f .prod.vars ] && [ -z "${RESEND_API_KEY:-}" ]; then
+    echo "Error: RESEND_API_KEY is not set in .prod.vars"
+    echo ""
+    echo "Email is required for magic link authentication."
+    echo "See README.md → 'Email setup (Resend)'"
+    exit 1
+fi
+
 echo "Configuration loaded"
 echo "  Frontend: https://$DOMAIN"
 echo "  API:      https://$API_DOMAIN"
@@ -58,6 +67,7 @@ compatibility_date = "2025-01-04"
 [vars]
 FRONTEND_URL = "https://$DOMAIN"
 ENVIRONMENT = "production"
+EMAIL_FROM = "photodrop <noreply@$DOMAIN>"
 
 [[d1_databases]]
 binding = "DB"
@@ -117,6 +127,14 @@ if [ ! -f .prod.vars ]; then
     if ! echo "$VAPID_PRIVATE_KEY" | npx --yes wrangler secret put VAPID_PRIVATE_KEY --config wrangler.prod.toml; then
         echo "Error: Failed to set VAPID_PRIVATE_KEY"
         exit 1
+    fi
+
+    # RESEND_API_KEY is optional - only set if provided
+    if [ -n "${RESEND_API_KEY:-}" ]; then
+        if ! echo "$RESEND_API_KEY" | npx --yes wrangler secret put RESEND_API_KEY --config wrangler.prod.toml; then
+            echo "Error: Failed to set RESEND_API_KEY"
+            exit 1
+        fi
     fi
 
     echo "Worker secrets configured"

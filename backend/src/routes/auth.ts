@@ -16,15 +16,7 @@ import { generateAccessToken, generateRefreshToken, verifyJWT } from '../lib/jwt
 import { verifyMagicLink } from '../lib/magic-links';
 import { sendInviteEmail, sendLoginLinkEmail } from '../lib/email';
 import { requireAuth, requireAdmin } from '../middleware/auth';
-
-type Bindings = {
-  DB: D1Database;
-  PHOTOS: R2Bucket;
-  JWT_SECRET: string;
-  VAPID_PUBLIC_KEY: string;
-  VAPID_PRIVATE_KEY: string;
-  FRONTEND_URL: string;
-};
+import type { Bindings } from '../types';
 
 type Variables = {
   user: {
@@ -79,7 +71,7 @@ auth.post('/send-invite', requireAdmin, async (c) => {
 
     // Send invite email (use existing user's name or email for greeting)
     const recipientName = existingUser?.name || email.split('@')[0];
-    await sendInviteEmail(email, recipientName, group.name, magicLink);
+    await sendInviteEmail(c.env, email, recipientName, group.name, magicLink);
 
     return c.json({
       message: existingUser ? 'User added to group' : 'Invite sent successfully',
@@ -124,7 +116,7 @@ auth.post('/send-login-link', async (c) => {
     const magicLink = `${c.env.FRONTEND_URL}/auth/${token}`;
 
     // Send login email
-    await sendLoginLinkEmail(email, user.name, magicLink);
+    await sendLoginLinkEmail(c.env, email, user.name, magicLink);
 
     return c.json({ message: 'If that email exists, a login link has been sent' });
   } catch (error) {

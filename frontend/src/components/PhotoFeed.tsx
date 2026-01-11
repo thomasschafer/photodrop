@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, API_BASE_URL } from '../lib/api';
+import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection } from '../lib/keyboard';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
@@ -31,6 +32,8 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const token = useAuthToken();
+  const [uploadButtonRef, restoreUploadFocus] = useFocusRestore<HTMLButtonElement>();
+  const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
   const navigate = useNavigate();
   const { photoId } = useParams<{ photoId: string }>();
@@ -136,9 +139,24 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
   const handleUploadComplete = () => {
     setShowUploadModal(false);
+    restoreUploadFocus();
     loadPhotos();
     setSuccessMessage('Photo uploaded successfully');
     setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const handleUploadModalClose = () => {
+    setShowUploadModal(false);
+    restoreUploadFocus();
+  };
+
+  const handleDeleteCancel = () => {
+    const photoIdToFocus = confirmDelete;
+    setConfirmDelete(null);
+    setDeleteError(null);
+    if (photoIdToFocus) {
+      deleteButtonRefs.current.get(photoIdToFocus)?.focus();
+    }
   };
 
   const formatDate = (timestamp: number) => {
@@ -188,6 +206,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           </p>
           {isAdmin && (
             <button
+              ref={uploadButtonRef}
               onClick={() => setShowUploadModal(true)}
               className="btn-primary"
             >
@@ -196,7 +215,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           )}
         </div>
         {showUploadModal && (
-          <Modal title="Upload photo" onClose={() => setShowUploadModal(false)} maxWidth="md">
+          <Modal title="Upload photo" onClose={handleUploadModalClose} maxWidth="md">
             <PhotoUpload isModal onUploadComplete={handleUploadComplete} />
           </Modal>
         )}
@@ -210,10 +229,18 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
         {isAdmin && (
           <div className="flex justify-end mb-4">
             <button
+              ref={uploadButtonRef}
               onClick={() => setShowUploadModal(true)}
               className="btn-primary-sm flex items-center gap-2"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="17 8 12 3 7 8" />
                 <line x1="12" y1="3" x2="12" y2="15" />
@@ -257,6 +284,13 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                   <p className="text-xs text-text-muted">{formatDate(photo.uploadedAt)}</p>
                   {isAdmin && (
                     <button
+                      ref={(el) => {
+                        if (el) {
+                          deleteButtonRefs.current.set(photo.id, el);
+                        } else {
+                          deleteButtonRefs.current.delete(photo.id);
+                        }
+                      }}
                       onClick={(e) => handleDeleteClick(photo.id, e)}
                       disabled={deleting === photo.id}
                       className={`text-xs text-error bg-transparent border-none py-1 px-2 rounded transition-colors ${
@@ -299,15 +333,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           variant="danger"
           isLoading={deleting === confirmDelete}
           onConfirm={handleDeleteConfirm}
-          onCancel={() => {
-            setConfirmDelete(null);
-            setDeleteError(null);
-          }}
+          onCancel={handleDeleteCancel}
         />
       )}
 
       {showUploadModal && (
-        <Modal title="Upload photo" onClose={() => setShowUploadModal(false)} maxWidth="md">
+        <Modal title="Upload photo" onClose={handleUploadModalClose} maxWidth="md">
           <PhotoUpload isModal onUploadComplete={handleUploadComplete} />
         </Modal>
       )}
