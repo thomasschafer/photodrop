@@ -38,13 +38,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, newTheme);
   }, []);
 
-  // Apply theme class to document
+  // Apply theme class to document and update meta theme-color
   useEffect(() => {
     const root = document.documentElement;
     if (resolvedTheme === 'dark') {
       root.classList.add('dark');
     } else {
       root.classList.remove('dark');
+    }
+
+    // Update meta theme-color to match header background
+    const themeColor = resolvedTheme === 'dark' ? '#252320' : '#faf7f4';
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute('content', themeColor);
     }
   }, [resolvedTheme]);
 

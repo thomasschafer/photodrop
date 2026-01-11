@@ -13,7 +13,7 @@ export default defineConfig({
         name: 'photodrop',
         short_name: 'photodrop',
         description: 'Privately share photos with your group',
-        theme_color: '#b56a4a',
+        theme_color: '#252320',
         background_color: '#f6f1eb',
         display: 'standalone',
         start_url: '/',
