@@ -596,13 +596,12 @@ The setup script prompts for configuration and automates resource creation:
 
 **Testing:**
 
-- [ ] Test locally: verify mock mode still logs to console
+- [x] Test locally: verify mock mode still logs to console
 - [x] Test in production:
   - Create a test group with your real email
   - Verify invite email arrives
   - Verify login link email arrives
   - Check Resend dashboard for delivery status
-- [ ] Test error handling: verify graceful failure if Resend is down
 
 **Verification checklist:**
 
@@ -757,6 +756,7 @@ The setup script prompts for configuration and automates resource creation:
 - [x] Admin photo deletion UI
 - [x] Admin user management UI (role promotion, user removal) - moved to Phase 1.7
 - [x] Keyboard navigation (lightbox, group switcher, theme toggle, photo feed)
+- [ ] Improve production setup and deployment flow - automate or improve things further
 - [ ] Reactions UI (backend API already exists)
 - [ ] Comments
 - [ ] Photo view tracking UI for admins (backend API already exists)

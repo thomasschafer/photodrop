@@ -69,9 +69,7 @@ auth.post('/send-invite', requireAdmin, async (c) => {
     // Generate magic link URL
     const magicLink = `${c.env.FRONTEND_URL}/auth/${token}`;
 
-    // Send invite email (use existing user's name or email for greeting)
-    const recipientName = existingUser?.name || email.split('@')[0];
-    await sendInviteEmail(c.env, email, recipientName, group.name, magicLink);
+    await sendInviteEmail(c.env, email, existingUser?.name ?? null, group.name, magicLink);
 
     return c.json({
       message: existingUser ? 'User added to group' : 'Invite sent successfully',

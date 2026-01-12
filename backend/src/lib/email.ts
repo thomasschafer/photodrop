@@ -46,11 +46,12 @@ const EMAIL_STYLES = `
 export async function sendInviteEmail(
   env: EmailEnv,
   toEmail: string,
-  toName: string,
+  toName: string | null,
   groupName: string,
   magicLink: string
 ): Promise<void> {
-  const safeName = escapeHtml(toName);
+  const safeName = toName !== null ? escapeHtml(toName) : null;
+  const greeting = `Hi${safeName ? ' ' + safeName : ''}!`;
   const safeGroupName = escapeHtml(groupName);
   const subject = `You've been invited to join ${groupName}!`;
 
@@ -63,8 +64,7 @@ export async function sendInviteEmail(
     </head>
     <body>
       <div class="container">
-        <h1>Welcome to photodrop!</h1>
-        <p>Hi ${safeName}!</p>
+        <p>${greeting}</p>
         <p>You've been invited to join <strong>${safeGroupName}</strong> on photodrop - a private photo sharing app.</p>
         <p>Click the button below to accept your invite and get started. This link will expire in 15 minutes.</p>
         <p>
@@ -81,7 +81,7 @@ export async function sendInviteEmail(
   `;
 
   const text = `
-Hi ${toName}!
+${greeting}
 
 You've been invited to join ${groupName} on photodrop - a private photo sharing app.
 
@@ -115,7 +115,6 @@ export async function sendLoginLinkEmail(
     </head>
     <body>
       <div class="container">
-        <h1>Log in to photodrop</h1>
         <p>Hi ${safeName}!</p>
         <p>Click the button below to log in to photodrop. This link will expire in 15 minutes.</p>
         <p>

@@ -143,8 +143,8 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
       )}
       <div className="bg-accent/10 border-b border-accent/20">
         <div className="max-w-[900px] mx-auto px-6 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1 min-w-0">
+          <div className="flex flex-col mobile:flex-row mobile:items-center mobile:justify-between gap-3 mobile:gap-4">
+            <div className="min-w-0">
               <p className="text-sm text-text-primary">
                 <span className="font-medium">Install photodrop</span>
                 <span className="text-text-secondary"> for easy access and notifications</span>
