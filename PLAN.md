@@ -689,11 +689,11 @@ E2E tests (Playwright) - `e2e/notifications.spec.ts`:
 
 Manual testing checklist:
 - [ ] iOS Safari: Bell appears, permission prompt works, notification received
-- [ ] Android Chrome: Bell appears, permission prompt works, notification received
-- [ ] Desktop Chrome/Edge: Bell appears, permission prompt works, notification received
+- [x] Android Chrome: Bell appears, permission prompt works, notification received
+- [x] Desktop Chrome/Edge: Bell appears, permission prompt works, notification received
 - [ ] macOS Safari: Bell appears, permission prompt works, notification received
-- [ ] Notification click opens app to correct photo
-- [ ] Multiple devices can subscribe independently
+- [x] Notification click opens app to correct photo
+- [x] Multiple devices can subscribe independently
 - [ ] Unsubscribing on one device doesn't affect other devices
 
 #### Phase 2.4: Offline caching

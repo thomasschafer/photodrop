@@ -89,10 +89,10 @@ if [ ! -d "node_modules" ]; then
     npm ci
 fi
 
-# Run backend tests
-echo "Running backend tests..."
-npm run test:run
-echo "Tests passed"
+# Build backend to catch type errors
+echo "Building backend..."
+npm run build
+echo "Build passed"
 echo ""
 
 # Apply database migrations

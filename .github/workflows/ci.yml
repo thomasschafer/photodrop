@@ -1,4 +1,4 @@
-name: Deploy
+name: CI
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to production
+    name: Build, test and deploy
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -21,6 +21,12 @@ jobs:
 
       - name: Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@v13
+
+      - name: Build
+        run: nix run .#build
+
+      - name: Test
+        run: nix run .#test
 
       - name: Deploy to production
         run: nix run .#deploy
