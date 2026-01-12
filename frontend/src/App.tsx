@@ -9,6 +9,8 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { GroupSwitcher } from './components/GroupSwitcher';
 import { InstallPrompt, InstallButton } from './components/InstallPrompt';
 import { MobileMenu } from './components/MobileMenu';
+import { NotificationBell } from './components/NotificationBell';
+import { NotificationPrompt } from './components/NotificationPrompt';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
@@ -84,6 +86,7 @@ function MainApp() {
             <div className="flex items-center gap-4">
               <div className="hidden mobile:flex items-center gap-4">
                 <InstallButton />
+                <NotificationBell />
                 <ThemeToggle />
                 <span className="text-sm text-text-secondary">{user.name}</span>
                 <button
@@ -96,6 +99,7 @@ function MainApp() {
 
               <div className="mobile:hidden flex items-center gap-2">
                 <InstallButton />
+                <NotificationBell />
                 <MobileMenu />
               </div>
             </div>
@@ -129,6 +133,7 @@ function MainApp() {
       </header>
 
       <InstallPrompt />
+      <NotificationPrompt />
 
       <main id="main-content" className="max-w-[900px] mx-auto py-8 px-6">
         <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-label={`${activeTab} content`}>

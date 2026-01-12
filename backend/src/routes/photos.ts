@@ -9,15 +9,22 @@ import {
   addPhotoReaction,
   removePhotoReaction,
   getPhotoReactions,
+  getGroupPushSubscriptions,
+  getGroup,
+  getUserById,
   type MembershipRole,
 } from '../lib/db';
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
+import { configureVapid, sendPushNotifications } from '../lib/push';
 
 type Bindings = {
   DB: D1Database;
   PHOTOS: R2Bucket;
   JWT_SECRET: string;
+  VAPID_PUBLIC_KEY: string;
+  VAPID_PRIVATE_KEY: string;
+  FRONTEND_URL: string;
 };
 
 type Variables = {
@@ -102,6 +109,52 @@ photos.post('/', requireAdmin, async (c) => {
       currentUser.id,
       caption || undefined
     );
+
+    // Send push notifications to all subscribed users in the group (except uploader)
+    if (c.env.VAPID_PUBLIC_KEY && c.env.VAPID_PRIVATE_KEY) {
+      try {
+        configureVapid(
+          c.env.VAPID_PUBLIC_KEY,
+          c.env.VAPID_PRIVATE_KEY,
+          `mailto:noreply@${new URL(c.env.FRONTEND_URL || 'http://localhost').hostname}`
+        );
+
+        const subscriptions = await getGroupPushSubscriptions(
+          c.env.DB,
+          currentUser.groupId,
+          currentUser.id
+        );
+
+        if (subscriptions.length > 0) {
+          const [group, uploader] = await Promise.all([
+            getGroup(c.env.DB, currentUser.groupId),
+            getUserById(c.env.DB, currentUser.id),
+          ]);
+
+          const groupName = group?.name || 'your group';
+          const uploaderName = uploader?.name || 'Someone';
+
+          await sendPushNotifications(
+            subscriptions,
+            {
+              title: `New photo in ${groupName}`,
+              body: caption || `${uploaderName} shared a new photo`,
+              data: {
+                url: `${c.env.FRONTEND_URL || ''}/photo/${photoId}`,
+                groupId: currentUser.groupId,
+                photoId,
+              },
+            },
+            c.env.DB
+          );
+        }
+      } catch (pushError) {
+        // Log but don't fail the upload if notifications fail
+        console.error('Failed to send push notifications:', pushError);
+      }
+    } else {
+      console.warn('Found missing VAPID_PUBLIC_KEY or VAPID_PRIVATE_KEY so skipping notifications');
+    }
 
     return c.json(
       {

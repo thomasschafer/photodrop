@@ -281,6 +281,34 @@ export const api = {
       return response.json();
     },
   },
+
+  push: {
+    getVapidPublicKey: async (): Promise<{ publicKey: string }> => {
+      const response = await fetchWithAuth('/push/vapid-public-key', {}, false);
+      return response.json();
+    },
+
+    subscribe: async (subscription: PushSubscriptionJSON) => {
+      const response = await fetchWithAuth('/push/subscribe', {
+        method: 'POST',
+        body: JSON.stringify(subscription),
+      });
+      return response.json();
+    },
+
+    unsubscribe: async (endpoint: string) => {
+      const response = await fetchWithAuth('/push/subscribe', {
+        method: 'DELETE',
+        body: JSON.stringify({ endpoint }),
+      });
+      return response.json();
+    },
+
+    getStatus: async (endpoint: string): Promise<{ subscribed: boolean }> => {
+      const response = await fetchWithAuth(`/push/status?endpoint=${encodeURIComponent(endpoint)}`);
+      return response.json();
+    },
+  },
 };
 
 export { ApiError };

@@ -8,6 +8,12 @@ import {
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
+  createPushSubscription,
+  getPushSubscription,
+  getUserPushSubscriptionsForGroup,
+  getGroupPushSubscriptions,
+  deletePushSubscription,
+  deletePushSubscriptionForGroup,
 } from './db';
 
 function createMockDb(results: unknown[] = [], error?: Error) {
@@ -403,6 +409,238 @@ describe('Group deletion functions', () => {
       expect(result).toBe(true);
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith('DELETE FROM groups WHERE id = ?');
       expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+});
+
+describe('Push subscription functions', () => {
+  describe('createPushSubscription', () => {
+    it('creates new subscription', async () => {
+      const db = createMockDb([]);
+
+      const result = await createPushSubscription(
+        db,
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc',
+        'p256dh-key',
+        'auth-key'
+      );
+
+      expect(result).toBeTruthy();
+      expect(db._mocks.mockPrepare).toHaveBeenCalled();
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        expect.any(String), // id
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc',
+        'p256dh-key',
+        'auth-key',
+        expect.any(Number) // created_at
+      );
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+
+    it('upserts on duplicate endpoint', async () => {
+      const db = createMockDb([]);
+
+      await createPushSubscription(
+        db,
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc',
+        'new-p256dh',
+        'new-auth'
+      );
+
+      // Verify the SQL includes ON CONFLICT DO UPDATE
+      const prepareCall = db._mocks.mockPrepare.mock.calls[0][0];
+      expect(prepareCall).toContain('ON CONFLICT');
+      expect(prepareCall).toContain('DO UPDATE');
+    });
+  });
+
+  describe('getPushSubscription', () => {
+    it('returns subscription for user+group+endpoint', async () => {
+      const subscription = {
+        id: 'sub-1',
+        user_id: 'user-1',
+        group_id: 'group-1',
+        endpoint: 'https://push.example.com/abc',
+        p256dh: 'p256dh-key',
+        auth: 'auth-key',
+        created_at: 1000,
+      };
+      const db = createMockDb([subscription]);
+
+      const result = await getPushSubscription(
+        db,
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc'
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('sub-1');
+      expect(result?.endpoint).toBe('https://push.example.com/abc');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc'
+      );
+    });
+
+    it('returns null for non-existent subscription', async () => {
+      const db = createMockDb([]);
+
+      const result = await getPushSubscription(
+        db,
+        'user-1',
+        'group-1',
+        'https://push.example.com/nonexistent'
+      );
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getUserPushSubscriptionsForGroup', () => {
+    it('returns all subscriptions for user in group', async () => {
+      const subscriptions = [
+        {
+          id: 'sub-1',
+          user_id: 'user-1',
+          group_id: 'group-1',
+          endpoint: 'https://push.example.com/device1',
+          p256dh: 'key1',
+          auth: 'auth1',
+          created_at: 1000,
+        },
+        {
+          id: 'sub-2',
+          user_id: 'user-1',
+          group_id: 'group-1',
+          endpoint: 'https://push.example.com/device2',
+          p256dh: 'key2',
+          auth: 'auth2',
+          created_at: 2000,
+        },
+      ];
+      const db = createMockDb(subscriptions);
+
+      const result = await getUserPushSubscriptionsForGroup(db, 'user-1', 'group-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].endpoint).toBe('https://push.example.com/device1');
+      expect(result[1].endpoint).toBe('https://push.example.com/device2');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
+    });
+
+    it('returns empty array when none exist', async () => {
+      const db = createMockDb([]);
+
+      const result = await getUserPushSubscriptionsForGroup(db, 'user-1', 'group-1');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getGroupPushSubscriptions', () => {
+    it('returns all subscriptions for group', async () => {
+      const subscriptions = [
+        {
+          id: 'sub-1',
+          user_id: 'user-1',
+          group_id: 'group-1',
+          endpoint: 'https://push.example.com/user1',
+          p256dh: 'key1',
+          auth: 'auth1',
+          created_at: 1000,
+        },
+        {
+          id: 'sub-2',
+          user_id: 'user-2',
+          group_id: 'group-1',
+          endpoint: 'https://push.example.com/user2',
+          p256dh: 'key2',
+          auth: 'auth2',
+          created_at: 2000,
+        },
+      ];
+      const db = createMockDb(subscriptions);
+
+      const result = await getGroupPushSubscriptions(db, 'group-1');
+
+      expect(result).toHaveLength(2);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1');
+    });
+
+    it('excludes specified user when excludeUserId provided', async () => {
+      const subscriptions = [
+        {
+          id: 'sub-2',
+          user_id: 'user-2',
+          group_id: 'group-1',
+          endpoint: 'https://push.example.com/user2',
+          p256dh: 'key2',
+          auth: 'auth2',
+          created_at: 2000,
+        },
+      ];
+      const db = createMockDb(subscriptions);
+
+      const result = await getGroupPushSubscriptions(db, 'group-1', 'user-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].user_id).toBe('user-2');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1', 'user-1');
+    });
+
+    it('returns empty array for group with no subscriptions', async () => {
+      const db = createMockDb([]);
+
+      const result = await getGroupPushSubscriptions(db, 'group-empty');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('deletePushSubscription', () => {
+    it('removes subscription by endpoint', async () => {
+      const db = createMockDb([]);
+
+      const result = await deletePushSubscription(db, 'https://push.example.com/abc');
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM push_subscriptions WHERE endpoint = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('https://push.example.com/abc');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+
+  describe('deletePushSubscriptionForGroup', () => {
+    it('removes subscription for specific user+group+endpoint', async () => {
+      const db = createMockDb([]);
+
+      const result = await deletePushSubscriptionForGroup(
+        db,
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc'
+      );
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM push_subscriptions WHERE user_id = ? AND group_id = ? AND endpoint = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc'
+      );
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
   });

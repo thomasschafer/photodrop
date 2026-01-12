@@ -62,6 +62,7 @@ cat > wrangler.prod.toml << EOF
 name = "photodrop-api"
 main = "src/index.ts"
 compatibility_date = "2025-01-04"
+compatibility_flags = ["nodejs_compat"]
 
 # Environment variables (non-secret)
 [vars]

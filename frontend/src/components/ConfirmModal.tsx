@@ -9,6 +9,8 @@ interface ConfirmModalProps {
   variant?: 'default' | 'danger';
   confirmDisabled?: boolean;
   children?: React.ReactNode;
+  showDontAskAgain?: boolean;
+  onDontAskAgain?: () => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -22,6 +24,8 @@ export function ConfirmModal({
   variant = 'default',
   confirmDisabled = false,
   children,
+  showDontAskAgain = false,
+  onDontAskAgain,
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
@@ -92,23 +96,36 @@ export function ConfirmModal({
         </h3>
         <div className="text-sm text-text-secondary mb-4">{message}</div>
         {children && <div className="mb-4">{children}</div>}
-        <div className="flex items-center justify-end gap-3">
-          <button
-            ref={cancelButtonRef}
-            onClick={onCancel}
-            disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {cancelLabel}
-          </button>
-          <button
-            ref={confirmButtonRef}
-            onClick={onConfirm}
-            disabled={isLoading || confirmDisabled}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 cursor-pointer ${confirmButtonClasses}`}
-          >
-            {isLoading ? <span className="spinner spinner-sm" /> : confirmLabel}
-          </button>
+        <div className="flex items-center justify-between gap-3">
+          {showDontAskAgain && onDontAskAgain ? (
+            <button
+              onClick={onDontAskAgain}
+              disabled={isLoading}
+              className="text-sm text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              Don't ask again
+            </button>
+          ) : (
+            <div />
+          )}
+          <div className="flex items-center gap-3">
+            <button
+              ref={cancelButtonRef}
+              onClick={onCancel}
+              disabled={isLoading}
+              className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {cancelLabel}
+            </button>
+            <button
+              ref={confirmButtonRef}
+              onClick={onConfirm}
+              disabled={isLoading || confirmDisabled}
+              className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 cursor-pointer ${confirmButtonClasses}`}
+            >
+              {isLoading ? <span className="spinner spinner-sm" /> : confirmLabel}
+            </button>
+          </div>
         </div>
       </div>
     </div>

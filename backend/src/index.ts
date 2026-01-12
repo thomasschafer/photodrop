@@ -4,6 +4,7 @@ import auth from './routes/auth';
 import users from './routes/users';
 import photos from './routes/photos';
 import groups from './routes/groups';
+import push from './routes/push';
 import type { Bindings } from './types';
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -37,5 +38,6 @@ app.route('/auth', auth);
 app.route('/users', users);
 app.route('/photos', photos);
 app.route('/groups', groups);
+app.route('/push', push);
 
 export default app;

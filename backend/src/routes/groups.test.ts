@@ -159,6 +159,8 @@ describe('DELETE /groups/:groupId', () => {
   });
 
   it('fails deletion if R2 delete fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
     mockVerifyJWT.mockResolvedValue({
       sub: 'owner-user',
       groupId: 'group-1',
@@ -185,6 +187,8 @@ describe('DELETE /groups/:groupId', () => {
     expect(json.error).toBe('Failed to delete some photos from storage');
     expect(json.details.failedCount).toBe(1);
     expect(mockDeleteGroup).not.toHaveBeenCalled();
+
+    consoleSpy.mockRestore();
   });
 
   it('returns 500 when database deletion fails', async () => {

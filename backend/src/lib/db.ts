@@ -460,3 +460,124 @@ export async function deleteGroup(db: D1Database, groupId: string): Promise<bool
 
   return result.success;
 }
+
+// Push subscription types and functions
+export interface PushSubscription {
+  id: string;
+  user_id: string;
+  group_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  created_at: number;
+}
+
+export async function createPushSubscription(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  endpoint: string,
+  p256dh: string,
+  auth: string
+): Promise<string> {
+  const id = generateId();
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare(
+      `INSERT INTO push_subscriptions (id, user_id, group_id, endpoint, p256dh, auth, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (endpoint) DO UPDATE SET
+         user_id = excluded.user_id,
+         group_id = excluded.group_id,
+         p256dh = excluded.p256dh,
+         auth = excluded.auth`
+    )
+    .bind(id, userId, groupId, endpoint, p256dh, auth, now)
+    .run();
+
+  return id;
+}
+
+export async function getPushSubscription(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  endpoint: string
+): Promise<PushSubscription | null> {
+  const result = await db
+    .prepare('SELECT * FROM push_subscriptions WHERE user_id = ? AND group_id = ? AND endpoint = ?')
+    .bind(userId, groupId, endpoint)
+    .first<PushSubscription>();
+
+  return result;
+}
+
+export async function getPushSubscriptionByEndpoint(
+  db: D1Database,
+  endpoint: string
+): Promise<PushSubscription | null> {
+  const result = await db
+    .prepare('SELECT * FROM push_subscriptions WHERE endpoint = ?')
+    .bind(endpoint)
+    .first<PushSubscription>();
+
+  return result;
+}
+
+export async function getUserPushSubscriptionsForGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<PushSubscription[]> {
+  const result = await db
+    .prepare('SELECT * FROM push_subscriptions WHERE user_id = ? AND group_id = ?')
+    .bind(userId, groupId)
+    .all<PushSubscription>();
+
+  return result.results || [];
+}
+
+export async function getGroupPushSubscriptions(
+  db: D1Database,
+  groupId: string,
+  excludeUserId?: string
+): Promise<PushSubscription[]> {
+  if (excludeUserId) {
+    const result = await db
+      .prepare('SELECT * FROM push_subscriptions WHERE group_id = ? AND user_id != ?')
+      .bind(groupId, excludeUserId)
+      .all<PushSubscription>();
+    return result.results || [];
+  }
+
+  const result = await db
+    .prepare('SELECT * FROM push_subscriptions WHERE group_id = ?')
+    .bind(groupId)
+    .all<PushSubscription>();
+
+  return result.results || [];
+}
+
+export async function deletePushSubscription(db: D1Database, endpoint: string): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM push_subscriptions WHERE endpoint = ?')
+    .bind(endpoint)
+    .run();
+
+  return result.success;
+}
+
+export async function deletePushSubscriptionForGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  endpoint: string
+): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND group_id = ? AND endpoint = ?')
+    .bind(userId, groupId, endpoint)
+    .run();
+
+  return result.success;
+}

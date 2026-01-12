@@ -148,6 +148,10 @@ export function cleanupTestGroup(groupId: string): void {
     `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM magic_link_tokens WHERE group_id = '${groupId}';"`,
     { stdio: 'pipe' }
   );
+  execSync(
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM push_subscriptions WHERE group_id = '${groupId}';"`,
+    { stdio: 'pipe' }
+  );
   // Delete memberships first
   execSync(
     `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM memberships WHERE group_id = '${groupId}';"`,

@@ -1,22 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { createTestGroup, cleanupTestGroup, TestGroup } from './helpers/setup';
+import { createTestGroup, cleanupTestGroup, createFreshMagicLink, TestGroup } from './helpers/setup';
 import { loginWithMagicLink, getAuthToken } from './helpers/auth';
 import { uploadPhotoViaApi, createApiClient } from './helpers/api';
-import { execSync } from 'child_process';
-import { randomBytes } from 'crypto';
-
-function createFreshMagicLink(groupId: string, email: string): string {
-  const token = randomBytes(32).toString('hex');
-  const now = Math.floor(Date.now() / 1000);
-  const expiresAt = now + 900;
-
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at) VALUES ('${token}', '${groupId}', '${email}', 'login', NULL, ${now}, ${expiresAt});"`,
-    { stdio: 'pipe' }
-  );
-
-  return `http://localhost:5173/auth/${token}`;
-}
 
 test.describe('Admin workflow', () => {
   let testGroup: TestGroup;
@@ -30,8 +15,9 @@ test.describe('Admin workflow', () => {
   });
 
   test('admin can login via magic link', async ({ page }) => {
-    // Use the initial magic link (creates user)
-    await loginWithMagicLink(page, testGroup.magicLink);
+    // Create a fresh magic link to avoid issues with stale tokens from previous runs
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
 
     // Verify we're on the main app
     await expect(page.getByRole('tab', { name: 'Photos' })).toBeVisible();

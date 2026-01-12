@@ -10,8 +10,8 @@
 - ✅ Phase 1.8 (Owner role): Complete - immutable owner role per group
 - ✅ Phase 2.1 (Install prompts): Complete - PWA setup, platform-specific install instructions
 - ✅ Phase 2.1.5 (Production deployment): Complete - deployed with CI/CD
-- 🔄 Phase 2.2 (Email delivery): Next - Resend integration for magic links
-- ❌ Phase 2.3 (Push notifications): Not started
+- ✅ Phase 2.2 (Email delivery): Complete - Resend integration for magic links
+- ✅ Phase 2.3 (Push notifications): Complete - bell UI, per-group subscriptions, tests done
 - ❌ Phase 2.4 (Offline caching): Not started
 - ❌ Phase 2.5 (Production hardening): Not started - rate limiting, CSP
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
@@ -624,7 +624,7 @@ The setup script prompts for configuration and automates resource creation:
 
 **Database changes:**
 
-- [ ] Add `push_subscriptions` table:
+- [x] Add `push_subscriptions` table:
   ```sql
   CREATE TABLE push_subscriptions (
     id TEXT PRIMARY KEY,
@@ -641,29 +641,60 @@ The setup script prompts for configuration and automates resource creation:
 
 **Backend changes:**
 
-- [ ] Add subscription endpoints:
+- [x] Add subscription endpoints:
   - `POST /push/subscribe` - Save subscription for current user+group
   - `DELETE /push/subscribe` - Remove subscription by endpoint
   - `GET /push/status` - Check if current device is subscribed
-- [ ] Add notification sending on photo upload:
+- [x] Add notification sending on photo upload:
   - After successful photo upload, fetch all subscriptions for the group (excluding uploader)
   - Send push notification with photo caption (or "New photo") and thumbnail
   - Handle failed deliveries (remove invalid subscriptions)
-- [ ] Use web-push library for sending notifications
+- [x] Use web-push library for sending notifications
 
 **Frontend changes:**
 
-- [ ] Create `NotificationBell` component:
+- [x] Create `NotificationBell` component:
   - Check notification permission state and subscription status
   - Three states: subscribed (filled bell), not subscribed (outline bell), unsupported (hidden)
   - On click when not subscribed: request permission → if granted, call subscribe API
   - On click when subscribed: show ConfirmModal → if confirmed, call unsubscribe API
-- [ ] Add custom service worker for push events:
+- [x] Add custom service worker for push events:
   - Current PWA uses vite-plugin-pwa's auto-generated SW (basic caching only)
   - Need to add `src/sw.ts` with push event handler using `injectManifest` mode
   - Display notification with photo info
   - On notification click, open app to the group's photo feed
-- [ ] Add VAPID public key to frontend config
+- [x] Add VAPID public key to frontend config (fetched from backend API)
+
+**Testing:**
+
+Unit tests (Vitest) - `backend/src/lib/db.test.ts`:
+- [x] `createPushSubscription()` creates new subscription
+- [x] `createPushSubscription()` upserts on duplicate endpoint
+- [x] `getPushSubscription()` returns subscription for user+group+endpoint
+- [x] `getPushSubscription()` returns null for non-existent subscription
+- [x] `getUserPushSubscriptionsForGroup()` returns all subscriptions for user in group
+- [x] `getUserPushSubscriptionsForGroup()` returns empty array when none exist
+- [x] `getGroupPushSubscriptions()` returns all subscriptions for group
+- [x] `getGroupPushSubscriptions()` excludes specified user when excludeUserId provided
+- [x] `deletePushSubscription()` removes subscription by endpoint
+- [x] `deletePushSubscriptionForGroup()` removes subscription for specific user+group+endpoint
+
+E2E tests (Playwright) - `e2e/notifications.spec.ts`:
+- [x] NotificationBell is visible in header when logged in
+- [x] NotificationBell shows blocked state when permission denied
+- [x] Clicking bell when unsubscribed calls subscribe API
+- [x] Clicking bell when subscribed shows confirmation modal
+- [x] Confirming unsubscribe calls unsubscribe API
+- [x] Subscription is per-group (subscribe in group A, switch to group B → shows unsubscribed)
+
+Manual testing checklist:
+- [ ] iOS Safari: Bell appears, permission prompt works, notification received
+- [ ] Android Chrome: Bell appears, permission prompt works, notification received
+- [ ] Desktop Chrome/Edge: Bell appears, permission prompt works, notification received
+- [ ] macOS Safari: Bell appears, permission prompt works, notification received
+- [ ] Notification click opens app to correct photo
+- [ ] Multiple devices can subscribe independently
+- [ ] Unsubscribing on one device doesn't affect other devices
 
 #### Phase 2.4: Offline caching
 
@@ -779,6 +810,8 @@ The setup script prompts for configuration and automates resource creation:
 **Nice-to-haves:** Batch upload, albums, ownership transfer (allow owner to transfer ownership to another member)
 
 **Technical:** Progressive image loading, CDN optimization, accessibility improvements
+
+**Local dev:** Notifications working locally
 
 **Note:** Reactions and photo view tracking have backend API support but no frontend UI yet. These are planned for Phase 3.
 

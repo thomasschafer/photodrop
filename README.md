@@ -16,6 +16,8 @@ nix run .#dev
 
 Visit http://localhost:5173. No Cloudflare account needed - D1 and R2 are simulated locally.
 
+**Note:** Push notifications don't work in local development yet (although we could change this in future).
+
 ### Creating a group
 
 Groups are created via CLI (there's no public signup):
