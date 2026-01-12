@@ -175,9 +175,11 @@ function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/:token" element={<AuthVerifyPage />} />
-      <Route path="/" element={<MainApp />} />
-      <Route path="/photo/:photoId" element={<MainApp />} />
-      <Route path="/members" element={<MainApp />} />
+      <Route path="/" element={<MainApp />}>
+        <Route index element={null} />
+        <Route path="photo/:photoId" element={null} />
+        <Route path="members" element={null} />
+      </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
