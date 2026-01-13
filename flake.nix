@@ -174,6 +174,13 @@
           export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
           set -e
 
+          echo "Type-checking backend..."
+          cd backend
+          npm ci
+          npm run build
+          cd ..
+
+          echo ""
           echo "Building frontend..."
           cd frontend
           npm ci
