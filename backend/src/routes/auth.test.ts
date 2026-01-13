@@ -92,7 +92,7 @@ describe('switch-group endpoint', () => {
     });
 
     expect(res.status).toBe(403);
-    const json = await res.json();
+    const json = (await res.json()) as { error: string };
     expect(json.error).toBe('You are not a member of this group');
   });
 
@@ -131,7 +131,7 @@ describe('switch-group endpoint', () => {
       'secret'
     );
 
-    const json = await res.json();
+    const json = (await res.json()) as { currentGroup: { id: string }; accessToken: string };
     expect(json.currentGroup.id).toBe(targetGroupId);
     expect(json.accessToken).toBe('mock-access-token');
   });
@@ -144,7 +144,7 @@ describe('switch-group endpoint', () => {
     });
 
     expect(res.status).toBe(400);
-    const json = await res.json();
+    const json = (await res.json()) as { error: string };
     expect(json.error).toBe('Group ID is required');
   });
 
@@ -164,7 +164,7 @@ describe('switch-group endpoint', () => {
     });
 
     expect(res.status).toBe(404);
-    const json = await res.json();
+    const json = (await res.json()) as { error: string };
     expect(json.error).toBe('Group not found');
   });
 });

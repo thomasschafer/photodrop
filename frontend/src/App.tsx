@@ -11,6 +11,7 @@ import { InstallPrompt, InstallButton } from './components/InstallPrompt';
 import { MobileMenu } from './components/MobileMenu';
 import { NotificationBell } from './components/NotificationBell';
 import { NotificationPrompt } from './components/NotificationPrompt';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
@@ -132,6 +133,7 @@ function MainApp() {
         </div>
       </header>
 
+      <OfflineIndicator />
       <InstallPrompt />
       <NotificationPrompt />
 

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { api } from '../lib/api';
+import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
 import type { MembershipRole } from '../lib/roles';
 
 interface User {
@@ -87,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         groups: [],
         needsGroupSelection: false,
       });
+      clearAllUserCaches();
     }
   }, []);
 
@@ -127,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         groups: data.groups,
         needsGroupSelection: false,
       });
+      clearGroupCaches();
     } catch (error) {
       console.error('Switch group error:', error);
       throw error;
@@ -148,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           groups: data.groups,
           needsGroupSelection: false,
         });
+        clearGroupCaches();
       } catch (error) {
         console.error('Select group error:', error);
         throw error;
