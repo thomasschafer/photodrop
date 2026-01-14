@@ -1,0 +1,20 @@
+[x] on keyboard nav:
+* popup now gets hidden at bottom, when it reaches the end of list item in the feed
+* when hitting escape when emoji menu is open, focus goes back to button, which is great! But this doesn't happen when hitting enter/space to select, please fix
+* when lightbox is open and reactions menu is open, escape should close menu, but instead it closes photo
+[x] rather than the selected reaction having a white border, very similar to the focus appearance, can you just change the background colour? e.g. like we do with theme dropdown
+[x] when you tab out of the theme or group pickers, they close - this doesn't happen for reaction popup
+[x] This wasn't fixed:
+* when lightbox is open and reactions menu is open, escape should close menu, but instead it closes photo
+
+[ ] weird bug - changing reaction with comments open just clears comments, i.e. it says "No comments yet" even though there are some. Closing and reopening lightbox shows them again
+
+[ ] cache comments/reactions
+
+[ ] allow sorting of comments by newest or oldest, default to newest (i.e. newest at top)
+
+[ ] hover and click both work, for both adding reaction and viewing other's reactions in both photo feed and lightbox
+
+[ ] comments take up fixed height: I don't like it jumping up and down when scrolling between photos where some have few comments and others many
+
+[ ] deleting comment closes lightbox

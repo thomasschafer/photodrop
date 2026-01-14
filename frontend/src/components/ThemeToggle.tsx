@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useCallback, type JSX } from 'react';
+import { useState, type JSX } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
-import { getNavDirection, isVerticalNavKey } from '../lib/keyboard';
+import { useDropdown } from '../lib/useDropdown';
+import { isVerticalNavKey } from '../lib/keyboard';
 
 type Theme = 'system' | 'light' | 'dark';
 
@@ -60,84 +61,24 @@ const themes: { value: Theme; label: string; icon: JSX.Element }[] = [
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const currentTheme = themes.find((t) => t.value === theme) || themes[0];
+  const currentThemeIndex = themes.findIndex((t) => t.value === theme);
+  const currentTheme = themes[currentThemeIndex] || themes[0];
 
-  const focusOption = useCallback((index: number) => {
-    const clampedIndex = Math.max(0, Math.min(index, themes.length - 1));
-    optionRefs.current[clampedIndex]?.focus();
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      const currentIndex = themes.findIndex((t) => t.value === theme);
-      focusOption(currentIndex >= 0 ? currentIndex : 0);
-    }
-  }, [isOpen, theme, focusOption]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleEscape);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [isOpen]);
-
-  const handleBlur = (e: React.FocusEvent) => {
-    if (!dropdownRef.current?.contains(e.relatedTarget as Node)) {
-      setIsOpen(false);
-    }
-  };
+  const { containerRef, triggerRef, optionRefs, handleOptionKeyDown, handleBlur } = useDropdown({
+    isOpen,
+    onClose: () => setIsOpen(false),
+    itemCount: themes.length,
+    initialFocusIndex: currentThemeIndex >= 0 ? currentThemeIndex : 0,
+    horizontal: false,
+  });
 
   const handleSelect = (value: Theme) => {
-    if (value === theme) {
-      setIsOpen(false);
-      return;
+    if (value !== theme) {
+      setTheme(value);
     }
-    setTheme(value);
     setIsOpen(false);
     triggerRef.current?.focus();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
-    const direction = getNavDirection(e);
-    if (direction === 'down') {
-      e.preventDefault();
-      focusOption(index + 1);
-    } else if (direction === 'up') {
-      e.preventDefault();
-      focusOption(index - 1);
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      focusOption(0);
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      focusOption(themes.length - 1);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setIsOpen(false);
-      triggerRef.current?.focus();
-    }
   };
 
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
@@ -148,7 +89,7 @@ export function ThemeToggle() {
   };
 
   return (
-    <div ref={dropdownRef} className="relative" onBlur={handleBlur}>
+    <div ref={containerRef} className="relative" onBlur={handleBlur}>
       <button
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
@@ -176,7 +117,7 @@ export function ThemeToggle() {
               role="option"
               aria-selected={theme === t.value}
               onClick={() => handleSelect(t.value)}
-              onKeyDown={(e) => handleKeyDown(e, index)}
+              onKeyDown={(e) => handleOptionKeyDown(e, index)}
               className={`flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary ${
                 index === 0 ? 'rounded-t-lg' : ''
               } ${index === themes.length - 1 ? 'rounded-b-lg' : ''} ${

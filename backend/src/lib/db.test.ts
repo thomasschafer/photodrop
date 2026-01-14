@@ -14,6 +14,15 @@ import {
   getGroupPushSubscriptions,
   deletePushSubscription,
   deletePushSubscriptionForGroup,
+  createComment,
+  getCommentsByPhotoId,
+  getComment,
+  deleteComment,
+  getCommentCount,
+  updateUserCommentsEnabled,
+  getReactionSummary,
+  getUserReaction,
+  getPhotoReactionsWithUsers,
 } from './db';
 
 function createMockDb(results: unknown[] = [], error?: Error) {
@@ -642,6 +651,238 @@ describe('Push subscription functions', () => {
         'https://push.example.com/abc'
       );
       expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+});
+
+describe('Comment functions', () => {
+  describe('createComment', () => {
+    it('creates comment with author_name', async () => {
+      const db = createMockDb([]);
+
+      const result = await createComment(db, 'photo-1', 'user-1', 'John Doe', 'Great photo!');
+
+      expect(result).toBeTruthy();
+      expect(db._mocks.mockPrepare).toHaveBeenCalled();
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        expect.any(String), // id
+        'photo-1',
+        'user-1',
+        'John Doe',
+        'Great photo!',
+        expect.any(Number) // created_at
+      );
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+
+  describe('getCommentsByPhotoId', () => {
+    it('returns comments for photo', async () => {
+      const comments = [
+        {
+          id: 'comment-1',
+          photo_id: 'photo-1',
+          user_id: 'user-1',
+          author_name: 'John',
+          content: 'Nice!',
+          created_at: 1000,
+        },
+        {
+          id: 'comment-2',
+          photo_id: 'photo-1',
+          user_id: 'user-2',
+          author_name: 'Jane',
+          content: 'Love it!',
+          created_at: 2000,
+        },
+      ];
+      const db = createMockDb(comments);
+
+      const result = await getCommentsByPhotoId(db, 'photo-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].content).toBe('Nice!');
+      expect(result[0].author_name).toBe('John');
+      expect(result[1].content).toBe('Love it!');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
+    });
+
+    it('returns empty array when none exist', async () => {
+      const db = createMockDb([]);
+
+      const result = await getCommentsByPhotoId(db, 'photo-empty');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getComment', () => {
+    it('returns comment by id', async () => {
+      const comment = {
+        id: 'comment-1',
+        photo_id: 'photo-1',
+        user_id: 'user-1',
+        author_name: 'John',
+        content: 'Nice!',
+        created_at: 1000,
+      };
+      const db = createMockDb([comment]);
+
+      const result = await getComment(db, 'comment-1');
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('comment-1');
+      expect(result?.content).toBe('Nice!');
+    });
+
+    it('returns null for non-existent comment', async () => {
+      const db = createMockDb([]);
+
+      const result = await getComment(db, 'nonexistent');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('deleteComment', () => {
+    it('removes comment', async () => {
+      const db = createMockDb([]);
+
+      const result = await deleteComment(db, 'comment-1');
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith('DELETE FROM comments WHERE id = ?');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('comment-1');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+
+  describe('getCommentCount', () => {
+    it('returns count for photo with comments', async () => {
+      const db = createMockDb([{ count: 5 }]);
+
+      const result = await getCommentCount(db, 'photo-1');
+
+      expect(result).toBe(5);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
+    });
+
+    it('returns 0 for photo with no comments', async () => {
+      const db = createMockDb([{ count: 0 }]);
+
+      const result = await getCommentCount(db, 'photo-empty');
+
+      expect(result).toBe(0);
+    });
+  });
+});
+
+describe('User preference functions', () => {
+  describe('updateUserCommentsEnabled', () => {
+    it('updates commentsEnabled to true', async () => {
+      const db = createMockDb([]);
+
+      const result = await updateUserCommentsEnabled(db, 'user-1', true);
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(1, 'user-1');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+
+    it('updates commentsEnabled to false', async () => {
+      const db = createMockDb([]);
+
+      const result = await updateUserCommentsEnabled(db, 'user-1', false);
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(0, 'user-1');
+    });
+  });
+});
+
+describe('Reaction functions', () => {
+  describe('getReactionSummary', () => {
+    it('returns grouped reaction counts', async () => {
+      const reactions = [
+        { emoji: '❤️', count: 5 },
+        { emoji: '😂', count: 3 },
+      ];
+      const db = createMockDb(reactions);
+
+      const result = await getReactionSummary(db, 'photo-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].emoji).toBe('❤️');
+      expect(result[0].count).toBe(5);
+      expect(result[1].emoji).toBe('😂');
+      expect(result[1].count).toBe(3);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
+    });
+
+    it('returns empty array when no reactions', async () => {
+      const db = createMockDb([]);
+
+      const result = await getReactionSummary(db, 'photo-1');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getUserReaction', () => {
+    it('returns user reaction emoji', async () => {
+      const db = createMockDb([{ emoji: '❤️' }]);
+
+      const result = await getUserReaction(db, 'photo-1', 'user-1');
+
+      expect(result).toBe('❤️');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1', 'user-1');
+    });
+
+    it('returns null when user has no reaction', async () => {
+      const db = createMockDb([]);
+
+      const result = await getUserReaction(db, 'photo-1', 'user-1');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getPhotoReactionsWithUsers', () => {
+    it('returns reactions with user details', async () => {
+      const reactions = [
+        {
+          photo_id: 'photo-1',
+          user_id: 'user-1',
+          emoji: '❤️',
+          created_at: 1000,
+          user_name: 'John',
+        },
+        {
+          photo_id: 'photo-1',
+          user_id: 'user-2',
+          emoji: '😂',
+          created_at: 2000,
+          user_name: 'Jane',
+        },
+      ];
+      const db = createMockDb(reactions);
+
+      const result = await getPhotoReactionsWithUsers(db, 'photo-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].emoji).toBe('❤️');
+      expect(result[0].user_name).toBe('John');
+      expect(result[1].emoji).toBe('😂');
+      expect(result[1].user_name).toBe('Jane');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
+    });
+
+    it('returns empty array when no reactions', async () => {
+      const db = createMockDb([]);
+
+      const result = await getPhotoReactionsWithUsers(db, 'photo-1');
+
+      expect(result).toEqual([]);
     });
   });
 });

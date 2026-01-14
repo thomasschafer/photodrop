@@ -13,7 +13,9 @@
 - ✅ Phase 2.2 (Email delivery): Complete - Resend integration for magic links
 - ✅ Phase 2.3 (Push notifications): Complete - bell UI, per-group subscriptions, tests done
 - ✅ Phase 2.4 (Offline caching): Complete - service worker caching, offline indicator
-- ❌ Phase 2.5 (Production hardening): Not started - rate limiting, CSP
+- ✅ Phase 2.5 (Reactions and comments): Complete - emoji reactions, comments, privacy mode
+- ❌ Phase 2.5.1 (Profile colors): Not started - colored avatars with initials, user menu
+- ❌ Phase 2.6 (Production hardening): Not started - rate limiting, CSP
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 
@@ -281,10 +283,6 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 - [x] Update App.tsx with routing (React Router)
 - [x] Update AuthContext for email flow
 - [x] `scripts/create-group.sh` CLI script
-
-**Remaining for production:**
-- [ ] Cloudflare Email Workers setup (dashboard + DNS)
-- [ ] Implement actual email sending (MailChannels API)
 
 **Local testing:**
 ```bash
@@ -728,7 +726,258 @@ Manual testing checklist:
 - [x] Previously viewed photos display when offline
 - [x] App shell loads when offline (after initial visit)
 
-### Phase 2.5: Production hardening
+### Phase 2.5: Reactions and comments
+
+**Goal:** Allow users to engage with photos through emoji reactions and comments. Users start in "comments hidden" mode for distraction-free viewing, and can opt-in to see social interactions.
+
+#### Comments hidden mode (default)
+
+Users start with `commentsEnabled: false`:
+- **Reaction counts visible** in feed (e.g., "❤️ 3 😂 2")
+- **Cannot see who reacted** (hover/click does nothing)
+- **Comment count hidden** in feed
+- **Comments hidden** in lightbox
+- **Lightbox shows prompt**: "Comments are hidden · Show"
+- **Can still add/remove reactions** (personal interaction)
+- **Cannot add comments** until enabling
+
+When user clicks "Show":
+- Preference saved to database (`commentsEnabled: true`)
+- Applies globally to all photos in all groups
+- Syncs across devices
+- Easy toggle to hide again (button in lightbox)
+
+#### Database changes
+
+```sql
+-- Comments table (author_name denormalized to preserve after user deletion)
+CREATE TABLE comments (
+  id TEXT PRIMARY KEY,
+  photo_id TEXT NOT NULL,
+  user_id TEXT,  -- NULL when user deleted
+  author_name TEXT NOT NULL,  -- preserved when user deleted
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_comments_photo_id ON comments(photo_id);
+
+-- User preference (add column to users table)
+ALTER TABLE users ADD COLUMN comments_enabled INTEGER DEFAULT 0;
+```
+
+Note: `photo_reactions` table exists but needs schema change. Current PK is `(photo_id, user_id, emoji)` allowing multiple reactions per user. Change to `(photo_id, user_id)` for one reaction per user per photo:
+
+```sql
+-- Drop and recreate photo_reactions (one reaction per user per photo)
+DROP TABLE IF EXISTS photo_reactions;
+CREATE TABLE photo_reactions (
+  photo_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (photo_id, user_id),
+  FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_photo_reactions_photo ON photo_reactions(photo_id);
+```
+
+#### Backend changes
+
+**Reactions** (update existing):
+- [x] Update `POST /photos/:id/reactions` - Add/update reaction (emoji in body)
+- [x] Add `DELETE /photos/:id/reactions` - Remove user's reaction
+- [x] Update photo list endpoint to include reaction summary (grouped counts)
+- [x] Add `GET /photos/:id/reactions` - Get reactions with user details (for popover)
+
+**Comments** (new):
+- [x] `POST /photos/:id/comments` - Add comment (requires `commentsEnabled`)
+- [x] `GET /photos/:id/comments` - Get comments for photo
+- [x] `DELETE /photos/:id/comments/:commentId` - Delete comment (author or admin)
+- [x] Update photo list endpoint to include comment count
+
+**User preferences**:
+- [x] Update `GET /users/me` - Include `commentsEnabled` in response
+- [x] Add `PATCH /users/me/preferences` - Update own `commentsEnabled`
+- [x] Update `PATCH /groups/:groupId/members/:userId` - Admin can update member's `commentsEnabled`
+
+**Deleted user handling**:
+- [x] When user deleted, comments preserved with `user_id = NULL`
+- [x] `author_name` remains for display
+- [x] Frontend shows "(deleted) AuthorName" greyed out
+
+#### Frontend changes
+
+**Photo feed**:
+- [x] Reaction display below each photo: grouped emoji bubbles with counts
+- [x] If `commentsEnabled`: show comment count badge (💬 5)
+- [x] If `commentsEnabled`: click reactions → popover showing who reacted
+
+**Lightbox**:
+- [x] **Reaction bar**:
+  - Emoji picker (fixed set: ❤️ 😂 😮 😢 👏 🔥)
+  - Current reactions with counts
+  - User's reaction highlighted
+  - Tap to add/remove reaction
+  - If `commentsEnabled`: tap reactions → popover with names
+- [x] **Comments section**:
+  - If hidden: subtle prompt "Comments are hidden · Show"
+  - If enabled:
+    - Comment list (author, timestamp, content)
+    - Deleted user comments shown greyed with "(deleted)" prefix
+    - Comment input field
+    - "Hide comments" toggle
+- [x] Delete button on own comments (and all comments for admin)
+
+**Members list (admin)**:
+- [x] Add toggle for each member's `commentsEnabled` preference
+- [x] Shows current state, allows admin to enable/disable
+
+**Preference management**:
+- [x] Store in database (syncs across devices)
+- [x] Cache in React context for immediate UI updates
+- [x] "Show" in lightbox calls API to update preference
+
+#### UI details
+
+**Reaction picker**:
+- Small set of emojis: ❤️ 😂 😮 😢 👏 🔥
+- Tap to toggle your reaction
+- One reaction per user per photo
+
+**Reactions popover** (when `commentsEnabled`):
+- Shows grouped by emoji: "❤️ Alice, Bob, Carol"
+- Appears on hover (desktop) or tap (mobile)
+
+**Comments list**:
+- Chronological (oldest first)
+- Author name + relative timestamp ("2h ago")
+- Deleted users: "(deleted) OldName" in muted/grey text
+
+**"Comments hidden" prompt**:
+- Subtle, non-intrusive
+- Muted text at bottom of lightbox
+- "💬 Comments are hidden · Show"
+
+#### Testing
+
+**Unit tests (Vitest)**:
+- [x] `createComment()` creates comment with author_name
+- [x] `getCommentsByPhotoId()` returns comments for photo
+- [x] `getCommentsByPhotoId()` returns empty array when none exist
+- [x] `deleteComment()` removes comment
+- [x] Comments preserved when user deleted (user_id NULL, author_name intact)
+- [x] `getReactionsByPhotoId()` returns grouped reactions with user details
+- [x] `addReaction()` creates new reaction
+- [x] `addReaction()` updates existing reaction (change emoji)
+- [x] `removeReaction()` deletes user's reaction
+- [x] `updateUserPreferences()` updates `commentsEnabled`
+- [x] Admin can update another user's `commentsEnabled`
+
+**E2E tests (Playwright)**:
+- [x] User can add emoji reaction to photo
+- [x] User can change their reaction to different emoji
+- [x] User can remove their reaction
+- [x] Reaction counts appear in feed
+- [x] Default mode: comments hidden in lightbox with "Show" prompt
+- [x] Clicking "Show" enables comments globally
+- [x] When enabled: comments visible in lightbox
+- [x] User can add comment when comments enabled
+- [x] User can delete their own comment
+- [x] "Hide comments" returns to hidden mode
+- [x] Preference persists across page refresh
+- [x] Admin can toggle user's commentsEnabled in members list
+
+### Phase 2.5.1: User profile colors
+
+**Goal:** Add colored profile avatars with initials. Each user gets a random color on signup; they can change it via a menu in the header. Avatars appear in comments, reactions popovers, and member lists.
+
+#### Color palette
+
+20 colors that work in light/dark mode, fitting the warm/earthy theme:
+
+**Warm**: terracotta, coral, amber, rust, clay, copper, sienna
+**Greens**: sage, olive, forest, moss, jade
+**Cool**: slate, ocean, teal, indigo
+**Rich**: plum, wine, mauve, rose
+
+Stored as identifier string (e.g., `"sage"`) with RGB values defined in CSS.
+
+#### Database changes
+
+```sql
+-- Migration: Add profile_color column and assign random colors to existing users
+ALTER TABLE users ADD COLUMN profile_color TEXT NOT NULL DEFAULT 'terracotta';
+
+-- Randomly assign colors to existing users (run as part of migration)
+-- Each user gets one of the 20 colors randomly distributed
+```
+
+The migration assigns random colors to all existing users so the column can be NOT NULL.
+
+#### Backend changes
+
+- [ ] Add migration for `profile_color` column with random assignment for existing users
+- [ ] Define color palette constant (array of 20 color identifiers)
+- [ ] Update `createUser()` to assign random color from palette
+- [ ] Include `profileColor` in all user responses (`/users/me`, `/groups/:id/members`, comments)
+- [ ] Add `PATCH /users/me/profile` endpoint to update own color
+- [ ] Validate color is in allowed palette
+
+#### Frontend changes
+
+**New components:**
+
+- [ ] `Avatar` component (reusable):
+  - Props: `name: string`, `color: string`, `size?: 'sm' | 'md' | 'lg'`
+  - Renders colored circle with up to 2 initials
+  - Initials logic: first + last name initial (e.g., "Mary Jane Watson" → "MW")
+
+- [ ] `UserMenu` component:
+  - Renders avatar button in header (replaces username text + sign out button)
+  - Dropdown using `useDropdown` hook (reuses existing pattern from ThemeToggle/GroupSwitcher)
+  - Menu items: "Change color", "Sign out"
+  - "Change color" opens `ColorPickerModal`
+
+- [ ] `ColorPickerModal` component:
+  - Uses existing `Modal` component
+  - Grid of 20 color swatches
+  - Current color highlighted
+  - Click to select → API call → close modal
+
+**Updates:**
+
+- [ ] Replace username + sign out button in `App.tsx` header with `<UserMenu />`
+- [ ] Update `MembersList` to use `Avatar` with member's color
+- [ ] Update comments display in `PhotoFeed` to use `Avatar`
+- [ ] Update reactions popover to show avatars
+- [ ] Update `AuthContext` User type to include `profileColor`
+- [ ] Update `MobileMenu` to use avatar and include color picker access
+
+#### CSS changes
+
+- [ ] Add profile color CSS variables to `index.css` (20 colors, light/dark mode compatible)
+
+#### Testing
+
+**Unit tests (Vitest)**:
+- [ ] `createUser()` assigns random color from valid palette
+- [ ] `updateUserProfile()` updates color
+- [ ] `updateUserProfile()` rejects invalid color names
+- [ ] User responses include `profileColor` field
+
+**E2E tests (Playwright)**:
+- [ ] Avatar appears in header with user's initials and color
+- [ ] Clicking avatar opens menu with "Change color" and "Sign out"
+- [ ] Color picker modal shows all colors with current highlighted
+- [ ] Selecting new color updates avatar immediately
+- [ ] Avatars appear in member list with correct colors
+- [ ] Avatars appear in comments with correct colors
+- [ ] New users get random color assigned on creation
+
+### Phase 2.6: Production hardening
 
 **Goal:** Add security hardening and monitoring. The app is deployed (Phase 2.1.5) with email working (Phase 2.2); this phase improves robustness.
 
@@ -770,12 +1019,9 @@ Manual testing checklist:
 - [x] Admin user management UI (role promotion, user removal) - moved to Phase 1.7
 - [x] Keyboard navigation (lightbox, group switcher, theme toggle, photo feed)
 - [ ] Improve production setup and deployment flow - automate or improve things further
-- [ ] Reactions UI (backend API already exists)
-- [ ] Comments
 - [ ] Photo view tracking UI for admins (backend API already exists)
 - [ ] Video upload
 - [ ] Add emails as an alternative to notifications
-- [ ] Allow admins to toggle on or off whether users can react and comment, and view whether others have
 - [ ] Make it harder for users to download or save images/videos
 - [ ] Multi-device testing
 - [ ] Accessibility review (screen readers, ARIA improvements)
@@ -795,7 +1041,7 @@ Manual testing checklist:
 
 **Local dev:** Notifications working locally
 
-**Note:** Reactions and photo view tracking have backend API support but no frontend UI yet. These are planned for Phase 3.
+**Note:** Photo view tracking has backend API support but no frontend UI yet. This is planned for Phase 3. Reactions UI is planned for Phase 2.5.
 
 ## Testing strategy
 

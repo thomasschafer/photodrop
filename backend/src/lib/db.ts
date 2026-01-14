@@ -13,6 +13,7 @@ export interface User {
   email: string;
   created_at: number;
   last_seen_at: number | null;
+  comments_enabled: boolean;
 }
 
 export type MembershipRole = 'admin' | 'member';
@@ -32,6 +33,7 @@ export interface MembershipWithGroup extends Membership {
 export interface MembershipWithUser extends Membership {
   user_name: string;
   user_email: string;
+  comments_enabled: boolean;
 }
 
 export interface MagicLinkToken {
@@ -66,6 +68,31 @@ export interface PhotoReaction {
   user_id: string;
   emoji: string;
   created_at: number;
+}
+
+export interface PhotoReactionWithUser extends PhotoReaction {
+  user_name: string;
+}
+
+export interface Comment {
+  id: string;
+  photo_id: string;
+  user_id: string | null;
+  author_name: string;
+  content: string;
+  created_at: number;
+}
+
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+}
+
+export interface PhotoWithCounts extends Photo {
+  reaction_count: number;
+  comment_count: number;
+  reactions: ReactionSummary[];
+  user_reaction: string | null;
 }
 
 // Group functions
@@ -162,7 +189,7 @@ export async function getGroupMembers(
   const [membersResult, group] = await Promise.all([
     db
       .prepare(
-        `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email
+        `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email, u.comments_enabled
          FROM memberships m
          JOIN users u ON m.user_id = u.id
          WHERE m.group_id = ?
@@ -580,4 +607,168 @@ export async function deletePushSubscriptionForGroup(
     .run();
 
   return result.success;
+}
+
+// Comment functions
+export async function createComment(
+  db: D1Database,
+  photoId: string,
+  userId: string,
+  authorName: string,
+  content: string
+): Promise<string> {
+  const id = generateId();
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare(
+      `INSERT INTO comments (id, photo_id, user_id, author_name, content, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(id, photoId, userId, authorName, content, now)
+    .run();
+
+  return id;
+}
+
+export async function getCommentsByPhotoId(db: D1Database, photoId: string): Promise<Comment[]> {
+  const result = await db
+    .prepare(
+      `SELECT id, photo_id, user_id, author_name, content, created_at
+       FROM comments
+       WHERE photo_id = ?
+       ORDER BY created_at ASC`
+    )
+    .bind(photoId)
+    .all<Comment>();
+
+  return result.results || [];
+}
+
+export async function getComment(db: D1Database, commentId: string): Promise<Comment | null> {
+  const result = await db
+    .prepare('SELECT * FROM comments WHERE id = ?')
+    .bind(commentId)
+    .first<Comment>();
+
+  return result;
+}
+
+export async function deleteComment(db: D1Database, commentId: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM comments WHERE id = ?').bind(commentId).run();
+
+  return result.success;
+}
+
+export async function getCommentCount(db: D1Database, photoId: string): Promise<number> {
+  const result = await db
+    .prepare('SELECT COUNT(*) as count FROM comments WHERE photo_id = ?')
+    .bind(photoId)
+    .first<{ count: number }>();
+
+  return result?.count ?? 0;
+}
+
+// Reaction functions with user details
+export async function getPhotoReactionsWithUsers(
+  db: D1Database,
+  photoId: string
+): Promise<PhotoReactionWithUser[]> {
+  const result = await db
+    .prepare(
+      `SELECT pr.photo_id, pr.user_id, pr.emoji, pr.created_at, u.name as user_name
+       FROM photo_reactions pr
+       JOIN users u ON pr.user_id = u.id
+       WHERE pr.photo_id = ?
+       ORDER BY pr.created_at ASC`
+    )
+    .bind(photoId)
+    .all<PhotoReactionWithUser>();
+
+  return result.results || [];
+}
+
+export async function getReactionSummary(
+  db: D1Database,
+  photoId: string
+): Promise<ReactionSummary[]> {
+  const result = await db
+    .prepare(
+      `SELECT emoji, COUNT(*) as count
+       FROM photo_reactions
+       WHERE photo_id = ?
+       GROUP BY emoji
+       ORDER BY count DESC, emoji ASC`
+    )
+    .bind(photoId)
+    .all<ReactionSummary>();
+
+  return result.results || [];
+}
+
+export async function getUserReaction(
+  db: D1Database,
+  photoId: string,
+  userId: string
+): Promise<string | null> {
+  const result = await db
+    .prepare('SELECT emoji FROM photo_reactions WHERE photo_id = ? AND user_id = ?')
+    .bind(photoId, userId)
+    .first<{ emoji: string }>();
+
+  return result?.emoji ?? null;
+}
+
+// User preference functions
+export async function getUserCommentsEnabled(db: D1Database, userId: string): Promise<boolean> {
+  const result = await db
+    .prepare('SELECT comments_enabled FROM users WHERE id = ?')
+    .bind(userId)
+    .first<{ comments_enabled: number }>();
+
+  return result?.comments_enabled === 1;
+}
+
+export async function updateUserCommentsEnabled(
+  db: D1Database,
+  userId: string,
+  commentsEnabled: boolean
+): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE users SET comments_enabled = ? WHERE id = ?')
+    .bind(commentsEnabled ? 1 : 0, userId)
+    .run();
+
+  return result.success;
+}
+
+// List photos with reaction and comment counts
+export async function listPhotosWithCounts(
+  db: D1Database,
+  groupId: string,
+  userId: string,
+  limit: number = 20,
+  offset: number = 0
+): Promise<PhotoWithCounts[]> {
+  const photos = await listPhotos(db, groupId, limit, offset);
+
+  const photosWithCounts = await Promise.all(
+    photos.map(async (photo) => {
+      const [reactions, commentCount, userReaction] = await Promise.all([
+        getReactionSummary(db, photo.id),
+        getCommentCount(db, photo.id),
+        getUserReaction(db, photo.id, userId),
+      ]);
+
+      return {
+        ...photo,
+        reaction_count: reactions.reduce((sum, r) => sum + r.count, 0),
+        comment_count: commentCount,
+        reactions,
+        user_reaction: userReaction,
+      };
+    })
+  );
+
+  return photosWithCounts;
 }

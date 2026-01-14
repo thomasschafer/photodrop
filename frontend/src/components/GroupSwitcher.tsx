@@ -1,61 +1,22 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
-import { getNavDirection, isVerticalNavKey } from '../lib/keyboard';
+import { isVerticalNavKey } from '../lib/keyboard';
+import { useDropdown } from '../lib/useDropdown';
 
 export function GroupSwitcher() {
   const { user, currentGroup, groups, switchGroup } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const focusOption = useCallback(
-    (index: number) => {
-      const clampedIndex = Math.max(0, Math.min(index, groups.length - 1));
-      optionRefs.current[clampedIndex]?.focus();
-    },
-    [groups.length]
-  );
-
-  useEffect(() => {
-    if (isOpen && currentGroup) {
-      const currentIndex = groups.findIndex((g) => g.id === currentGroup.id);
-      focusOption(currentIndex >= 0 ? currentIndex : 0);
-    }
-  }, [isOpen, currentGroup, groups, focusOption]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleEscape);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [isOpen]);
-
-  const handleBlur = (e: React.FocusEvent) => {
-    if (!dropdownRef.current?.contains(e.relatedTarget as Node)) {
-      setIsOpen(false);
-    }
-  };
+  const currentIndex = currentGroup ? groups.findIndex((g) => g.id === currentGroup.id) : 0;
+  const { containerRef, triggerRef, optionRefs, handleOptionKeyDown, handleBlur } = useDropdown({
+    isOpen,
+    onClose: () => setIsOpen(false),
+    itemCount: groups.length,
+    initialFocusIndex: currentIndex >= 0 ? currentIndex : 0,
+    horizontal: false,
+  });
 
   const handleSelect = async (groupId: string) => {
     if (groupId === currentGroup?.id) {
@@ -75,27 +36,6 @@ export function GroupSwitcher() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
-    const direction = getNavDirection(e);
-    if (direction === 'down') {
-      e.preventDefault();
-      focusOption(index + 1);
-    } else if (direction === 'up') {
-      e.preventDefault();
-      focusOption(index - 1);
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      focusOption(0);
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      focusOption(groups.length - 1);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setIsOpen(false);
-      triggerRef.current?.focus();
-    }
-  };
-
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
     if (isVerticalNavKey(e)) {
       e.preventDefault();
@@ -108,7 +48,7 @@ export function GroupSwitcher() {
   }
 
   return (
-    <div ref={dropdownRef} className="relative" onBlur={handleBlur}>
+    <div ref={containerRef} className="relative" onBlur={handleBlur}>
       <button
         ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
@@ -153,7 +93,7 @@ export function GroupSwitcher() {
               role="option"
               aria-selected={currentGroup?.id === group.id}
               onClick={() => handleSelect(group.id)}
-              onKeyDown={(e) => handleKeyDown(e, index)}
+              onKeyDown={(e) => handleOptionKeyDown(e, index)}
               className={`flex items-center justify-between w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary ${
                 index === 0 ? 'rounded-t-lg' : ''
               } ${index === groups.length - 1 ? 'rounded-b-lg' : ''} ${

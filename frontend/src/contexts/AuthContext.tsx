@@ -7,6 +7,7 @@ interface User {
   id: string;
   name: string;
   email: string;
+  commentsEnabled: boolean;
 }
 
 interface Group {
@@ -41,6 +42,7 @@ interface AuthContextType {
   switchGroup: (groupId: string) => Promise<void>;
   selectGroup: (groupId: string) => Promise<void>;
   onGroupDeleted: (deletedGroupId: string) => void;
+  setCommentsEnabled: (enabled: boolean) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -174,6 +176,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [authState.groups, authState.user]
   );
 
+  const setCommentsEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!authState.user) {
+        throw new Error('No user logged in');
+      }
+
+      await api.users.updatePreferences(enabled);
+
+      setAuthState((prev) => ({
+        ...prev,
+        user: prev.user ? { ...prev.user, commentsEnabled: enabled } : null,
+      }));
+    },
+    [authState.user]
+  );
+
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem('accessToken');
@@ -187,6 +205,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               id: userData.id,
               name: userData.name,
               email: userData.email,
+              commentsEnabled: userData.commentsEnabled ?? false,
             },
             currentGroup: userData.currentGroup,
             groups: userData.groups,
@@ -241,6 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         switchGroup,
         selectGroup,
         onGroupDeleted,
+        setCommentsEnabled,
       }}
     >
       {children}

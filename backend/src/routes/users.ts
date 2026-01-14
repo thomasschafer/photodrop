@@ -1,5 +1,11 @@
 import { Hono } from 'hono';
-import { getUserById, getUserMemberships, getGroupMembers, type MembershipRole } from '../lib/db';
+import {
+  getUserById,
+  getUserMemberships,
+  getGroupMembers,
+  updateUserCommentsEnabled,
+  type MembershipRole,
+} from '../lib/db';
 import { requireAuth } from '../middleware/auth';
 
 type Bindings = {
@@ -59,6 +65,7 @@ users.get('/me', requireAuth, async (c) => {
       email: user.email,
       createdAt: user.created_at,
       lastSeenAt: user.last_seen_at,
+      commentsEnabled: Boolean(user.comments_enabled),
       currentGroup: currentMembership
         ? {
             id: currentUser.groupId,
@@ -75,6 +82,27 @@ users.get('/me', requireAuth, async (c) => {
   } catch (error) {
     console.error('Error fetching user:', error);
     return c.json({ error: 'Failed to fetch user' }, 500);
+  }
+});
+
+users.patch('/me/preferences', requireAuth, async (c) => {
+  try {
+    const currentUser = c.get('user');
+    const body = await c.req.json();
+
+    if (typeof body.commentsEnabled !== 'boolean') {
+      return c.json({ error: 'commentsEnabled must be a boolean' }, 400);
+    }
+
+    await updateUserCommentsEnabled(c.env.DB, currentUser.id, body.commentsEnabled);
+
+    return c.json({
+      message: 'Preferences updated',
+      commentsEnabled: body.commentsEnabled,
+    });
+  } catch (error) {
+    console.error('Error updating preferences:', error);
+    return c.json({ error: 'Failed to update preferences' }, 500);
   }
 });
 
