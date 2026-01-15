@@ -55,8 +55,9 @@ test.describe('Reactions and comments', () => {
     const heartOption = dialog.getByRole('option', { name: /react with ❤️/i });
     await heartOption.click();
 
-    // Verify the add reaction button now shows the heart (user's selection)
-    await expect(addReactionButton).toContainText('❤️');
+    // Verify a reaction pill appears with the heart emoji (user's selection is highlighted)
+    const heartReactionPill = dialog.getByRole('button', { name: /remove ❤️ reaction/i });
+    await expect(heartReactionPill).toBeVisible();
   });
 
   test('user can change their reaction to different emoji', async ({ page }) => {
@@ -74,8 +75,9 @@ test.describe('Reactions and comments', () => {
     const laughOption = dialog.getByRole('option', { name: /react with 😂/i });
     await laughOption.click();
 
-    // Verify the add reaction button now shows the laugh emoji
-    await expect(addReactionButton).toContainText('😂');
+    // Verify a reaction pill appears with the laugh emoji (user's selection is highlighted)
+    const laughReactionPill = dialog.getByRole('button', { name: /remove 😂 reaction/i });
+    await expect(laughReactionPill).toBeVisible();
   });
 
   test('user can remove their reaction', async ({ page }) => {
@@ -94,15 +96,15 @@ test.describe('Reactions and comments', () => {
     const fireOption = dialog.getByRole('option', { name: /react with 🔥/i });
     await fireOption.click();
 
-    // Verify the add reaction button now shows the fire emoji
-    await expect(addReactionButton).toContainText('🔥');
+    // Verify a reaction pill appears with the fire emoji
+    const fireReactionPill = dialog.getByRole('button', { name: /remove 🔥 reaction/i });
+    await expect(fireReactionPill).toBeVisible();
 
-    // Now click fire again to remove it (need to reopen picker)
-    await addReactionButton.click();
-    await dialog.getByRole('option', { name: /react with 🔥/i }).click();
+    // Click the fire pill directly to remove the reaction (new UI allows clicking pills)
+    await fireReactionPill.click();
 
-    // Verify the add reaction button shows "+" again (no reaction)
-    await expect(addReactionButton).toContainText('+');
+    // Verify the fire reaction pill is no longer visible (reaction removed)
+    await expect(fireReactionPill).not.toBeVisible();
   });
 
   test('reaction counts appear in feed', async ({ page, request }) => {
@@ -294,5 +296,195 @@ test.describe('Reactions and comments', () => {
 
     // Should see success message
     await expect(page.getByText(/comments (enabled|disabled)/i)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('comments disabled: reaction tooltip does not show names on hover in lightbox', async ({
+    page,
+    request,
+  }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
+
+    const token = await getAuthToken(page);
+
+    // Add a reaction via API so there's something to hover over
+    await request.post(`${API_BASE}/photos/${photoId}/react`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      data: { emoji: '❤️' },
+    });
+
+    await page.reload();
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+    await page.locator('article').first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // Verify comments are hidden (default state)
+    await expect(page.getByText(/comments hidden/i)).toBeVisible();
+
+    // Find and hover over the reaction pill
+    const heartPill = dialog.getByRole('button', { name: /❤️ reaction/i });
+    await expect(heartPill).toBeVisible();
+    await heartPill.hover();
+
+    // Wait a moment for tooltip to potentially appear
+    await page.waitForTimeout(300);
+
+    // The tooltip should NOT show names when comments are disabled
+    // Look for "You" or "Admin User" text in a tooltip (which should NOT be visible)
+    const tooltip = dialog.locator('.absolute.whitespace-nowrap');
+    await expect(tooltip).not.toBeVisible();
+  });
+
+  test('comments enabled: reaction tooltip shows names on hover in lightbox', async ({
+    page,
+    request,
+  }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
+
+    const token = await getAuthToken(page);
+
+    // Add a reaction via API so there's something to hover over
+    await request.post(`${API_BASE}/photos/${photoId}/react`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      data: { emoji: '❤️' },
+    });
+
+    await page.reload();
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+    await page.locator('article').first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // Enable comments
+    const showButton = page.getByRole('button', { name: 'Show', exact: true });
+    if (await showButton.isVisible()) {
+      await showButton.click();
+    }
+
+    // Verify comments are now enabled
+    await expect(page.getByPlaceholder(/add a comment/i)).toBeVisible();
+
+    // Find and hover over the reaction pill
+    const heartPill = dialog.getByRole('button', { name: /❤️ reaction/i });
+    await expect(heartPill).toBeVisible();
+    await heartPill.hover();
+
+    // Wait for tooltip to appear
+    await page.waitForTimeout(300);
+
+    // The tooltip SHOULD show "You" when comments are enabled
+    const tooltip = dialog.locator('.absolute.whitespace-nowrap');
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText('You');
+  });
+
+  test('comments disabled: reaction tooltip does not show names on hover in feed', async ({
+    page,
+    request,
+  }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
+
+    const token = await getAuthToken(page);
+
+    // Disable comments first by hiding them
+    await page.locator('article').first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // If comments are enabled, hide them
+    const hideButton = page.getByRole('button', { name: /hide/i });
+    if (await hideButton.isVisible()) {
+      await hideButton.click();
+    }
+    await expect(page.getByText(/comments hidden/i)).toBeVisible();
+
+    // Close lightbox
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+
+    // Add a reaction via API so there's something to hover over
+    await request.post(`${API_BASE}/photos/${photoId}/react`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      data: { emoji: '❤️' },
+    });
+
+    await page.reload();
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+
+    // Find and hover over the reaction pill in the feed (not lightbox)
+    const photoCard = page.locator('article').filter({ hasText: 'Test photo for reactions' });
+    const heartPill = photoCard.getByRole('button', { name: /❤️ reaction/i });
+    await expect(heartPill).toBeVisible();
+    await heartPill.hover();
+
+    // Wait a moment for tooltip to potentially appear
+    await page.waitForTimeout(300);
+
+    // The tooltip should NOT show names when comments are disabled
+    const tooltip = photoCard.locator('.absolute.whitespace-nowrap');
+    await expect(tooltip).not.toBeVisible();
+  });
+
+  test('comments enabled: reaction tooltip shows names on hover in feed', async ({
+    page,
+    request,
+  }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
+
+    const token = await getAuthToken(page);
+
+    // Enable comments first
+    await page.locator('article').first().click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    const showButton = page.getByRole('button', { name: 'Show', exact: true });
+    if (await showButton.isVisible()) {
+      await showButton.click();
+    }
+    await expect(page.getByPlaceholder(/add a comment/i)).toBeVisible();
+
+    // Close lightbox
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+
+    // Add a reaction via API so there's something to hover over
+    await request.post(`${API_BASE}/photos/${photoId}/react`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      data: { emoji: '❤️' },
+    });
+
+    await page.reload();
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+
+    // Find and hover over the reaction pill in the feed (not lightbox)
+    const photoCard = page.locator('article').filter({ hasText: 'Test photo for reactions' });
+    const heartPill = photoCard.getByRole('button', { name: /❤️ reaction/i });
+    await expect(heartPill).toBeVisible();
+    await heartPill.hover();
+
+    // Wait for tooltip to appear
+    await page.waitForTimeout(300);
+
+    // The tooltip SHOULD show "You" when comments are enabled
+    const tooltip = photoCard.locator('.absolute.whitespace-nowrap');
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText('You');
   });
 });

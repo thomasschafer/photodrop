@@ -35,26 +35,317 @@ interface PhotoFeedProps {
   isAdmin?: boolean;
 }
 
-function ReactionDisplay({ reactions }: { reactions: ReactionSummary[] }) {
-  if (reactions.length === 0) return null;
+interface ReactionPillsProps {
+  reactions: ReactionSummary[];
+  userReaction: string | null;
+  onReactionClick: (emoji: string) => void;
+  onAddClick: () => void;
+  showPicker: boolean;
+  pickerRef?: React.RefObject<HTMLDivElement | null>;
+  triggerRef?: React.RefCallback<HTMLButtonElement | null>;
+  optionRefs?: React.MutableRefObject<(HTMLButtonElement | null)[]>;
+  onPickerBlur?: (e: React.FocusEvent) => void;
+  onTriggerKeyDown?: (e: React.KeyboardEvent) => void;
+  onOptionKeyDown?: (e: React.KeyboardEvent, index: number) => void;
+  onPickerSelect?: (emoji: string) => void;
+  pickerPosition?: 'above' | 'below';
+  reactionDetails?: ReactionWithUser[];
+  onLoadReactionDetails?: () => void;
+  currentUserId?: string;
+  showNames?: boolean;
+}
+
+interface ReactionPillButtonProps {
+  emoji: string;
+  count: number;
+  isUserReaction: boolean;
+  names: string[] | undefined;
+  pillBaseClass: string;
+  onClick: () => void;
+  onLoadDetails: () => void;
+  showTooltip: boolean;
+  onShowTooltip: () => void;
+  enableLongPress: boolean;
+}
+
+function ReactionPillButton({
+  emoji,
+  count,
+  isUserReaction,
+  names,
+  pillBaseClass,
+  onClick,
+  onLoadDetails,
+  showTooltip,
+  onShowTooltip,
+  enableLongPress,
+}: ReactionPillButtonProps) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startPosRef = useRef<{ x: number; y: number } | null>(null);
+  const longPressedRef = useRef(false);
+
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (!enableLongPress) return;
+      longPressedRef.current = false;
+      const touch = e.touches[0];
+      startPosRef.current = { x: touch.clientX, y: touch.clientY };
+      timerRef.current = setTimeout(() => {
+        longPressedRef.current = true;
+        onLoadDetails();
+        onShowTooltip();
+      }, 500);
+    },
+    [enableLongPress, onLoadDetails, onShowTooltip]
+  );
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!startPosRef.current) return;
+    const touch = e.touches[0];
+    const deltaX = Math.abs(touch.clientX - startPosRef.current.x);
+    const deltaY = Math.abs(touch.clientY - startPosRef.current.y);
+    if (deltaX > 10 || deltaY > 10) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      startPosRef.current = null;
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    startPosRef.current = null;
+  }, []);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (longPressedRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        longPressedRef.current = false;
+        return;
+      }
+      e.stopPropagation();
+      onClick();
+    },
+    [onClick]
+  );
 
   return (
-    <div className="flex gap-1.5 flex-wrap">
-      {reactions.map(({ emoji, count }) => (
-        <span
-          key={emoji}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-bg-secondary text-sm"
+    <div className="relative group">
+      <button
+        onTouchStart={enableLongPress ? handleTouchStart : undefined}
+        onTouchMove={enableLongPress ? handleTouchMove : undefined}
+        onTouchEnd={enableLongPress ? handleTouchEnd : undefined}
+        onClick={handleClick}
+        className={`${pillBaseClass} px-2.5 gap-1 ${
+          isUserReaction
+            ? 'bg-accent/25 hover:bg-accent/35'
+            : 'bg-bg-secondary hover:bg-bg-tertiary'
+        }`}
+        aria-label={`${isUserReaction ? 'Remove' : 'Add'} ${emoji} reaction`}
+        aria-pressed={isUserReaction}
+      >
+        <span>{emoji}</span>
+        <span className="text-text-primary font-medium">{count}</span>
+      </button>
+      {names && names.length > 0 && (
+        <div
+          className={`absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 bg-surface border border-border rounded-lg shadow-elevated text-xs text-text-secondary whitespace-nowrap transition-opacity pointer-events-none z-[70] ${
+            showTooltip ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
         >
-          <span>{emoji}</span>
-          <span className="text-text-primary font-medium">{count}</span>
-        </span>
-      ))}
+          {names.join(', ')}
+        </div>
+      )}
     </div>
   );
 }
 
+function ReactionPills({
+  reactions,
+  userReaction,
+  onReactionClick,
+  onAddClick,
+  showPicker,
+  pickerRef,
+  triggerRef,
+  optionRefs,
+  onPickerBlur,
+  onTriggerKeyDown,
+  onOptionKeyDown,
+  onPickerSelect,
+  pickerPosition = 'below',
+  reactionDetails,
+  onLoadReactionDetails,
+  currentUserId,
+  showNames = false,
+}: ReactionPillsProps) {
+  const hasLoadedRef = useRef(false);
+  const [longPressTooltipEmoji, setLongPressTooltipEmoji] = useState<string | null>(null);
+
+  // Dismiss tooltip on any interaction elsewhere
+  useEffect(() => {
+    if (!longPressTooltipEmoji) return;
+
+    const dismiss = () => setLongPressTooltipEmoji(null);
+
+    document.addEventListener('touchstart', dismiss);
+    document.addEventListener('mousedown', dismiss);
+    document.addEventListener('scroll', dismiss, true);
+
+    return () => {
+      document.removeEventListener('touchstart', dismiss);
+      document.removeEventListener('mousedown', dismiss);
+      document.removeEventListener('scroll', dismiss, true);
+    };
+  }, [longPressTooltipEmoji]);
+
+  const pillBaseClass =
+    'h-9 rounded-full flex items-center justify-center text-sm transition-colors cursor-pointer select-none';
+
+  const pickerPositionClass = pickerPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1';
+
+  // Compute reactions and reactionsByEmoji from reactionDetails if available
+  const { computedReactions, reactionsByEmoji } = useMemo(() => {
+    if (!reactionDetails || reactionDetails.length === 0) {
+      return { computedReactions: undefined, reactionsByEmoji: undefined };
+    }
+
+    const grouped: Record<string, string[]> = {};
+    const counts: Record<string, number> = {};
+
+    for (const r of reactionDetails) {
+      if (!grouped[r.emoji]) grouped[r.emoji] = [];
+      if (!counts[r.emoji]) counts[r.emoji] = 0;
+
+      const name = currentUserId && r.userId === currentUserId ? 'You' : r.userName;
+      grouped[r.emoji].push(name);
+      counts[r.emoji]++;
+    }
+
+    const computedReactions: ReactionSummary[] = Object.entries(counts).map(([emoji, count]) => ({
+      emoji,
+      count,
+    }));
+
+    return { computedReactions, reactionsByEmoji: grouped };
+  }, [reactionDetails, currentUserId]);
+
+  // Use computed reactions from details if available, otherwise fall back to prop
+  const displayReactions = computedReactions ?? reactions;
+
+  const handleMouseEnter = () => {
+    if (showNames && !hasLoadedRef.current && onLoadReactionDetails) {
+      hasLoadedRef.current = true;
+      onLoadReactionDetails();
+    }
+  };
+
+  return (
+    <div
+      className="flex gap-1.5 flex-wrap items-center relative"
+      ref={showPicker ? pickerRef : undefined}
+      onBlur={showPicker ? onPickerBlur : undefined}
+      onMouseEnter={handleMouseEnter}
+    >
+      {displayReactions.map(({ emoji, count }) => {
+        const isUserReaction = userReaction === emoji;
+        const names = showNames ? reactionsByEmoji?.[emoji] : undefined;
+        return (
+          <ReactionPillButton
+            key={emoji}
+            emoji={emoji}
+            count={count}
+            isUserReaction={isUserReaction}
+            names={names}
+            pillBaseClass={pillBaseClass}
+            onClick={() => onReactionClick(emoji)}
+            onLoadDetails={handleMouseEnter}
+            showTooltip={showNames && longPressTooltipEmoji === emoji}
+            onShowTooltip={() => setLongPressTooltipEmoji(emoji)}
+            enableLongPress={showNames}
+          />
+        );
+      })}
+
+      {/* Add reaction button */}
+      <div className="relative">
+        <button
+          ref={triggerRef}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddClick();
+          }}
+          onKeyDown={onTriggerKeyDown}
+          className={`${pillBaseClass} w-9 ${
+            showPicker
+              ? 'bg-bg-tertiary text-text-primary'
+              : 'bg-bg-secondary hover:bg-bg-tertiary text-text-muted'
+          }`}
+          aria-label="Add reaction"
+          aria-expanded={showPicker}
+          aria-haspopup="listbox"
+        >
+          +
+        </button>
+
+        {/* Reaction picker dropdown */}
+        {showPicker && (
+          <div
+            role="listbox"
+            aria-label="Select reaction"
+            className={`absolute left-0 ${pickerPositionClass} z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1`}
+          >
+            {EMOJI_OPTIONS.map((emoji, index) => (
+              <button
+                key={emoji}
+                ref={(el) => {
+                  if (optionRefs) {
+                    optionRefs.current[index] = el;
+                  }
+                }}
+                role="option"
+                aria-selected={userReaction === emoji}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onPickerSelect) {
+                    onPickerSelect(emoji);
+                  } else {
+                    onReactionClick(emoji);
+                  }
+                }}
+                onKeyDown={(e) => onOptionKeyDown?.(e, index)}
+                className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-colors cursor-pointer ${
+                  userReaction === emoji
+                    ? 'bg-accent/25 hover:bg-accent/35'
+                    : 'hover:bg-bg-tertiary'
+                }`}
+                aria-label={`React with ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface ReactionWithUser {
+  emoji: string;
+  userId: string;
+  userName: string;
+}
+
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const { user } = useAuth();
+  const commentsEnabled = user?.commentsEnabled ?? false;
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +355,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [feedReactionPickerPhotoId, setFeedReactionPickerPhotoId] = useState<string | null>(null);
+  const [feedReactionDetails, setFeedReactionDetails] = useState<Map<string, ReactionWithUser[]>>(
+    new Map()
+  );
   const token = useAuthToken();
   const [uploadButtonRef, restoreUploadFocus] = useFocusRestore<HTMLButtonElement>();
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -73,6 +367,20 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const feedReactionOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const navigate = useNavigate();
   const { photoId } = useParams<{ photoId: string }>();
+
+  const loadFeedReactionDetails = useCallback(
+    async (photoId: string) => {
+      if (feedReactionDetails.has(photoId)) return;
+
+      try {
+        const data = await api.photos.getReactions(photoId);
+        setFeedReactionDetails((prev) => new Map(prev).set(photoId, data.reactions));
+      } catch (err) {
+        console.error('Failed to load reaction details:', err);
+      }
+    },
+    [feedReactionDetails]
+  );
 
   // Close feed reaction picker on click outside or escape
   useEffect(() => {
@@ -235,10 +543,11 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
   const handleFeedReactionClick = async (photoId: string, emoji: string) => {
     const photo = photos.find((p) => p.id === photoId);
-    if (!photo) return;
+    if (!photo || !user) return;
 
     const previousReaction = photo.userReaction;
     const previousReactions = photo.reactions;
+    const previousDetails = feedReactionDetails.get(photoId);
 
     const isRemoving = photo.userReaction === emoji;
     const newUserReaction = isRemoving ? null : emoji;
@@ -263,12 +572,22 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       }
     }
 
-    // Optimistic update
+    // Optimistic update for photos
     setPhotos((prev) =>
       prev.map((p) =>
         p.id === photoId ? { ...p, userReaction: newUserReaction, reactions: newReactions } : p
       )
     );
+
+    // Optimistic update for reaction details (if loaded)
+    if (previousDetails) {
+      let newDetails = previousDetails.filter((r) => r.userId !== user.id);
+      if (!isRemoving) {
+        newDetails = [...newDetails, { emoji, userId: user.id, userName: user.name }];
+      }
+      setFeedReactionDetails((prev) => new Map(prev).set(photoId, newDetails));
+    }
+
     setFeedReactionPickerPhotoId(null);
     feedReactionTriggerRefs.current.get(photoId)?.focus();
 
@@ -288,6 +607,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             : p
         )
       );
+      if (previousDetails) {
+        setFeedReactionDetails((prev) => new Map(prev).set(photoId, previousDetails));
+      }
     }
   };
 
@@ -449,85 +771,40 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                 {photo.caption && (
                   <p className="text-text-primary mb-2 leading-normal">{photo.caption}</p>
                 )}
-                <div className="flex items-center gap-2 mb-2">
-                  {/* Add reaction button */}
-                  <div
-                    className="relative"
-                    ref={feedReactionPickerPhotoId === photo.id ? feedReactionPickerRef : undefined}
-                    onBlur={
-                      feedReactionPickerPhotoId === photo.id
-                        ? handleFeedReactionPickerBlur
-                        : undefined
+                <div className="mb-2">
+                  <ReactionPills
+                    reactions={photo.reactions}
+                    userReaction={photo.userReaction}
+                    onReactionClick={(emoji) => handleFeedReactionClick(photo.id, emoji)}
+                    onAddClick={() =>
+                      setFeedReactionPickerPhotoId(
+                        feedReactionPickerPhotoId === photo.id ? null : photo.id
+                      )
                     }
-                  >
-                    <button
-                      ref={(el) => {
-                        if (el) {
-                          feedReactionTriggerRefs.current.set(photo.id, el);
-                        } else {
-                          feedReactionTriggerRefs.current.delete(photo.id);
-                        }
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFeedReactionPickerPhotoId(
-                          feedReactionPickerPhotoId === photo.id ? null : photo.id
-                        );
-                      }}
-                      onKeyDown={(e) => handleFeedReactionTriggerKeyDown(e, photo.id)}
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-base transition-colors cursor-pointer ${
-                        feedReactionPickerPhotoId === photo.id
-                          ? 'bg-primary/20 text-primary'
-                          : 'bg-bg-secondary hover:bg-bg-tertiary text-text-muted'
-                      }`}
-                      aria-label="Add reaction"
-                      aria-expanded={feedReactionPickerPhotoId === photo.id}
-                      aria-haspopup="listbox"
-                    >
-                      {photo.userReaction || '+'}
-                    </button>
-
-                    {/* Reaction picker dropdown */}
-                    {feedReactionPickerPhotoId === photo.id && (
-                      <div
-                        role="listbox"
-                        aria-label="Select reaction"
-                        className="absolute left-0 top-full mt-1 z-20 bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1"
-                      >
-                        {EMOJI_OPTIONS.map((emoji, emojiIndex) => (
-                          <button
-                            key={emoji}
-                            ref={(el) => {
-                              feedReactionOptionRefs.current[emojiIndex] = el;
-                            }}
-                            role="option"
-                            aria-selected={photo.userReaction === emoji}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleFeedReactionClick(photo.id, emoji);
-                            }}
-                            onKeyDown={(e) => handleFeedReactionKeyDown(e, emojiIndex, photo.id)}
-                            className={`w-8 h-8 rounded-lg flex items-center justify-center text-base transition-colors cursor-pointer ${
-                              photo.userReaction === emoji
-                                ? 'bg-bg-secondary hover:bg-bg-tertiary'
-                                : 'hover:bg-bg-tertiary'
-                            }`}
-                            aria-label={`React with ${emoji}`}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Reaction counts */}
-                  {photo.reactions.length > 0 && <ReactionDisplay reactions={photo.reactions} />}
+                    showPicker={feedReactionPickerPhotoId === photo.id}
+                    pickerRef={feedReactionPickerRef}
+                    triggerRef={(el) => {
+                      if (el) {
+                        feedReactionTriggerRefs.current.set(photo.id, el);
+                      } else {
+                        feedReactionTriggerRefs.current.delete(photo.id);
+                      }
+                    }}
+                    optionRefs={feedReactionOptionRefs}
+                    onPickerBlur={handleFeedReactionPickerBlur}
+                    onTriggerKeyDown={(e) => handleFeedReactionTriggerKeyDown(e, photo.id)}
+                    onOptionKeyDown={(e, index) => handleFeedReactionKeyDown(e, index, photo.id)}
+                    onPickerSelect={(emoji) => handleFeedReactionClick(photo.id, emoji)}
+                    reactionDetails={feedReactionDetails.get(photo.id)}
+                    onLoadReactionDetails={() => loadFeedReactionDetails(photo.id)}
+                    currentUserId={user?.id}
+                    showNames={commentsEnabled}
+                  />
                 </div>
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-3">
                     <p className="text-xs text-text-muted">{formatDate(photo.uploadedAt)}</p>
-                    {user?.commentsEnabled && photo.commentCount > 0 && (
+                    {commentsEnabled && photo.commentCount > 0 && (
                       <span className="text-xs text-text-muted">
                         {photo.commentCount} {photo.commentCount === 1 ? 'comment' : 'comments'}
                       </span>
@@ -612,12 +889,6 @@ interface Comment {
   isDeleted: boolean;
 }
 
-interface ReactionWithUser {
-  emoji: string;
-  userId: string;
-  userName: string;
-}
-
 function formatRelativeTime(timestamp: number): string {
   const date = new Date(timestamp * 1000);
   const now = new Date();
@@ -659,14 +930,12 @@ function Lightbox({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const touchStartX = useRef<number | null>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
-  const reactionPopoverRef = useRef<HTMLDivElement>(null);
   const showCommentsButtonRef = useRef<HTMLButtonElement>(null);
   const hideCommentsButtonRef = useRef<HTMLButtonElement>(null);
 
   const [userReaction, setUserReaction] = useState<string | null>(photo.userReaction);
   const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
   const [reactionDetails, setReactionDetails] = useState<ReactionWithUser[]>([]);
-  const [showReactionPopover, setShowReactionPopover] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [loadingReactionDetails, setLoadingReactionDetails] = useState(false);
 
@@ -703,7 +972,6 @@ function Lightbox({
   useEffect(() => {
     setUserReaction(photo.userReaction);
     setReactions(photo.reactions);
-    setShowReactionPopover(false);
     setShowReactionPicker(false);
     setNewComment('');
 
@@ -727,33 +995,6 @@ function Lightbox({
       document.body.style.overflow = originalOverflow;
     };
   }, []);
-
-  // Close reaction popover on click outside or escape
-  useEffect(() => {
-    if (!showReactionPopover) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (reactionPopoverRef.current && !reactionPopoverRef.current.contains(e.target as Node)) {
-        setShowReactionPopover(false);
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        setShowReactionPopover(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [showReactionPopover]);
 
   const handleReactionTriggerKeyDown = (e: React.KeyboardEvent) => {
     if (isHorizontalNavKey(e)) {
@@ -791,14 +1032,13 @@ function Lightbox({
     }
   }, [commentsEnabled, loadComments, photo.id]);
 
-  const loadReactionDetails = async () => {
-    if (!commentsEnabled || loadingReactionDetails) return;
+  const loadReactionDetails = useCallback(async () => {
+    if (loadingReactionDetails) return;
 
     // Use cached data if available
     const cached = reactionDetailsCache.current.get(photo.id);
     if (cached) {
       setReactionDetails(cached);
-      setShowReactionPopover(true);
       return;
     }
 
@@ -807,17 +1047,26 @@ function Lightbox({
       const data = await api.photos.getReactions(photo.id);
       setReactionDetails(data.reactions);
       reactionDetailsCache.current.set(photo.id, data.reactions);
-      setShowReactionPopover(true);
     } catch (err) {
       console.error('Failed to load reaction details:', err);
     } finally {
       setLoadingReactionDetails(false);
     }
-  };
+  }, [photo.id, loadingReactionDetails]);
+
+  // Load reaction details when comments are enabled
+  useEffect(() => {
+    if (commentsEnabled && reactions.length > 0) {
+      loadReactionDetails();
+    }
+  }, [commentsEnabled, reactions.length, loadReactionDetails]);
 
   const handleReactionClick = async (emoji: string) => {
+    if (!user) return;
+
     const previousReaction = userReaction;
     const previousReactions = reactions;
+    const previousDetails = reactionDetails;
 
     // Compute new values first
     const isRemoving = userReaction === emoji;
@@ -846,8 +1095,14 @@ function Lightbox({
     // Optimistic update
     setUserReaction(newUserReaction);
     setReactions(newReactions);
-    // Invalidate reaction details cache since user list changed
-    reactionDetailsCache.current.delete(photo.id);
+
+    // Optimistic update for reaction details
+    let newDetails = reactionDetails.filter((r) => r.userId !== user.id);
+    if (!isRemoving) {
+      newDetails = [...newDetails, { emoji, userId: user.id, userName: user.name }];
+    }
+    setReactionDetails(newDetails);
+    reactionDetailsCache.current.set(photo.id, newDetails);
 
     try {
       if (isRemoving) {
@@ -866,6 +1121,8 @@ function Lightbox({
       console.error('Failed to update reaction:', err);
       setUserReaction(previousReaction);
       setReactions(previousReactions);
+      setReactionDetails(previousDetails);
+      reactionDetailsCache.current.set(photo.id, previousDetails);
     }
   };
 
@@ -955,8 +1212,8 @@ function Lightbox({
         return;
       }
 
-      // Don't handle keys when reaction picker or popover is open (they have their own handlers)
-      if (showReactionPicker || showReactionPopover) {
+      // Don't handle keys when reaction picker is open (it has its own handlers)
+      if (showReactionPicker) {
         return;
       }
 
@@ -976,7 +1233,7 @@ function Lightbox({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, onPrev, onNext, showReactionPicker, showReactionPopover]);
+  }, [onClose, onPrev, onNext, showReactionPicker]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
@@ -1005,16 +1262,6 @@ function Lightbox({
 
     touchStartX.current = null;
   };
-
-  // Group reactions by emoji for popover display
-  const reactionsByEmoji = useMemo(() => {
-    const grouped: Record<string, string[]> = {};
-    for (const r of reactionDetails) {
-      if (!grouped[r.emoji]) grouped[r.emoji] = [];
-      grouped[r.emoji].push(r.userName);
-    }
-    return grouped;
-  }, [reactionDetails]);
 
   return (
     <div
@@ -1105,73 +1352,30 @@ function Lightbox({
             {/* Collapsed state - short wide strip */}
             {!commentsEnabled ? (
               <div className="flex items-center gap-3 p-2 px-3">
-                {/* Add reaction button */}
-                <div className="relative" ref={reactionPickerRef} onBlur={handleReactionPickerBlur}>
-                  <button
-                    ref={reactionTriggerRef}
-                    onClick={() => setShowReactionPicker(!showReactionPicker)}
-                    onKeyDown={handleReactionTriggerKeyDown}
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg transition-colors cursor-pointer ${
-                      showReactionPicker
-                        ? 'bg-primary/20 text-primary'
-                        : 'bg-bg-secondary hover:bg-bg-tertiary text-text-muted'
-                    }`}
-                    aria-label="Add reaction"
-                    aria-expanded={showReactionPicker}
-                    aria-haspopup="listbox"
-                  >
-                    {userReaction || '+'}
-                  </button>
-
-                  {/* Reaction picker dropdown */}
-                  {showReactionPicker && (
-                    <div
-                      role="listbox"
-                      aria-label="Select reaction"
-                      className="absolute left-0 bottom-full mb-1 z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1"
-                    >
-                      {EMOJI_OPTIONS.map((emoji, index) => (
-                        <button
-                          key={emoji}
-                          ref={(el) => {
-                            reactionOptionRefs.current[index] = el;
-                          }}
-                          role="option"
-                          aria-selected={userReaction === emoji}
-                          onClick={() => {
-                            handleReactionClick(emoji);
-                            setShowReactionPicker(false);
-                            reactionTriggerRef.current?.focus();
-                          }}
-                          onKeyDown={(e) => handleReactionOptionKeyDown(e, index)}
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center text-base transition-colors cursor-pointer ${
-                            userReaction === emoji
-                              ? 'bg-bg-secondary hover:bg-bg-tertiary'
-                              : 'hover:bg-bg-tertiary'
-                          }`}
-                          aria-label={`React with ${emoji}`}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Reaction counts - prominent */}
-                {reactions.length > 0 && (
-                  <div className="flex gap-1.5 flex-wrap">
-                    {reactions.map(({ emoji, count }) => (
-                      <span
-                        key={emoji}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-bg-secondary text-sm"
-                      >
-                        <span>{emoji}</span>
-                        <span className="text-text-primary font-medium">{count}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                <ReactionPills
+                  reactions={reactions}
+                  userReaction={userReaction}
+                  onReactionClick={(emoji) => {
+                    handleReactionClick(emoji);
+                    setShowReactionPicker(false);
+                    reactionTriggerRef.current?.focus();
+                  }}
+                  onAddClick={() => setShowReactionPicker(!showReactionPicker)}
+                  showPicker={showReactionPicker}
+                  pickerRef={reactionPickerRef}
+                  triggerRef={(el) => {
+                    reactionTriggerRef.current = el;
+                  }}
+                  optionRefs={reactionOptionRefs}
+                  onPickerBlur={handleReactionPickerBlur}
+                  onTriggerKeyDown={handleReactionTriggerKeyDown}
+                  onOptionKeyDown={handleReactionOptionKeyDown}
+                  pickerPosition="above"
+                  reactionDetails={reactionDetails}
+                  onLoadReactionDetails={loadReactionDetails}
+                  currentUserId={user?.id}
+                  showNames={commentsEnabled}
+                />
 
                 {/* Show comments button - pushed to right */}
                 <div className="ml-auto flex items-center gap-2">
@@ -1191,117 +1395,30 @@ function Lightbox({
                 {/* Header with reactions */}
                 <div className="p-3 border-b border-border">
                   <div className="flex items-center gap-3">
-                    {/* Add reaction button */}
-                    <div
-                      className="relative"
-                      ref={reactionPickerRef}
-                      onBlur={handleReactionPickerBlur}
-                    >
-                      <button
-                        ref={reactionTriggerRef}
-                        onClick={() => setShowReactionPicker(!showReactionPicker)}
-                        onKeyDown={handleReactionTriggerKeyDown}
-                        className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-colors cursor-pointer ${
-                          showReactionPicker
-                            ? 'bg-primary/20 text-primary'
-                            : 'bg-bg-secondary hover:bg-bg-tertiary text-text-muted'
-                        }`}
-                        aria-label="Add reaction"
-                        aria-expanded={showReactionPicker}
-                        aria-haspopup="listbox"
-                      >
-                        {userReaction || '+'}
-                      </button>
-
-                      {/* Reaction picker dropdown */}
-                      {showReactionPicker && (
-                        <div
-                          role="listbox"
-                          aria-label="Select reaction"
-                          className="absolute left-0 bottom-full mb-1 z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1"
-                        >
-                          {EMOJI_OPTIONS.map((emoji, index) => (
-                            <button
-                              key={emoji}
-                              ref={(el) => {
-                                reactionOptionRefs.current[index] = el;
-                              }}
-                              role="option"
-                              aria-selected={userReaction === emoji}
-                              onClick={() => {
-                                handleReactionClick(emoji);
-                                setShowReactionPicker(false);
-                                reactionTriggerRef.current?.focus();
-                              }}
-                              onKeyDown={(e) => handleReactionOptionKeyDown(e, index)}
-                              className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-colors cursor-pointer ${
-                                userReaction === emoji
-                                  ? 'bg-bg-secondary hover:bg-bg-tertiary'
-                                  : 'hover:bg-bg-tertiary'
-                              }`}
-                              aria-label={`React with ${emoji}`}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Reaction summary with popover trigger - prominent */}
-                    {reactions.length > 0 && (
-                      <div className="relative">
-                        <button
-                          onClick={() => loadReactionDetails()}
-                          className="flex gap-1.5 flex-wrap cursor-pointer"
-                        >
-                          {reactions.map(({ emoji, count }) => (
-                            <span
-                              key={emoji}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-bg-secondary text-sm"
-                            >
-                              <span>{emoji}</span>
-                              <span className="text-text-primary font-medium">{count}</span>
-                            </span>
-                          ))}
-                        </button>
-
-                        {/* Reaction details popover */}
-                        {showReactionPopover && Object.keys(reactionsByEmoji).length > 0 && (
-                          <div
-                            ref={reactionPopoverRef}
-                            className="absolute left-0 bottom-full mb-1 z-[60] bg-surface border border-border rounded-lg shadow-elevated p-2 min-w-[200px] max-w-sm"
-                          >
-                            <button
-                              onClick={() => setShowReactionPopover(false)}
-                              className="absolute top-1 right-1 text-text-muted hover:text-text-primary cursor-pointer"
-                              aria-label="Close"
-                            >
-                              <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M6 18L18 6M6 6l12 12"
-                                />
-                              </svg>
-                            </button>
-                            {Object.entries(reactionsByEmoji).map(([emoji, names]) => (
-                              <div key={emoji} className="text-sm py-1">
-                                <span className="mr-2">{emoji}</span>
-                                <span className="text-text-secondary">{names.join(', ')}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <ReactionPills
+                      reactions={reactions}
+                      userReaction={userReaction}
+                      onReactionClick={(emoji) => {
+                        handleReactionClick(emoji);
+                        setShowReactionPicker(false);
+                        reactionTriggerRef.current?.focus();
+                      }}
+                      onAddClick={() => setShowReactionPicker(!showReactionPicker)}
+                      showPicker={showReactionPicker}
+                      pickerRef={reactionPickerRef}
+                      triggerRef={(el) => {
+                        reactionTriggerRef.current = el;
+                      }}
+                      optionRefs={reactionOptionRefs}
+                      onPickerBlur={handleReactionPickerBlur}
+                      onTriggerKeyDown={handleReactionTriggerKeyDown}
+                      onOptionKeyDown={handleReactionOptionKeyDown}
+                      pickerPosition="above"
+                      reactionDetails={reactionDetails}
+                      onLoadReactionDetails={loadReactionDetails}
+                      currentUserId={user?.id}
+                      showNames={commentsEnabled}
+                    />
 
                     {/* Collapse button - pushed to right */}
                     <button
