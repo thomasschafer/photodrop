@@ -195,25 +195,36 @@ test.describe('Reactions and comments', () => {
       await showButton.click();
     }
 
-    // Wait for comments to load
-    await page.waitForTimeout(500);
+    // Use a unique comment text to avoid interference from other tests
+    const uniqueCommentText = `Delete test comment ${Date.now()}`;
 
-    // Find delete button within the sidebar/comments area and click it
-    const sidebar = page.locator('.bg-surface\\/95');
-    const deleteButton = sidebar.getByRole('button', { name: /delete/i }).first();
+    // Add a comment so we have something to delete
+    const commentInput = page.getByPlaceholder(/add a comment/i);
+    await expect(commentInput).toBeVisible();
+    await commentInput.fill(uniqueCommentText);
+    await page.getByRole('button', { name: /post/i }).click();
 
-    if (await deleteButton.isVisible({ timeout: 5000 })) {
-      await deleteButton.scrollIntoViewIfNeeded();
-      await deleteButton.click({ force: true });
+    // Verify comment appears
+    const commentParagraph = page.locator('p.text-text-secondary', { hasText: uniqueCommentText });
+    await expect(commentParagraph).toBeVisible({ timeout: 5000 });
 
-      // Confirm deletion in the modal
-      const confirmModal = page.getByRole('dialog', { name: 'Delete comment' });
-      await expect(confirmModal).toBeVisible();
-      await confirmModal.getByRole('button', { name: 'Delete' }).click();
+    // Find the delete button within the same comment container (parent div of the paragraph)
+    const commentContainer = commentParagraph.locator('..');
+    const deleteButton = commentContainer.getByRole('button', { name: /delete/i });
 
-      // Comment should be gone
-      await expect(page.getByText('This is a test comment!')).not.toBeVisible({ timeout: 5000 });
-    }
+    await expect(deleteButton).toBeVisible({ timeout: 5000 });
+    await deleteButton.click();
+
+    // Wait for confirm modal to appear - find it by the heading text
+    const confirmModalHeading = page.getByRole('heading', { name: 'Delete comment' });
+    await expect(confirmModalHeading).toBeVisible({ timeout: 5000 });
+
+    // Find the confirm button in the modal
+    const confirmModal = page.locator('[role="dialog"][aria-labelledby="confirm-modal-title"]');
+    await confirmModal.getByRole('button', { name: 'Delete' }).click();
+
+    // Comment should be gone
+    await expect(page.getByText(uniqueCommentText)).not.toBeVisible({ timeout: 5000 });
   });
 
   test('hide comments returns to hidden mode', async ({ page }) => {
@@ -275,12 +286,13 @@ test.describe('Reactions and comments', () => {
     const memberRow = page.locator('div').filter({ hasText: testGroup.adminEmail }).first();
     const commentsToggle = memberRow.locator('button[title*="Comments"]').first();
 
-    if (await commentsToggle.isVisible()) {
-      // Click to toggle
-      await commentsToggle.click();
+    // Assert the toggle is visible
+    await expect(commentsToggle).toBeVisible({ timeout: 5000 });
 
-      // Should see success message
-      await expect(page.getByText(/comments (enabled|disabled)/i)).toBeVisible({ timeout: 5000 });
-    }
+    // Click to toggle
+    await commentsToggle.click();
+
+    // Should see success message
+    await expect(page.getByText(/comments (enabled|disabled)/i)).toBeVisible({ timeout: 5000 });
   });
 });
