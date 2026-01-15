@@ -6,15 +6,16 @@
 [x] when you tab out of the theme or group pickers, they close - this doesn't happen for reaction popup
 [x] This wasn't fixed:
 * when lightbox is open and reactions menu is open, escape should close menu, but instead it closes photo
+[x] weird bug - changing reaction with comments open just clears comments, i.e. it says "No comments yet" even though there are some. Closing and reopening lightbox shows them again
+[x] when hitting hide or show comments with keyboard nav, focus is lost from button, have to tab forward and then back to return. Can you retain focus?
+[x] cache comments/reactions
+[x] comments take up fixed height: I don't like it jumping up and down when scrolling between photos where some have few comments and others many
+[x] deleting comment closes lightbox
+[x] when deleting comments, confirmation needs to know it's own id to delete - seems like the first timeout or whatever deletes whatever is present, even if a new confirmation appeared. Is that confirmation even the best way to confirm? It also shifts the whole content down which is jarring.
+[x] show/hide takes a while with no feedback. Can you expand or contract the UI optimisitally, and for showing then show a spinner for comments when expanding and populate comments when ready?
 
-[ ] weird bug - changing reaction with comments open just clears comments, i.e. it says "No comments yet" even though there are some. Closing and reopening lightbox shows them again
-
-[ ] cache comments/reactions
+[ ] scrolling left and right on comments also scrolls image, please fix
 
 [ ] allow sorting of comments by newest or oldest, default to newest (i.e. newest at top)
 
 [ ] hover and click both work, for both adding reaction and viewing other's reactions in both photo feed and lightbox
-
-[ ] comments take up fixed height: I don't like it jumping up and down when scrolling between photos where some have few comments and others many
-
-[ ] deleting comment closes lightbox

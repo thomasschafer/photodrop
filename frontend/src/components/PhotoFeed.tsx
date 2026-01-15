@@ -660,6 +660,8 @@ function Lightbox({
   const touchStartX = useRef<number | null>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
   const reactionPopoverRef = useRef<HTMLDivElement>(null);
+  const showCommentsButtonRef = useRef<HTMLButtonElement>(null);
+  const hideCommentsButtonRef = useRef<HTMLButtonElement>(null);
 
   const [userReaction, setUserReaction] = useState<string | null>(photo.userReaction);
   const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
@@ -691,21 +693,39 @@ function Lightbox({
   const [confirmDeleteCommentId, setConfirmDeleteCommentId] = useState<string | null>(null);
   const [deleteCommentError, setDeleteCommentError] = useState<string | null>(null);
 
+  // In-memory cache for comments and reaction details (cleared when lightbox closes)
+  const commentsCache = useRef<Map<string, Comment[]>>(new Map());
+  const reactionDetailsCache = useRef<Map<string, ReactionWithUser[]>>(new Map());
+
   const commentsEnabled = user?.commentsEnabled ?? false;
 
-  // Reset state when photo changes
+  // Reset state when navigating to a different photo (restore from cache if available)
   useEffect(() => {
     setUserReaction(photo.userReaction);
     setReactions(photo.reactions);
-    setReactionDetails([]);
     setShowReactionPopover(false);
     setShowReactionPicker(false);
-    setComments([]);
     setNewComment('');
-  }, [photo.id, photo.userReaction, photo.reactions]);
+
+    // Restore from cache if available
+    const cachedComments = commentsCache.current.get(photo.id);
+    const cachedReactionDetails = reactionDetailsCache.current.get(photo.id);
+    setComments(cachedComments ?? []);
+    setReactionDetails(cachedReactionDetails ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photo.id]);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
+  }, []);
+
+  // Disable body scroll while lightbox is open
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
   }, []);
 
   // Close reaction popover on click outside or escape
@@ -743,10 +763,16 @@ function Lightbox({
   };
 
   const loadComments = useCallback(async () => {
+    // Skip fetch if we already have cached comments for this photo
+    if (commentsCache.current.has(photo.id)) {
+      return;
+    }
+
     setLoadingComments(true);
     try {
       const data = await api.photos.getComments(photo.id);
       setComments(data.comments);
+      commentsCache.current.set(photo.id, data.comments);
     } catch (err) {
       console.error('Failed to load comments:', err);
     } finally {
@@ -757,16 +783,30 @@ function Lightbox({
   // Load comments when enabled
   useEffect(() => {
     if (commentsEnabled) {
+      // Set loading immediately if we'll need to fetch (no cache)
+      if (!commentsCache.current.has(photo.id)) {
+        setLoadingComments(true);
+      }
       loadComments();
     }
-  }, [commentsEnabled, loadComments]);
+  }, [commentsEnabled, loadComments, photo.id]);
 
   const loadReactionDetails = async () => {
     if (!commentsEnabled || loadingReactionDetails) return;
+
+    // Use cached data if available
+    const cached = reactionDetailsCache.current.get(photo.id);
+    if (cached) {
+      setReactionDetails(cached);
+      setShowReactionPopover(true);
+      return;
+    }
+
     setLoadingReactionDetails(true);
     try {
       const data = await api.photos.getReactions(photo.id);
       setReactionDetails(data.reactions);
+      reactionDetailsCache.current.set(photo.id, data.reactions);
       setShowReactionPopover(true);
     } catch (err) {
       console.error('Failed to load reaction details:', err);
@@ -806,6 +846,8 @@ function Lightbox({
     // Optimistic update
     setUserReaction(newUserReaction);
     setReactions(newReactions);
+    // Invalidate reaction details cache since user list changed
+    reactionDetailsCache.current.delete(photo.id);
 
     try {
       if (isRemoving) {
@@ -827,20 +869,18 @@ function Lightbox({
     }
   };
 
-  const handleShowComments = async () => {
-    try {
-      await setCommentsEnabled(true);
-    } catch (err) {
+  const handleShowComments = () => {
+    setCommentsEnabled(true).catch((err) => {
       console.error('Failed to enable comments:', err);
-    }
+    });
+    setTimeout(() => hideCommentsButtonRef.current?.focus(), 0);
   };
 
-  const handleHideComments = async () => {
-    try {
-      await setCommentsEnabled(false);
-    } catch (err) {
+  const handleHideComments = () => {
+    setCommentsEnabled(false).catch((err) => {
       console.error('Failed to hide comments:', err);
-    }
+    });
+    setTimeout(() => showCommentsButtonRef.current?.focus(), 0);
   };
 
   const handleSubmitComment = async (e: React.FormEvent) => {
@@ -858,7 +898,11 @@ function Lightbox({
         createdAt: Math.floor(Date.now() / 1000),
         isDeleted: false,
       };
-      setComments((prev) => [...prev, newCommentObj]);
+      setComments((prev) => {
+        const updated = [...prev, newCommentObj];
+        commentsCache.current.set(photo.id, updated);
+        return updated;
+      });
       setNewComment('');
       onPhotoUpdate({ id: photo.id, commentCount: photo.commentCount + 1 });
     } catch (err) {
@@ -881,7 +925,11 @@ function Lightbox({
 
     try {
       await api.photos.deleteComment(photo.id, confirmDeleteCommentId);
-      setComments((prev) => prev.filter((c) => c.id !== confirmDeleteCommentId));
+      setComments((prev) => {
+        const updated = prev.filter((c) => c.id !== confirmDeleteCommentId);
+        commentsCache.current.set(photo.id, updated);
+        return updated;
+      });
       onPhotoUpdate({ id: photo.id, commentCount: Math.max(0, photo.commentCount - 1) });
       setConfirmDeleteCommentId(null);
     } catch (err) {
@@ -1030,31 +1078,28 @@ function Lightbox({
       )}
 
       {/* Main content area */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex flex-col max-w-[98vw] md:max-w-[95vw] max-h-[90vh] mx-2 md:mx-4"
-      >
-        {/* Photo */}
-        <div className="flex-1 min-h-0 flex items-center justify-center">
-          <img
-            src={`${API_BASE_URL}/photos/${photo.id}/download?token=${token}`}
-            alt={photo.caption || 'Photo'}
-            className={`max-w-full object-contain rounded-lg transition-all duration-200 ${
-              commentsEnabled ? 'max-h-[45vh] md:max-h-[50vh]' : 'max-h-[75vh] md:max-h-[80vh]'
-            }`}
-          />
+      <div onClick={(e) => e.stopPropagation()} className="h-full w-full flex flex-col">
+        {/* Upper section: image + counter - takes remaining space after bottom strip */}
+        <div className="flex-1 min-h-0 flex flex-col">
+          {/* Image container */}
+          <div className="flex-1 min-h-0 flex items-center justify-center px-4 md:px-16 pt-4">
+            <img
+              src={`${API_BASE_URL}/photos/${photo.id}/download?token=${token}`}
+              alt={photo.caption || 'Photo'}
+              className="max-w-full max-h-full object-contain rounded-lg"
+            />
+          </div>
+          {/* Photo counter */}
+          <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
+            {currentIndex + 1} / {totalCount}
+          </div>
         </div>
 
-        {/* Photo counter */}
-        <div className="text-center text-white/70 text-sm py-2">
-          {currentIndex + 1} / {totalCount}
-        </div>
-
-        {/* Bottom strip with reactions and comments */}
-        <div className="w-screen relative left-1/2 -translate-x-1/2 px-4">
+        {/* Bottom strip with reactions and comments - shrinks, max 40vh when expanded */}
+        <div className={`flex-shrink-0 w-full px-4 pb-4 ${commentsEnabled ? 'max-h-[40vh]' : ''}`}>
           <div
-            className={`max-w-[900px] mx-auto flex flex-col bg-surface/95 backdrop-blur rounded-lg transition-all duration-200 ${
-              commentsEnabled ? 'max-h-[40vh]' : 'h-auto'
+            className={`max-w-[900px] mx-auto flex flex-col bg-surface/95 backdrop-blur rounded-lg ${
+              commentsEnabled ? 'h-full' : ''
             }`}
           >
             {/* Collapsed state - short wide strip */}
@@ -1132,6 +1177,7 @@ function Lightbox({
                 <div className="ml-auto flex items-center gap-2">
                   <span className="text-xs text-text-muted">Comments hidden</span>
                   <button
+                    ref={showCommentsButtonRef}
                     onClick={handleShowComments}
                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-bg-secondary hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary text-sm cursor-pointer"
                   >
@@ -1259,6 +1305,7 @@ function Lightbox({
 
                     {/* Collapse button - pushed to right */}
                     <button
+                      ref={hideCommentsButtonRef}
                       onClick={handleHideComments}
                       className="ml-auto px-3 py-1.5 rounded-lg bg-bg-secondary hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary text-sm cursor-pointer"
                       title="Hide comments"

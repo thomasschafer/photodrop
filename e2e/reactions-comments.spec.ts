@@ -44,14 +44,19 @@ test.describe('Reactions and comments', () => {
     await page.locator('article').first().click();
 
     // Wait for lightbox to open
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // Open reaction picker (in the lightbox dialog)
+    const addReactionButton = dialog.getByRole('button', { name: 'Add reaction' });
+    await addReactionButton.click();
 
     // Click on heart emoji to react
-    const heartButton = page.getByRole('button', { name: /react with ❤️/i });
-    await heartButton.click();
+    const heartOption = dialog.getByRole('option', { name: /react with ❤️/i });
+    await heartOption.click();
 
-    // Verify the button is now pressed (has ring/highlight)
-    await expect(heartButton).toHaveAttribute('aria-pressed', 'true');
+    // Verify the add reaction button now shows the heart (user's selection)
+    await expect(addReactionButton).toContainText('❤️');
   });
 
   test('user can change their reaction to different emoji', async ({ page }) => {
@@ -60,18 +65,17 @@ test.describe('Reactions and comments', () => {
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Click a different emoji
-    const laughButton = page.getByRole('button', { name: /react with 😂/i });
-    await laughButton.click();
+    // Open reaction picker and click a different emoji
+    const addReactionButton = dialog.getByRole('button', { name: 'Add reaction' });
+    await addReactionButton.click();
+    const laughOption = dialog.getByRole('option', { name: /react with 😂/i });
+    await laughOption.click();
 
-    // Verify the new button is pressed
-    await expect(laughButton).toHaveAttribute('aria-pressed', 'true');
-
-    // Verify heart is no longer pressed
-    const heartButton = page.getByRole('button', { name: /react with ❤️/i });
-    await expect(heartButton).toHaveAttribute('aria-pressed', 'false');
+    // Verify the add reaction button now shows the laugh emoji
+    await expect(addReactionButton).toContainText('😂');
   });
 
   test('user can remove their reaction', async ({ page }) => {
@@ -80,18 +84,25 @@ test.describe('Reactions and comments', () => {
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    const addReactionButton = dialog.getByRole('button', { name: 'Add reaction' });
 
     // First add a reaction (fire emoji to avoid conflicts with other tests)
-    const fireButton = page.getByRole('button', { name: /react with 🔥/i });
-    await fireButton.click();
-    await expect(fireButton).toHaveAttribute('aria-pressed', 'true');
+    await addReactionButton.click();
+    const fireOption = dialog.getByRole('option', { name: /react with 🔥/i });
+    await fireOption.click();
 
-    // Now click again to remove it
-    await fireButton.click();
+    // Verify the add reaction button now shows the fire emoji
+    await expect(addReactionButton).toContainText('🔥');
 
-    // Verify it's no longer pressed
-    await expect(fireButton).toHaveAttribute('aria-pressed', 'false');
+    // Now click fire again to remove it (need to reopen picker)
+    await addReactionButton.click();
+    await dialog.getByRole('option', { name: /react with 🔥/i }).click();
+
+    // Verify the add reaction button shows "+" again (no reaction)
+    await expect(addReactionButton).toContainText('+');
   });
 
   test('reaction counts appear in feed', async ({ page, request }) => {
@@ -115,7 +126,8 @@ test.describe('Reactions and comments', () => {
 
     // Check for reaction display in feed (should show emoji with count)
     const photoCard = page.locator('article').filter({ hasText: 'Test photo for reactions' });
-    await expect(photoCard.locator('text=❤️')).toBeVisible();
+    // Look for the reaction count display (contains emoji and count number)
+    await expect(photoCard.locator('text=❤️').first()).toBeVisible();
   });
 
   test('default mode: comments hidden in lightbox with show prompt', async ({ page }) => {
@@ -126,8 +138,8 @@ test.describe('Reactions and comments', () => {
     await page.locator('article').first().click();
     await expect(page.getByRole('dialog')).toBeVisible();
 
-    // Should see "Comments are hidden" prompt
-    await expect(page.getByText(/comments are hidden/i)).toBeVisible();
+    // Should see "Comments hidden" prompt
+    await expect(page.getByText(/comments hidden/i)).toBeVisible();
   });
 
   test('clicking show enables comments globally', async ({ page }) => {
@@ -139,7 +151,7 @@ test.describe('Reactions and comments', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
 
     // Click to show comments
-    await page.getByText(/comments are hidden.*show/i).click();
+    await page.getByRole('button', { name: 'Show', exact: true }).click();
 
     // Should now see comments section with input
     await expect(page.getByPlaceholder(/add a comment/i)).toBeVisible();
@@ -155,9 +167,9 @@ test.describe('Reactions and comments', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
 
     // Enable comments if not already
-    const hiddenPrompt = page.getByText(/comments are hidden.*show/i);
-    if (await hiddenPrompt.isVisible()) {
-      await hiddenPrompt.click();
+    const showButton = page.getByRole('button', { name: 'Show', exact: true });
+    if (await showButton.isVisible()) {
+      await showButton.click();
     }
 
     // Add a comment
@@ -178,9 +190,9 @@ test.describe('Reactions and comments', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
 
     // Enable comments if needed
-    const hiddenPrompt = page.getByText(/comments are hidden.*show/i);
-    if (await hiddenPrompt.isVisible()) {
-      await hiddenPrompt.click();
+    const showButton = page.getByRole('button', { name: 'Show', exact: true });
+    if (await showButton.isVisible()) {
+      await showButton.click();
     }
 
     // Wait for comments to load
@@ -193,6 +205,11 @@ test.describe('Reactions and comments', () => {
     if (await deleteButton.isVisible({ timeout: 5000 })) {
       await deleteButton.scrollIntoViewIfNeeded();
       await deleteButton.click({ force: true });
+
+      // Confirm deletion in the modal
+      const confirmModal = page.getByRole('dialog', { name: 'Delete comment' });
+      await expect(confirmModal).toBeVisible();
+      await confirmModal.getByRole('button', { name: 'Delete' }).click();
 
       // Comment should be gone
       await expect(page.getByText('This is a test comment!')).not.toBeVisible({ timeout: 5000 });
@@ -208,16 +225,16 @@ test.describe('Reactions and comments', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
 
     // Enable comments if needed
-    const hiddenPrompt = page.getByText(/comments are hidden.*show/i);
-    if (await hiddenPrompt.isVisible()) {
-      await hiddenPrompt.click();
+    const showButton = page.getByRole('button', { name: 'Show', exact: true });
+    if (await showButton.isVisible()) {
+      await showButton.click();
     }
 
     // Click hide button
     await page.getByRole('button', { name: /hide/i }).click();
 
     // Should see hidden prompt again
-    await expect(page.getByText(/comments are hidden/i)).toBeVisible();
+    await expect(page.getByText(/comments hidden/i)).toBeVisible();
   });
 
   test('preference persists across page refresh', async ({ page }) => {
@@ -229,9 +246,9 @@ test.describe('Reactions and comments', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
 
     // Enable comments
-    const hiddenPrompt = page.getByText(/comments are hidden.*show/i);
-    if (await hiddenPrompt.isVisible()) {
-      await hiddenPrompt.click();
+    const showButton = page.getByRole('button', { name: 'Show', exact: true });
+    if (await showButton.isVisible()) {
+      await showButton.click();
     }
 
     // Close lightbox and reload

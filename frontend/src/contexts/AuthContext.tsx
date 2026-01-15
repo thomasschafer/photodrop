@@ -182,12 +182,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('No user logged in');
       }
 
-      await api.users.updatePreferences(enabled);
+      const previousValue = authState.user.commentsEnabled;
 
+      // Optimistic update
       setAuthState((prev) => ({
         ...prev,
         user: prev.user ? { ...prev.user, commentsEnabled: enabled } : null,
       }));
+
+      try {
+        await api.users.updatePreferences(enabled);
+      } catch (err) {
+        // Revert on failure
+        setAuthState((prev) => ({
+          ...prev,
+          user: prev.user ? { ...prev.user, commentsEnabled: previousValue } : null,
+        }));
+        throw err;
+      }
     },
     [authState.user]
   );

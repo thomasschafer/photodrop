@@ -51,6 +51,7 @@ export function MembersList() {
   const editNameButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const removeButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const roleSelectRefs = useRef<Map<string, HTMLSelectElement>>(new Map());
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchMembers = useCallback(async () => {
     if (!currentGroup) return;
@@ -72,9 +73,20 @@ export function MembersList() {
     fetchMembers();
   }, [fetchMembers]);
 
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const showSuccess = (message: string) => {
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+    }
     setSuccessMessage(message);
-    setTimeout(() => setSuccessMessage(null), 3000);
+    successTimeoutRef.current = setTimeout(() => setSuccessMessage(null), 3000);
   };
 
   const handleRoleChangeRequest = (
@@ -321,7 +333,22 @@ export function MembersList() {
       )}
 
       {successMessage && (
-        <div className="mb-4 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-sm">
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 py-2 px-4 rounded-lg bg-green-600 dark:bg-green-700 text-white text-sm shadow-lg flex items-center gap-2"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
           {successMessage}
         </div>
       )}

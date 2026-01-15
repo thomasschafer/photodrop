@@ -82,7 +82,10 @@ export function ConfirmModal({
     variant === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-accent hover:bg-accent-hover';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
       <div
         ref={modalRef}
