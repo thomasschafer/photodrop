@@ -84,10 +84,8 @@ echo "Generated wrangler.prod.toml"
 echo ""
 
 # Install dependencies if needed
-if [ ! -d "node_modules" ]; then
-    echo "Installing backend dependencies..."
-    npm ci
-fi
+echo "Installing backend dependencies..."
+npm install
 
 # Build backend to catch type errors
 echo "Building backend..."
@@ -149,11 +147,8 @@ fi
 echo "Building frontend..."
 cd ../frontend
 
-# Install dependencies if needed
-if [ ! -d "node_modules" ]; then
-    echo "Installing frontend dependencies..."
-    npm ci
-fi
+echo "Installing frontend dependencies..."
+npm install
 
 # Build frontend (API URL is derived from hostname at runtime)
 if ! npm run build; then

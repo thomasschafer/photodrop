@@ -22,5 +22,13 @@ jobs:
       - name: Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@v13
 
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - name: Run lint and format checks
         run: nix run .#check

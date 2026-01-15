@@ -77,14 +77,15 @@
           echo "Running unit tests..."
           echo ""
 
+          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
+          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+
           cd backend
-          npm ci
           npm run test:run
           cd ..
 
           echo ""
           cd frontend
-          npm ci
           npm run test:run
           cd ..
 
@@ -129,15 +130,16 @@
           echo "Running lint and format checks..."
           echo ""
 
+          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
+          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+
           cd backend
-          npm ci
           npm run format
           npm run lint
           cd ..
 
           echo ""
           cd frontend
-          npm ci
           npm run format
           npm run lint
           cd ..
@@ -153,15 +155,16 @@
           echo "Fixing lint and format issues..."
           echo ""
 
+          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
+          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+
           cd backend
-          npm ci
           npm run format:fix
           npm run lint:fix
           cd ..
 
           echo ""
           cd frontend
-          npm ci
           npm run format:fix
           npm run lint:fix
           cd ..
@@ -174,16 +177,17 @@
           export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
           set -e
 
+          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
+          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+
           echo "Type-checking backend..."
           cd backend
-          npm ci
           npm run build
           cd ..
 
           echo ""
           echo "Building frontend..."
           cd frontend
-          npm ci
           npm run build
 
           echo ""
