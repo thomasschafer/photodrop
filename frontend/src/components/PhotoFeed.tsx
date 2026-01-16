@@ -4,7 +4,9 @@ import { api, API_BASE_URL } from '../lib/api';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection, isHorizontalNavKey } from '../lib/keyboard';
 import { useDropdown } from '../lib/useDropdown';
+import { useSwipeGesture } from '../lib/useSwipeGesture';
 import { ConfirmModal } from './ConfirmModal';
+import { SelectDropdown } from './SelectDropdown';
 import { Modal } from './Modal';
 import { PhotoUpload } from './PhotoUpload';
 import { useAuth } from '../contexts/AuthContext';
@@ -228,16 +230,17 @@ function ReactionPills({
       counts[r.emoji]++;
     }
 
-    const computedReactions: ReactionSummary[] = Object.entries(counts).map(([emoji, count]) => ({
-      emoji,
-      count,
-    }));
+    const computedReactions: ReactionSummary[] = Object.entries(counts)
+      .map(([emoji, count]) => ({ emoji, count }))
+      .sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji));
 
     return { computedReactions, reactionsByEmoji: grouped };
   }, [reactionDetails, currentUserId]);
 
-  // Use computed reactions from details if available, otherwise fall back to prop
-  const displayReactions = computedReactions ?? reactions;
+  // Use computed reactions from details if available, otherwise fall back to prop (sorted for consistency)
+  const displayReactions =
+    computedReactions ??
+    [...reactions].sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji));
 
   const handleMouseEnter = () => {
     if (showNames && !hasLoadedRef.current && onLoadReactionDetails) {
@@ -841,6 +844,10 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       {selectedPhoto && selectedPhotoIndex !== null && selectedPhotoIndex >= 0 && (
         <Lightbox
           photo={selectedPhoto}
+          prevPhoto={selectedPhotoIndex > 0 ? photos[selectedPhotoIndex - 1] : undefined}
+          nextPhoto={
+            selectedPhotoIndex < photos.length - 1 ? photos[selectedPhotoIndex + 1] : undefined
+          }
           token={token}
           onClose={handleLightboxClose}
           onPrev={selectedPhotoIndex > 0 ? () => handleLightboxNav('prev') : undefined}
@@ -906,8 +913,283 @@ function formatRelativeTime(timestamp: number): string {
   return date.toLocaleDateString();
 }
 
+function ProgressiveImage({
+  thumbnailSrc,
+  fullSrc,
+  alt,
+}: {
+  thumbnailSrc: string;
+  fullSrc: string;
+  alt: string;
+}) {
+  const [fullLoaded, setFullLoaded] = useState(false);
+
+  return (
+    <div className="relative w-full h-full">
+      {/* Thumbnail - always renders, fades out when full loads */}
+      <img
+        src={thumbnailSrc}
+        alt={alt}
+        className={`absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
+          fullLoaded ? 'opacity-0' : 'opacity-100'
+        }`}
+      />
+      {/* Full image - fades in when loaded */}
+      <img
+        src={fullSrc}
+        alt={alt}
+        className={`absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
+          fullLoaded ? 'opacity-100' : 'opacity-0'
+        }`}
+        onLoad={() => setFullLoaded(true)}
+      />
+    </div>
+  );
+}
+
+const SORT_OPTIONS: Array<{ value: 'newest' | 'oldest'; label: string }> = [
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+];
+
+/**
+ * CommentPanel - Unified component for displaying reactions and comments.
+ * Used for both the current slide (interactive) and prev/next slides (static).
+ *
+ * When interactive=false, the component renders a visual-only version with no handlers.
+ * This ensures perfect visual parity between slides during swipe animations.
+ */
+interface CommentPanelProps {
+  // Data
+  reactions: ReactionSummary[];
+  userReaction: string | null;
+  comments: Comment[];
+  commentsExpanded: boolean;
+  commentsEnabled: boolean;
+  currentUserId?: string;
+  isAdmin: boolean;
+  // Interactive mode - when false, renders static/disabled version
+  interactive: boolean;
+  // Interactive-only props (ignored when interactive=false)
+  reactionPillsProps?: Omit<ReactionPillsProps, 'reactions' | 'userReaction'>;
+  commentSortOrder?: 'newest' | 'oldest';
+  onSortOrderChange?: (order: 'newest' | 'oldest') => void;
+  onToggleExpanded?: () => void;
+  onDeleteComment?: (commentId: string) => void;
+  deletingCommentId?: string | null;
+  loadingComments?: boolean;
+  // Comment input (interactive only)
+  commentInputRef?: React.RefObject<HTMLInputElement | null>;
+  newComment?: string;
+  onNewCommentChange?: (value: string) => void;
+  onSubmitComment?: (e: React.FormEvent) => void;
+  submittingComment?: boolean;
+}
+
+function CommentPanel({
+  reactions,
+  userReaction,
+  comments,
+  commentsExpanded,
+  commentsEnabled,
+  currentUserId,
+  isAdmin,
+  interactive,
+  reactionPillsProps,
+  commentSortOrder = 'newest',
+  onSortOrderChange,
+  onToggleExpanded,
+  onDeleteComment,
+  deletingCommentId,
+  loadingComments,
+  commentInputRef,
+  newComment = '',
+  onNewCommentChange,
+  onSubmitComment,
+  submittingComment,
+}: CommentPanelProps) {
+  // Sort reactions consistently
+  const sortedReactions = [...reactions].sort(
+    (a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji)
+  );
+
+  // Sort comments based on order
+  const sortedComments = [...comments].sort((a, b) =>
+    commentSortOrder === 'oldest' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt
+  );
+
+  // Static reaction pills (non-interactive)
+  const staticReactionPills = (
+    <div className="flex gap-1.5 flex-wrap items-center">
+      {sortedReactions.map((r) => (
+        <div
+          key={r.emoji}
+          className={`h-9 rounded-full flex items-center justify-center text-sm px-2.5 gap-1 ${
+            userReaction === r.emoji ? 'bg-accent/25' : 'bg-bg-secondary'
+          }`}
+        >
+          <span>{r.emoji}</span>
+          <span className="text-text-primary font-medium">{r.count}</span>
+        </div>
+      ))}
+      <div className="h-9 w-9 rounded-full flex items-center justify-center text-sm bg-bg-secondary text-text-muted">
+        +
+      </div>
+    </div>
+  );
+
+  // Render reaction pills - interactive or static
+  const reactionPillsElement =
+    interactive && reactionPillsProps ? (
+      <ReactionPills reactions={reactions} userReaction={userReaction} {...reactionPillsProps} />
+    ) : (
+      staticReactionPills
+    );
+
+  // Expand/collapse button
+  const expandCollapseButton = (
+    <button
+      onClick={
+        interactive
+          ? (e) => {
+              e.stopPropagation();
+              onToggleExpanded?.();
+            }
+          : undefined
+      }
+      className={`p-2 rounded-lg transition-colors text-text-muted ${
+        interactive ? 'hover:bg-bg-tertiary hover:text-text-secondary cursor-pointer' : ''
+      }`}
+      aria-label={commentsExpanded ? 'Collapse comments' : 'Expand comments'}
+      disabled={!interactive}
+    >
+      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d={commentsExpanded ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'}
+        />
+      </svg>
+    </button>
+  );
+
+  return (
+    <div
+      className={`max-w-[900px] mx-auto bg-surface/95 backdrop-blur rounded-lg ${commentsExpanded ? 'h-full flex flex-col' : ''}`}
+    >
+      {!commentsExpanded ? (
+        /* Collapsed state */
+        <div className="flex items-center justify-between p-2 px-3">
+          {reactionPillsElement}
+          {commentsEnabled && expandCollapseButton}
+        </div>
+      ) : (
+        /* Expanded state */
+        <>
+          {/* Header with reactions and controls */}
+          <div className="flex-shrink-0 p-3 border-b border-border">
+            <div className="flex items-center gap-3">
+              {reactionPillsElement}
+              <div className="ml-auto flex items-center gap-2">
+                {!loadingComments &&
+                  (interactive && onSortOrderChange ? (
+                    <SelectDropdown
+                      value={commentSortOrder}
+                      onChange={onSortOrderChange}
+                      options={SORT_OPTIONS}
+                      ariaLabel="Sort order"
+                    />
+                  ) : (
+                    <div className="px-2 py-1 rounded-lg bg-bg-secondary border border-border text-text-muted text-sm">
+                      {commentSortOrder === 'newest' ? 'Newest' : 'Oldest'}
+                    </div>
+                  ))}
+                {expandCollapseButton}
+              </div>
+            </div>
+          </div>
+
+          {/* Comments section */}
+          <div className="flex-1 overflow-y-auto p-3 min-h-0">
+            {loadingComments ? (
+              <div className="flex justify-center py-4">
+                <div className="spinner-sm" />
+              </div>
+            ) : sortedComments.length === 0 ? (
+              <p className="text-sm text-text-muted text-center py-4">No comments yet</p>
+            ) : (
+              <div className="space-y-3">
+                {sortedComments.map((comment) => (
+                  <div key={comment.id} className="text-sm">
+                    <div className="flex justify-between items-start">
+                      <span
+                        className={
+                          comment.isDeleted
+                            ? 'font-medium text-text-muted'
+                            : 'font-medium text-text-primary'
+                        }
+                      >
+                        {comment.isDeleted ? `(deleted) ${comment.authorName}` : comment.authorName}
+                      </span>
+                      {(comment.userId === currentUserId || isAdmin) &&
+                        !comment.isDeleted &&
+                        (interactive && onDeleteComment ? (
+                          <button
+                            onClick={() => onDeleteComment(comment.id)}
+                            disabled={deletingCommentId === comment.id}
+                            className="text-xs text-text-muted hover:text-error transition-colors cursor-pointer"
+                          >
+                            {deletingCommentId === comment.id ? '...' : 'Delete'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-text-muted">Delete</span>
+                        ))}
+                    </div>
+                    <p className="text-text-secondary mt-0.5">{comment.content}</p>
+                    <p className="text-xs text-text-muted mt-1">
+                      {formatRelativeTime(comment.createdAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Comment input */}
+          <form
+            onSubmit={interactive ? onSubmitComment : (e) => e.preventDefault()}
+            className="flex-shrink-0 p-3 border-t border-border"
+          >
+            <div className="flex gap-2">
+              <input
+                ref={interactive ? commentInputRef : undefined}
+                type="text"
+                value={newComment}
+                onChange={interactive ? (e) => onNewCommentChange?.(e.target.value) : undefined}
+                placeholder="Add a comment..."
+                className="flex-1 px-3 py-2 rounded-lg bg-bg-secondary border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                disabled={!interactive || submittingComment}
+              />
+              <button
+                type="submit"
+                disabled={!interactive || !newComment.trim() || submittingComment}
+                className="px-3 py-2 rounded-lg bg-primary text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary-hover transition-colors cursor-pointer"
+              >
+                {submittingComment ? '...' : 'Post'}
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Lightbox({
   photo,
+  prevPhoto,
+  nextPhoto,
   token,
   onClose,
   onPrev,
@@ -918,6 +1200,8 @@ function Lightbox({
   onPhotoUpdate,
 }: {
   photo: Photo;
+  prevPhoto?: Photo;
+  nextPhoto?: Photo;
   token: string;
   onClose: () => void;
   onPrev?: () => void;
@@ -927,12 +1211,29 @@ function Lightbox({
   isAdmin: boolean;
   onPhotoUpdate: (photo: Partial<Photo> & { id: string }) => void;
 }) {
-  const { user, setCommentsEnabled } = useAuth();
+  const { user } = useAuth();
+  const commentsEnabled = user?.commentsEnabled ?? false;
+
+  // Local state for expanded/collapsed - resets when lightbox closes
+  const [commentsExpanded, setCommentsExpanded] = useState(false);
+
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const touchStartX = useRef<number | null>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
-  const showCommentsButtonRef = useRef<HTMLButtonElement>(null);
-  const hideCommentsButtonRef = useRef<HTMLButtonElement>(null);
+  const commentsPanelRef = useRef<HTMLDivElement>(null);
+
+  // Swipe gesture handling - exclude comments panel from triggering swipes
+  const {
+    offset,
+    isAnimating,
+    handlers: swipeHandlers,
+    reset: resetSwipe,
+  } = useSwipeGesture({
+    onSwipeLeft: onNext,
+    onSwipeRight: onPrev,
+    canSwipeLeft: !!onNext,
+    canSwipeRight: !!onPrev,
+    excludeRef: commentsPanelRef,
+  });
 
   const [userReaction, setUserReaction] = useState<string | null>(photo.userReaction);
   const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
@@ -968,21 +1269,13 @@ function Lightbox({
   const commentsCache = useRef<Map<string, Comment[]>>(new Map());
   const reactionDetailsCache = useRef<Map<string, ReactionWithUser[]>>(new Map());
 
-  const commentsEnabled = user?.commentsEnabled ?? false;
-
-  const sortedComments = useMemo(() => {
-    if (commentSortOrder === 'oldest') {
-      return [...comments].sort((a, b) => a.createdAt - b.createdAt);
-    }
-    return comments; // Comments already come back from DB sorted by newest
-  }, [comments, commentSortOrder]);
-
   // Reset state when navigating to a different photo (restore from cache if available)
   useEffect(() => {
     setUserReaction(photo.userReaction);
     setReactions(photo.reactions);
     setShowReactionPicker(false);
     setNewComment('');
+    resetSwipe();
 
     // Restore from cache if available
     const cachedComments = commentsCache.current.get(photo.id);
@@ -991,6 +1284,18 @@ function Lightbox({
     setReactionDetails(cachedReactionDetails ?? []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
+
+  // Preload adjacent images
+  useEffect(() => {
+    if (nextPhoto) {
+      const img = new Image();
+      img.src = `${API_BASE_URL}/photos/${nextPhoto.id}/download?token=${token}`;
+    }
+    if (prevPhoto) {
+      const img = new Image();
+      img.src = `${API_BASE_URL}/photos/${prevPhoto.id}/download?token=${token}`;
+    }
+  }, [photo.id, nextPhoto, prevPhoto, token]);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -1041,6 +1346,24 @@ function Lightbox({
     }
   }, [commentsEnabled, loadComments, photo.id]);
 
+  // Preload comments for adjacent photos
+  useEffect(() => {
+    if (!commentsEnabled) return;
+
+    const preloadComments = async (photoId: string) => {
+      if (commentsCache.current.has(photoId)) return;
+      try {
+        const data = await api.photos.getComments(photoId);
+        commentsCache.current.set(photoId, data.comments);
+      } catch {
+        // Silently fail preloading
+      }
+    };
+
+    if (prevPhoto) preloadComments(prevPhoto.id);
+    if (nextPhoto) preloadComments(nextPhoto.id);
+  }, [commentsEnabled, photo.id, prevPhoto, nextPhoto]);
+
   const loadReactionDetails = useCallback(async () => {
     if (loadingReactionDetails) return;
 
@@ -1069,6 +1392,24 @@ function Lightbox({
       loadReactionDetails();
     }
   }, [commentsEnabled, reactions.length, loadReactionDetails]);
+
+  // Preload reaction details for adjacent photos
+  useEffect(() => {
+    if (!commentsEnabled) return;
+
+    const preloadReactionDetails = async (photoId: string, hasReactions: boolean) => {
+      if (!hasReactions || reactionDetailsCache.current.has(photoId)) return;
+      try {
+        const data = await api.photos.getReactions(photoId);
+        reactionDetailsCache.current.set(photoId, data.reactions);
+      } catch {
+        // Silently fail preloading
+      }
+    };
+
+    if (prevPhoto) preloadReactionDetails(prevPhoto.id, prevPhoto.reactions.length > 0);
+    if (nextPhoto) preloadReactionDetails(nextPhoto.id, nextPhoto.reactions.length > 0);
+  }, [commentsEnabled, photo.id, prevPhoto, nextPhoto]);
 
   const handleReactionClick = async (emoji: string) => {
     if (!user) return;
@@ -1135,18 +1476,8 @@ function Lightbox({
     }
   };
 
-  const handleShowComments = () => {
-    setCommentsEnabled(true).catch((err) => {
-      console.error('Failed to enable comments:', err);
-    });
-    setTimeout(() => hideCommentsButtonRef.current?.focus(), 0);
-  };
-
-  const handleHideComments = () => {
-    setCommentsEnabled(false).catch((err) => {
-      console.error('Failed to hide comments:', err);
-    });
-    setTimeout(() => showCommentsButtonRef.current?.focus(), 0);
+  const handleToggleExpanded = () => {
+    setCommentsExpanded(!commentsExpanded);
   };
 
   const handleSubmitComment = async (e: React.FormEvent) => {
@@ -1244,41 +1575,10 @@ function Lightbox({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose, onPrev, onNext, showReactionPicker]);
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchStartX.current !== null) {
-      e.preventDefault();
-    }
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null) return;
-
-    const touchEndX = e.changedTouches[0].clientX;
-    const diff = touchStartX.current - touchEndX;
-    const minSwipeDistance = 50;
-
-    if (Math.abs(diff) > minSwipeDistance) {
-      if (diff > 0) {
-        onNext?.();
-      } else {
-        onPrev?.();
-      }
-    }
-
-    touchStartX.current = null;
-  };
-
   return (
     <div
       onClick={onClose}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      className="fixed inset-0 z-50 flex flex-col md:flex-row items-center justify-center bg-black/90 touch-none"
+      className="fixed inset-0 z-50 flex flex-col md:flex-row items-center justify-center bg-black/90"
       role="dialog"
       aria-label={`Photo ${currentIndex + 1} of ${totalCount}`}
     >
@@ -1305,7 +1605,7 @@ function Lightbox({
             onPrev();
           }}
           aria-label="Previous photo"
-          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
+          className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
         >
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -1325,7 +1625,7 @@ function Lightbox({
             onNext();
           }}
           aria-label="Next photo"
-          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
+          className="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
         >
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1334,199 +1634,156 @@ function Lightbox({
       )}
 
       {/* Main content area */}
-      <div onClick={(e) => e.stopPropagation()} className="h-full w-full flex flex-col">
-        {/* Upper section: image + counter - takes remaining space after bottom strip */}
-        <div className="flex-1 min-h-0 flex flex-col">
-          {/* Image container */}
-          <div className="flex-1 min-h-0 flex items-center justify-center px-4 md:px-16 pt-4">
-            <img
-              src={`${API_BASE_URL}/photos/${photo.id}/download?token=${token}`}
-              alt={photo.caption || 'Photo'}
-              className="max-w-full max-h-full object-contain rounded-lg"
-            />
-          </div>
-          {/* Photo counter */}
-          <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
-            {currentIndex + 1} / {totalCount}
-          </div>
-        </div>
-
-        {/* Bottom strip with reactions and comments - shrinks, max 40vh when expanded */}
-        <div className={`flex-shrink-0 w-full px-4 pb-4 ${commentsEnabled ? 'max-h-[40vh]' : ''}`}>
+      <div onClick={(e) => e.stopPropagation()} className="h-full w-full overflow-hidden">
+        {/* Carousel container - contains both image and comments */}
+        <div className="h-full" {...swipeHandlers}>
+          {/* Carousel track */}
           <div
-            className={`max-w-[900px] mx-auto flex flex-col bg-surface/95 backdrop-blur rounded-lg ${
-              commentsEnabled ? 'h-full' : ''
-            }`}
+            className={`h-full flex ${isAnimating ? 'transition-transform duration-300 ease-out' : ''}`}
+            style={{
+              transform: `translateX(calc(-100% + ${offset}px))`,
+            }}
           >
-            {/* Collapsed state - short wide strip */}
-            {!commentsEnabled ? (
-              <div className="flex items-center gap-3 p-2 px-3">
-                <ReactionPills
-                  reactions={reactions}
-                  userReaction={userReaction}
-                  onReactionClick={(emoji) => {
-                    handleReactionClick(emoji);
-                    setShowReactionPicker(false);
-                    reactionTriggerRef.current?.focus();
-                  }}
-                  onAddClick={() => setShowReactionPicker(!showReactionPicker)}
-                  showPicker={showReactionPicker}
-                  pickerRef={reactionPickerRef}
-                  triggerRef={(el) => {
-                    reactionTriggerRef.current = el;
-                  }}
-                  optionRefs={reactionOptionRefs}
-                  onPickerBlur={handleReactionPickerBlur}
-                  onTriggerKeyDown={handleReactionTriggerKeyDown}
-                  onOptionKeyDown={handleReactionOptionKeyDown}
-                  pickerPosition="above"
-                  reactionDetails={reactionDetails}
-                  onLoadReactionDetails={loadReactionDetails}
-                  currentUserId={user?.id}
-                  showNames={commentsEnabled}
-                />
-
-                {/* Show comments button - pushed to right */}
-                <div className="ml-auto flex items-center gap-2">
-                  <span className="text-xs text-text-muted">Comments hidden</span>
-                  <button
-                    ref={showCommentsButtonRef}
-                    onClick={handleShowComments}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-bg-secondary hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary text-sm cursor-pointer"
-                  >
-                    Show
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* Expanded state */}
-                {/* Header with reactions */}
-                <div className="p-3 border-b border-border">
-                  <div className="flex items-center gap-3">
-                    <ReactionPills
-                      reactions={reactions}
-                      userReaction={userReaction}
-                      onReactionClick={(emoji) => {
-                        handleReactionClick(emoji);
-                        setShowReactionPicker(false);
-                        reactionTriggerRef.current?.focus();
-                      }}
-                      onAddClick={() => setShowReactionPicker(!showReactionPicker)}
-                      showPicker={showReactionPicker}
-                      pickerRef={reactionPickerRef}
-                      triggerRef={(el) => {
-                        reactionTriggerRef.current = el;
-                      }}
-                      optionRefs={reactionOptionRefs}
-                      onPickerBlur={handleReactionPickerBlur}
-                      onTriggerKeyDown={handleReactionTriggerKeyDown}
-                      onOptionKeyDown={handleReactionOptionKeyDown}
-                      pickerPosition="above"
-                      reactionDetails={reactionDetails}
-                      onLoadReactionDetails={loadReactionDetails}
-                      currentUserId={user?.id}
-                      showNames={commentsEnabled}
+            {/* Previous slide */}
+            <div className="flex-shrink-0 w-full h-full flex flex-col">
+              {/* Image area */}
+              <div
+                className={`flex items-center justify-center px-4 md:px-16 pt-4 min-h-0 ${commentsExpanded ? 'h-[55%]' : 'flex-1'}`}
+              >
+                <div className="w-full h-full flex items-center justify-center">
+                  {prevPhoto && (
+                    <ProgressiveImage
+                      thumbnailSrc={`${API_BASE_URL}/photos/${prevPhoto.id}/thumbnail?token=${token}`}
+                      fullSrc={`${API_BASE_URL}/photos/${prevPhoto.id}/download?token=${token}`}
+                      alt={prevPhoto.caption || 'Previous photo'}
                     />
-
-                    {/* Sort dropdown and collapse button - pushed to right */}
-                    <div className="ml-auto flex items-center gap-2">
-                      {!loadingComments && sortedComments.length > 1 && (
-                        <select
-                          value={commentSortOrder}
-                          onChange={(e) =>
-                            setCommentSortOrder(e.target.value as 'newest' | 'oldest')
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.currentTarget.showPicker?.();
-                            }
-                          }}
-                          className="px-2 py-1 rounded-lg bg-bg-secondary border border-border text-text-muted text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent"
-                        >
-                          <option value="newest">Newest</option>
-                          <option value="oldest">Oldest</option>
-                        </select>
-                      )}
-                      <button
-                        ref={hideCommentsButtonRef}
-                        onClick={handleHideComments}
-                        className="px-3 py-1.5 rounded-lg bg-bg-secondary hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary text-sm cursor-pointer"
-                        title="Hide comments"
-                      >
-                        Hide comments
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Comments section */}
-                <div className="flex-1 overflow-y-auto p-3 min-h-0">
-                  {loadingComments ? (
-                    <div className="flex justify-center py-4">
-                      <div className="spinner-sm" />
-                    </div>
-                  ) : sortedComments.length === 0 ? (
-                    <p className="text-sm text-text-muted text-center py-4">No comments yet</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {sortedComments.map((comment) => (
-                        <div key={comment.id} className="text-sm">
-                          <div className="flex justify-between items-start">
-                            <span
-                              className={
-                                comment.isDeleted
-                                  ? 'font-medium text-text-muted'
-                                  : 'font-medium text-text-primary'
-                              }
-                            >
-                              {comment.isDeleted
-                                ? `(deleted) ${comment.authorName}`
-                                : comment.authorName}
-                            </span>
-                            {(comment.userId === user?.id || isAdmin) && !comment.isDeleted && (
-                              <button
-                                onClick={() => handleDeleteComment(comment.id)}
-                                disabled={deletingCommentId === comment.id}
-                                className="text-xs text-text-muted hover:text-error transition-colors cursor-pointer"
-                              >
-                                {deletingCommentId === comment.id ? '...' : 'Delete'}
-                              </button>
-                            )}
-                          </div>
-                          <p className="text-text-secondary mt-0.5">{comment.content}</p>
-                          <p className="text-xs text-text-muted mt-1">
-                            {formatRelativeTime(comment.createdAt)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
                   )}
                 </div>
+              </div>
+              <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
+                {currentIndex} / {totalCount}
+              </div>
+              {/* Placeholder panel - sticks to bottom, only show if there's a prev photo */}
+              {prevPhoto && (
+                <div className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}>
+                  <CommentPanel
+                    reactions={prevPhoto.reactions}
+                    userReaction={prevPhoto.userReaction}
+                    comments={commentsCache.current.get(prevPhoto.id) || []}
+                    commentsExpanded={commentsExpanded}
+                    commentsEnabled={commentsEnabled}
+                    currentUserId={user?.id}
+                    isAdmin={isAdmin}
+                    interactive={false}
+                  />
+                </div>
+              )}
+            </div>
 
-                {/* Comment input */}
-                <form onSubmit={handleSubmitComment} className="p-3 border-t border-border">
-                  <div className="flex gap-2">
-                    <input
-                      ref={commentInputRef}
-                      type="text"
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      placeholder="Add a comment..."
-                      className="flex-1 px-3 py-2 rounded-lg bg-bg-secondary border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                      disabled={submittingComment}
+            {/* Current slide */}
+            <div className="flex-shrink-0 w-full h-full flex flex-col">
+              {/* Image area */}
+              <div
+                className={`flex items-center justify-center px-4 md:px-16 pt-4 min-h-0 ${commentsExpanded ? 'h-[55%]' : 'flex-1'}`}
+              >
+                <div className="w-full h-full flex items-center justify-center">
+                  <ProgressiveImage
+                    key={photo.id}
+                    thumbnailSrc={`${API_BASE_URL}/photos/${photo.id}/thumbnail?token=${token}`}
+                    fullSrc={`${API_BASE_URL}/photos/${photo.id}/download?token=${token}`}
+                    alt={photo.caption || 'Photo'}
+                  />
+                </div>
+              </div>
+              <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
+                {currentIndex + 1} / {totalCount}
+              </div>
+              {/* Comments panel - sticks to bottom, excluded from swipe detection */}
+              <div
+                ref={commentsPanelRef}
+                className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}
+              >
+                <CommentPanel
+                  reactions={reactions}
+                  userReaction={userReaction}
+                  comments={comments}
+                  commentsExpanded={commentsExpanded}
+                  commentsEnabled={commentsEnabled}
+                  currentUserId={user?.id}
+                  isAdmin={isAdmin}
+                  interactive={true}
+                  reactionPillsProps={{
+                    onReactionClick: (emoji) => {
+                      handleReactionClick(emoji);
+                      setShowReactionPicker(false);
+                      reactionTriggerRef.current?.focus();
+                    },
+                    onAddClick: () => setShowReactionPicker(!showReactionPicker),
+                    showPicker: showReactionPicker,
+                    pickerRef: reactionPickerRef,
+                    triggerRef: (el) => {
+                      reactionTriggerRef.current = el;
+                    },
+                    optionRefs: reactionOptionRefs,
+                    onPickerBlur: handleReactionPickerBlur,
+                    onTriggerKeyDown: handleReactionTriggerKeyDown,
+                    onOptionKeyDown: handleReactionOptionKeyDown,
+                    pickerPosition: 'above',
+                    reactionDetails: reactionDetails,
+                    onLoadReactionDetails: loadReactionDetails,
+                    currentUserId: user?.id,
+                    showNames: commentsExpanded,
+                  }}
+                  commentSortOrder={commentSortOrder}
+                  onSortOrderChange={setCommentSortOrder}
+                  onToggleExpanded={handleToggleExpanded}
+                  onDeleteComment={handleDeleteComment}
+                  deletingCommentId={deletingCommentId}
+                  loadingComments={loadingComments}
+                  commentInputRef={commentInputRef}
+                  newComment={newComment}
+                  onNewCommentChange={setNewComment}
+                  onSubmitComment={handleSubmitComment}
+                  submittingComment={submittingComment}
+                />
+              </div>
+            </div>
+
+            {/* Next slide */}
+            <div className="flex-shrink-0 w-full h-full flex flex-col">
+              {/* Image area */}
+              <div
+                className={`flex items-center justify-center px-4 md:px-16 pt-4 min-h-0 ${commentsExpanded ? 'h-[55%]' : 'flex-1'}`}
+              >
+                <div className="w-full h-full flex items-center justify-center">
+                  {nextPhoto && (
+                    <ProgressiveImage
+                      thumbnailSrc={`${API_BASE_URL}/photos/${nextPhoto.id}/thumbnail?token=${token}`}
+                      fullSrc={`${API_BASE_URL}/photos/${nextPhoto.id}/download?token=${token}`}
+                      alt={nextPhoto.caption || 'Next photo'}
                     />
-                    <button
-                      type="submit"
-                      disabled={!newComment.trim() || submittingComment}
-                      className="px-3 py-2 rounded-lg bg-primary text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary-hover transition-colors cursor-pointer"
-                    >
-                      {submittingComment ? '...' : 'Post'}
-                    </button>
-                  </div>
-                </form>
-              </>
-            )}
+                  )}
+                </div>
+              </div>
+              <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
+                {currentIndex + 2} / {totalCount}
+              </div>
+              {/* Placeholder panel - sticks to bottom, only show if there's a next photo */}
+              {nextPhoto && (
+                <div className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}>
+                  <CommentPanel
+                    reactions={nextPhoto.reactions}
+                    userReaction={nextPhoto.userReaction}
+                    comments={commentsCache.current.get(nextPhoto.id) || []}
+                    commentsExpanded={commentsExpanded}
+                    commentsEnabled={commentsEnabled}
+                    currentUserId={user?.id}
+                    isAdmin={isAdmin}
+                    interactive={false}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

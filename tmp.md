@@ -1,3 +1,7 @@
+# Todo
+[ ] keyboard nav on comments dropdown etc., also outline cropped
+
+# Done
 [x] on keyboard nav:
 * popup now gets hidden at bottom, when it reaches the end of list item in the feed
 * when hitting escape when emoji menu is open, focus goes back to button, which is great! But this doesn't happen when hitting enter/space to select, please fix
@@ -16,7 +20,4 @@
 [x] allow sorting of comments by newest or oldest, default to newest (i.e. newest at top)
 [x] when hovering (or holding on mobile) over the reaction pills, the names are quite small - can you make a liittle larger, and also add margin between pill and popup to make it easier to see when holding on mobile?
 [x] make reactions appear above +
-
-[ ] scrolling left and right on comments also scrolls image, please fix
-
-[ ] properly scroll pictures like gallery?
+[x] scrolling improvements (scrolling left and right on comments also scrolls image, please fix/properly scroll pictures like gallery?):

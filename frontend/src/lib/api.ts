@@ -217,10 +217,10 @@ export const api = {
       return response.json();
     },
 
-    updatePreferences: async (commentsEnabled: boolean) => {
+    updatePreferences: async (preferences: { commentsEnabled?: boolean }) => {
       const response = await fetchWithAuth('/users/me/preferences', {
         method: 'PATCH',
-        body: JSON.stringify({ commentsEnabled }),
+        body: JSON.stringify(preferences),
       });
       return response.json();
     },

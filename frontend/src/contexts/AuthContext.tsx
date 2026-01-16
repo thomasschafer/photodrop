@@ -191,7 +191,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }));
 
       try {
-        await api.users.updatePreferences(enabled);
+        await api.users.updatePreferences({ commentsEnabled: enabled });
       } catch (err) {
         // Revert on failure
         setAuthState((prev) => ({
