@@ -155,7 +155,7 @@ function ReactionPillButton({
       </button>
       {names && names.length > 0 && (
         <div
-          className={`absolute left-1/2 -translate-x-1/2 bottom-full mb-1 px-2 py-1 bg-surface border border-border rounded-lg shadow-elevated text-xs text-text-secondary whitespace-nowrap transition-opacity pointer-events-none z-[70] ${
+          className={`absolute left-1/2 -translate-x-1/2 bottom-full mb-2.5 px-2.5 py-1.5 bg-surface border border-border rounded-lg shadow-elevated text-sm text-text-secondary whitespace-nowrap transition-opacity pointer-events-none z-[70] ${
             showTooltip ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
         >
@@ -799,6 +799,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                     onLoadReactionDetails={() => loadFeedReactionDetails(photo.id)}
                     currentUserId={user?.id}
                     showNames={commentsEnabled}
+                    pickerPosition="above"
                   />
                 </div>
                 <div className="flex justify-between items-center">
@@ -955,6 +956,7 @@ function Lightbox({
   });
 
   const [comments, setComments] = useState<Comment[]>([]);
+  const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [loadingComments, setLoadingComments] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -967,6 +969,13 @@ function Lightbox({
   const reactionDetailsCache = useRef<Map<string, ReactionWithUser[]>>(new Map());
 
   const commentsEnabled = user?.commentsEnabled ?? false;
+
+  const sortedComments = useMemo(() => {
+    if (commentSortOrder === 'oldest') {
+      return [...comments].sort((a, b) => a.createdAt - b.createdAt);
+    }
+    return comments; // Comments already come back from DB sorted by newest
+  }, [comments, commentSortOrder]);
 
   // Reset state when navigating to a different photo (restore from cache if available)
   useEffect(() => {
@@ -1156,7 +1165,7 @@ function Lightbox({
         isDeleted: false,
       };
       setComments((prev) => {
-        const updated = [...prev, newCommentObj];
+        const updated = [newCommentObj, ...prev];
         commentsCache.current.set(photo.id, updated);
         return updated;
       });
@@ -1420,15 +1429,34 @@ function Lightbox({
                       showNames={commentsEnabled}
                     />
 
-                    {/* Collapse button - pushed to right */}
-                    <button
-                      ref={hideCommentsButtonRef}
-                      onClick={handleHideComments}
-                      className="ml-auto px-3 py-1.5 rounded-lg bg-bg-secondary hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary text-sm cursor-pointer"
-                      title="Hide comments"
-                    >
-                      Hide comments
-                    </button>
+                    {/* Sort dropdown and collapse button - pushed to right */}
+                    <div className="ml-auto flex items-center gap-2">
+                      {!loadingComments && sortedComments.length > 1 && (
+                        <select
+                          value={commentSortOrder}
+                          onChange={(e) =>
+                            setCommentSortOrder(e.target.value as 'newest' | 'oldest')
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.showPicker?.();
+                            }
+                          }}
+                          className="px-2 py-1 rounded-lg bg-bg-secondary border border-border text-text-muted text-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent"
+                        >
+                          <option value="newest">Newest</option>
+                          <option value="oldest">Oldest</option>
+                        </select>
+                      )}
+                      <button
+                        ref={hideCommentsButtonRef}
+                        onClick={handleHideComments}
+                        className="px-3 py-1.5 rounded-lg bg-bg-secondary hover:bg-bg-tertiary transition-colors text-text-muted hover:text-text-secondary text-sm cursor-pointer"
+                        title="Hide comments"
+                      >
+                        Hide comments
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1438,11 +1466,11 @@ function Lightbox({
                     <div className="flex justify-center py-4">
                       <div className="spinner-sm" />
                     </div>
-                  ) : comments.length === 0 ? (
+                  ) : sortedComments.length === 0 ? (
                     <p className="text-sm text-text-muted text-center py-4">No comments yet</p>
                   ) : (
                     <div className="space-y-3">
-                      {comments.map((comment) => (
+                      {sortedComments.map((comment) => (
                         <div key={comment.id} className="text-sm">
                           <div className="flex justify-between items-start">
                             <span

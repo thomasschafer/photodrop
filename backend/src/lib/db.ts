@@ -637,7 +637,7 @@ export async function getCommentsByPhotoId(db: D1Database, photoId: string): Pro
       `SELECT id, photo_id, user_id, author_name, content, created_at
        FROM comments
        WHERE photo_id = ?
-       ORDER BY created_at ASC`
+       ORDER BY created_at DESC`
     )
     .bind(photoId)
     .all<Comment>();

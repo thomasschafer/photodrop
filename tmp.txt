@@ -13,9 +13,10 @@
 [x] deleting comment closes lightbox
 [x] when deleting comments, confirmation needs to know it's own id to delete - seems like the first timeout or whatever deletes whatever is present, even if a new confirmation appeared. Is that confirmation even the best way to confirm? It also shifts the whole content down which is jarring.
 [x] show/hide takes a while with no feedback. Can you expand or contract the UI optimisitally, and for showing then show a spinner for comments when expanding and populate comments when ready?
+[x] allow sorting of comments by newest or oldest, default to newest (i.e. newest at top)
+[x] when hovering (or holding on mobile) over the reaction pills, the names are quite small - can you make a liittle larger, and also add margin between pill and popup to make it easier to see when holding on mobile?
+[x] make reactions appear above +
 
 [ ] scrolling left and right on comments also scrolls image, please fix
 
-[ ] allow sorting of comments by newest or oldest, default to newest (i.e. newest at top)
-
-[ ] hover and click both work, for both adding reaction and viewing other's reactions in both photo feed and lightbox
+[ ] properly scroll pictures like gallery?
