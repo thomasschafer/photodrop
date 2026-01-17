@@ -1,5 +1,5 @@
 # Todo
-[ ] allow multiswipe
+[x] allow multiswipe (todo: test on mobile)
 [ ] fix lots of reactions etc. on mobile - layout too crushed
 [ ] flicker after Newest/Oldest - triangle to the right only appears after the image stops
 [ ] for the n/m counter below photos: when comments are expanded, there is too much padding below: more padding below than above, even though the padding is equal when comments are not expanded.

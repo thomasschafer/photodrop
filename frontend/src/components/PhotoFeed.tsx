@@ -4,7 +4,7 @@ import { api, API_BASE_URL } from '../lib/api';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection, isHorizontalNavKey } from '../lib/keyboard';
 import { useDropdown } from '../lib/useDropdown';
-import { useSwipeGesture } from '../lib/useSwipeGesture';
+import { useVirtualCarousel } from '../lib/useVirtualCarousel';
 import { ConfirmModal } from './ConfirmModal';
 import { SelectDropdown } from './SelectDropdown';
 import { Modal } from './Modal';
@@ -479,18 +479,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   };
 
-  const handleLightboxNav = useCallback(
-    (direction: 'prev' | 'next') => {
-      if (selectedPhotoIndex === null || selectedPhotoIndex < 0) return;
-      const newIndex =
-        direction === 'next'
-          ? Math.min(selectedPhotoIndex + 1, photos.length - 1)
-          : Math.max(selectedPhotoIndex - 1, 0);
-      navigate(`/photo/${photos[newIndex].id}`, { replace: true });
-    },
-    [selectedPhotoIndex, photos, navigate]
-  );
-
   const handleLightboxClose = useCallback(() => {
     const indexToFocus = selectedPhotoIndex;
     navigate('/');
@@ -842,19 +830,13 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
       {selectedPhoto && selectedPhotoIndex !== null && selectedPhotoIndex >= 0 && (
         <Lightbox
-          photo={selectedPhoto}
-          prevPhoto={selectedPhotoIndex > 0 ? photos[selectedPhotoIndex - 1] : undefined}
-          nextPhoto={
-            selectedPhotoIndex < photos.length - 1 ? photos[selectedPhotoIndex + 1] : undefined
-          }
+          photos={photos}
+          initialIndex={selectedPhotoIndex}
           token={token}
           onClose={handleLightboxClose}
-          onPrev={selectedPhotoIndex > 0 ? () => handleLightboxNav('prev') : undefined}
-          onNext={
-            selectedPhotoIndex < photos.length - 1 ? () => handleLightboxNav('next') : undefined
-          }
-          currentIndex={selectedPhotoIndex}
-          totalCount={photos.length}
+          onIndexChange={(index) => {
+            navigate(`/photo/${photos[index].id}`, { replace: true });
+          }}
           isAdmin={isAdmin}
           onPhotoUpdate={(updatedPhoto) => {
             setPhotos((prev) =>
@@ -929,14 +911,16 @@ function ProgressiveImage({
   });
 
   // Handle src changes when component is reused (no key remount)
+  // Use RAF to avoid synchronous setState in effect (lint rule)
   useEffect(() => {
     const img = new Image();
     img.src = fullSrc;
-    if (img.complete && img.naturalWidth > 0) {
-      setFullLoaded(true);
-    } else {
-      setFullLoaded(false);
-    }
+
+    const rafId = requestAnimationFrame(() => {
+      setFullLoaded(img.complete && img.naturalWidth > 0);
+    });
+
+    return () => cancelAnimationFrame(rafId);
   }, [fullSrc]);
 
   return (
@@ -1200,27 +1184,19 @@ function CommentPanel({
 }
 
 function Lightbox({
-  photo,
-  prevPhoto,
-  nextPhoto,
+  photos,
+  initialIndex,
   token,
   onClose,
-  onPrev,
-  onNext,
-  currentIndex,
-  totalCount,
+  onIndexChange,
   isAdmin,
   onPhotoUpdate,
 }: {
-  photo: Photo;
-  prevPhoto?: Photo;
-  nextPhoto?: Photo;
+  photos: Photo[];
+  initialIndex: number;
   token: string;
   onClose: () => void;
-  onPrev?: () => void;
-  onNext?: () => void;
-  currentIndex: number;
-  totalCount: number;
+  onIndexChange: (index: number) => void;
   isAdmin: boolean;
   onPhotoUpdate: (photo: Partial<Photo> & { id: string }) => void;
 }) {
@@ -1233,19 +1209,28 @@ function Lightbox({
   const commentInputRef = useRef<HTMLInputElement>(null);
   const commentsPanelRef = useRef<HTMLDivElement>(null);
 
-  // Swipe gesture handling - exclude comments panel from triggering swipes
+  // Virtual carousel for smooth, unlimited swiping
   const {
+    centerIndex,
     offset,
     isAnimating,
+    visibleIndices,
     handlers: swipeHandlers,
-    reset: resetSwipe,
-  } = useSwipeGesture({
-    onSwipeLeft: onNext,
-    onSwipeRight: onPrev,
-    canSwipeLeft: !!onNext,
-    canSwipeRight: !!onPrev,
+    reset: resetCarousel,
+  } = useVirtualCarousel({
+    totalCount: photos.length,
+    initialIndex,
+    onIndexChange,
+    windowSize: 5,
     excludeRef: commentsPanelRef,
   });
+
+  // Current photo based on carousel position
+  const photo = photos[centerIndex];
+  const prevPhoto = centerIndex > 0 ? photos[centerIndex - 1] : undefined;
+  const nextPhoto = centerIndex < photos.length - 1 ? photos[centerIndex + 1] : undefined;
+  const currentIndex = centerIndex;
+  const totalCount = photos.length;
 
   const [userReaction, setUserReaction] = useState<string | null>(photo.userReaction);
   const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
@@ -1281,10 +1266,12 @@ function Lightbox({
   const commentsCache = useRef<Map<string, Comment[]>>(new Map());
   const reactionDetailsCache = useRef<Map<string, ReactionWithUser[]>>(new Map());
 
-  // Reset swipe state synchronously before paint to prevent flashing old content
+  // Sync carousel when initialIndex changes externally (e.g., keyboard navigation)
   useLayoutEffect(() => {
-    resetSwipe();
-  }, [photo.id, resetSwipe]);
+    if (initialIndex !== centerIndex) {
+      resetCarousel(initialIndex);
+    }
+  }, [initialIndex, centerIndex, resetCarousel]);
 
   // Reset other state when navigating to a different photo (restore from cache if available)
   useEffect(() => {
@@ -1298,6 +1285,9 @@ function Lightbox({
     const cachedReactionDetails = reactionDetailsCache.current.get(photo.id);
     setComments(cachedComments ?? []);
     setReactionDetails(cachedReactionDetails ?? []);
+    // We intentionally only sync from photo props when the photo ID changes,
+    // not when reactions/userReaction update (local state may be more current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
 
   // Preload adjacent images
@@ -1571,23 +1561,23 @@ function Lightbox({
         return;
       }
       const direction = getNavDirection(e);
-      if (direction === 'left') {
+      if (direction === 'left' && currentIndex > 0) {
         e.preventDefault();
-        onPrev?.();
-      } else if (direction === 'right') {
+        onIndexChange(currentIndex - 1);
+      } else if (direction === 'right' && currentIndex < totalCount - 1) {
         e.preventDefault();
-        onNext?.();
+        onIndexChange(currentIndex + 1);
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, onPrev, onNext, showReactionPicker]);
+  }, [onClose, onIndexChange, currentIndex, totalCount, showReactionPicker]);
 
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex flex-col md:flex-row items-center justify-center bg-black/90"
+      className="fixed inset-0 z-50 flex flex-col md:flex-row items-center justify-center bg-black"
       role="dialog"
       aria-label={`Photo ${currentIndex + 1} of ${totalCount}`}
     >
@@ -1607,11 +1597,11 @@ function Lightbox({
         </svg>
       </button>
 
-      {onPrev && (
+      {currentIndex > 0 && (
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onPrev();
+            onIndexChange(currentIndex - 1);
           }}
           aria-label="Previous photo"
           className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
@@ -1627,11 +1617,11 @@ function Lightbox({
         </button>
       )}
 
-      {onNext && (
+      {currentIndex < totalCount - 1 && (
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onNext();
+            onIndexChange(currentIndex + 1);
           }}
           aria-label="Next photo"
           className="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
@@ -1650,149 +1640,101 @@ function Lightbox({
           <div
             className={`h-full flex ${isAnimating ? 'transition-transform duration-300 ease-out' : ''}`}
             style={{
-              transform: `translateX(calc(-100% + ${offset}px))`,
+              transform: `translateX(calc(-${visibleIndices.indexOf(centerIndex) * 100}% + ${offset}px))`,
             }}
           >
-            {/* Previous slide */}
-            <div className="flex-shrink-0 w-full h-full flex flex-col">
-              {/* Image area */}
-              <div
-                className={`flex items-center justify-center px-4 md:px-16 pt-4 min-h-0 ${commentsExpanded ? 'h-[55%]' : 'flex-1'}`}
-              >
-                <div className="w-full h-full flex items-center justify-center">
-                  {prevPhoto && (
-                    <ProgressiveImage
-                      thumbnailSrc={`${API_BASE_URL}/photos/${prevPhoto.id}/thumbnail?token=${token}`}
-                      fullSrc={`${API_BASE_URL}/photos/${prevPhoto.id}/download?token=${token}`}
-                      alt={prevPhoto.caption || 'Previous photo'}
-                    />
-                  )}
-                </div>
-              </div>
-              {prevPhoto && (
-                <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
-                  {currentIndex} / {totalCount}
-                </div>
-              )}
-              {/* Placeholder panel - sticks to bottom, only show if there's a prev photo */}
-              {prevPhoto && (
-                <div className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}>
-                  <CommentPanel
-                    reactions={prevPhoto.reactions}
-                    userReaction={prevPhoto.userReaction}
-                    comments={commentsCache.current.get(prevPhoto.id) || []}
-                    commentsExpanded={commentsExpanded}
-                    currentUserId={user?.id}
-                    isAdmin={isAdmin}
-                    interactive={false}
-                  />
-                </div>
-              )}
-            </div>
+            {visibleIndices.map((photoIndex) => {
+              // Render empty placeholder for out-of-bounds indices
+              // This keeps the DOM structure consistent for smooth animations
+              if (photoIndex < 0 || photoIndex >= photos.length) {
+                return (
+                  <div key={`placeholder-${photoIndex}`} className="flex-shrink-0 w-full h-full" />
+                );
+              }
 
-            {/* Current slide */}
-            <div className="flex-shrink-0 w-full h-full flex flex-col">
-              {/* Image area */}
-              <div
-                className={`flex items-center justify-center px-4 md:px-16 pt-4 min-h-0 ${commentsExpanded ? 'h-[55%]' : 'flex-1'}`}
-              >
-                <div className="w-full h-full flex items-center justify-center">
-                  <ProgressiveImage
-                    thumbnailSrc={`${API_BASE_URL}/photos/${photo.id}/thumbnail?token=${token}`}
-                    fullSrc={`${API_BASE_URL}/photos/${photo.id}/download?token=${token}`}
-                    alt={photo.caption || 'Photo'}
-                  />
-                </div>
-              </div>
-              <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
-                {currentIndex + 1} / {totalCount}
-              </div>
-              {/* Comments panel - sticks to bottom, excluded from swipe detection */}
-              <div
-                ref={commentsPanelRef}
-                className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}
-              >
-                <CommentPanel
-                  reactions={reactions}
-                  userReaction={userReaction}
-                  comments={comments}
-                  commentsExpanded={commentsExpanded}
-                  currentUserId={user?.id}
-                  isAdmin={isAdmin}
-                  interactive={true}
-                  reactionPillsProps={{
-                    onReactionClick: (emoji) => {
-                      handleReactionClick(emoji);
-                      setShowReactionPicker(false);
-                      reactionTriggerRef.current?.focus();
-                    },
-                    onAddClick: () => setShowReactionPicker(!showReactionPicker),
-                    showPicker: showReactionPicker,
-                    pickerRef: reactionPickerRef,
-                    triggerRef: (el) => {
-                      reactionTriggerRef.current = el;
-                    },
-                    optionRefs: reactionOptionRefs,
-                    onPickerBlur: handleReactionPickerBlur,
-                    onTriggerKeyDown: handleReactionTriggerKeyDown,
-                    onOptionKeyDown: handleReactionOptionKeyDown,
-                    pickerPosition: 'above',
-                    reactionDetails: reactionDetails,
-                    onLoadReactionDetails: loadReactionDetails,
-                    currentUserId: user?.id,
-                    showNames: true,
-                  }}
-                  commentSortOrder={commentSortOrder}
-                  onSortOrderChange={setCommentSortOrder}
-                  onToggleExpanded={handleToggleExpanded}
-                  onDeleteComment={handleDeleteComment}
-                  deletingCommentId={deletingCommentId}
-                  loadingComments={loadingComments}
-                  commentInputRef={commentInputRef}
-                  newComment={newComment}
-                  onNewCommentChange={setNewComment}
-                  onSubmitComment={handleSubmitComment}
-                  submittingComment={submittingComment}
-                />
-              </div>
-            </div>
+              const slidePhoto = photos[photoIndex];
+              const isCurrent = photoIndex === centerIndex;
 
-            {/* Next slide */}
-            <div className="flex-shrink-0 w-full h-full flex flex-col">
-              {/* Image area */}
-              <div
-                className={`flex items-center justify-center px-4 md:px-16 pt-4 min-h-0 ${commentsExpanded ? 'h-[55%]' : 'flex-1'}`}
-              >
-                <div className="w-full h-full flex items-center justify-center">
-                  {nextPhoto && (
-                    <ProgressiveImage
-                      thumbnailSrc={`${API_BASE_URL}/photos/${nextPhoto.id}/thumbnail?token=${token}`}
-                      fullSrc={`${API_BASE_URL}/photos/${nextPhoto.id}/download?token=${token}`}
-                      alt={nextPhoto.caption || 'Next photo'}
-                    />
-                  )}
+              return (
+                <div key={slidePhoto.id} className="flex-shrink-0 w-full h-full flex flex-col">
+                  {/* Image area */}
+                  <div
+                    className={`flex items-center justify-center px-4 md:px-16 pt-4 min-h-0 ${commentsExpanded ? 'h-[55%]' : 'flex-1'}`}
+                  >
+                    <div className="w-full h-full flex items-center justify-center">
+                      <ProgressiveImage
+                        thumbnailSrc={`${API_BASE_URL}/photos/${slidePhoto.id}/thumbnail?token=${token}`}
+                        fullSrc={`${API_BASE_URL}/photos/${slidePhoto.id}/download?token=${token}`}
+                        alt={slidePhoto.caption || `Photo ${photoIndex + 1}`}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
+                    {photoIndex + 1} / {totalCount}
+                  </div>
+                  {/* Comments panel - interactive only for current slide */}
+                  <div
+                    ref={isCurrent ? commentsPanelRef : undefined}
+                    className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}
+                  >
+                    {isCurrent ? (
+                      <CommentPanel
+                        reactions={reactions}
+                        userReaction={userReaction}
+                        comments={comments}
+                        commentsExpanded={commentsExpanded}
+                        currentUserId={user?.id}
+                        isAdmin={isAdmin}
+                        interactive={true}
+                        reactionPillsProps={{
+                          onReactionClick: (emoji) => {
+                            handleReactionClick(emoji);
+                            setShowReactionPicker(false);
+                            reactionTriggerRef.current?.focus();
+                          },
+                          onAddClick: () => setShowReactionPicker(!showReactionPicker),
+                          showPicker: showReactionPicker,
+                          pickerRef: reactionPickerRef,
+                          triggerRef: (el) => {
+                            reactionTriggerRef.current = el;
+                          },
+                          optionRefs: reactionOptionRefs,
+                          onPickerBlur: handleReactionPickerBlur,
+                          onTriggerKeyDown: handleReactionTriggerKeyDown,
+                          onOptionKeyDown: handleReactionOptionKeyDown,
+                          pickerPosition: 'above',
+                          reactionDetails: reactionDetails,
+                          onLoadReactionDetails: loadReactionDetails,
+                          currentUserId: user?.id,
+                          showNames: true,
+                        }}
+                        commentSortOrder={commentSortOrder}
+                        onSortOrderChange={setCommentSortOrder}
+                        onToggleExpanded={handleToggleExpanded}
+                        onDeleteComment={handleDeleteComment}
+                        deletingCommentId={deletingCommentId}
+                        loadingComments={loadingComments}
+                        commentInputRef={commentInputRef}
+                        newComment={newComment}
+                        onNewCommentChange={setNewComment}
+                        onSubmitComment={handleSubmitComment}
+                        submittingComment={submittingComment}
+                      />
+                    ) : (
+                      <CommentPanel
+                        reactions={slidePhoto.reactions}
+                        userReaction={slidePhoto.userReaction}
+                        comments={commentsCache.current.get(slidePhoto.id) || []}
+                        commentsExpanded={commentsExpanded}
+                        currentUserId={user?.id}
+                        isAdmin={isAdmin}
+                        interactive={false}
+                      />
+                    )}
+                  </div>
                 </div>
-              </div>
-              {nextPhoto && (
-                <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
-                  {currentIndex + 2} / {totalCount}
-                </div>
-              )}
-              {/* Placeholder panel - sticks to bottom, only show if there's a next photo */}
-              {nextPhoto && (
-                <div className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}>
-                  <CommentPanel
-                    reactions={nextPhoto.reactions}
-                    userReaction={nextPhoto.userReaction}
-                    comments={commentsCache.current.get(nextPhoto.id) || []}
-                    commentsExpanded={commentsExpanded}
-                    currentUserId={user?.id}
-                    isAdmin={isAdmin}
-                    interactive={false}
-                  />
-                </div>
-              )}
-            </div>
+              );
+            })}
           </div>
         </div>
       </div>
