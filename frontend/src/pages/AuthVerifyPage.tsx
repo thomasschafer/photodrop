@@ -29,7 +29,6 @@ export function AuthVerifyPage() {
           id: data.user.id,
           name: data.user.name,
           email: data.user.email,
-          commentsEnabled: data.user.commentsEnabled ?? false,
         },
         data.currentGroup || null,
         data.groups || [],

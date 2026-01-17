@@ -237,7 +237,6 @@ auth.post('/verify-magic-link', async (c) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          commentsEnabled: Boolean(user.comments_enabled),
         },
         currentGroup: {
           id: magicToken.group_id,
@@ -274,7 +273,6 @@ auth.post('/verify-magic-link', async (c) => {
             id: user.id,
             name: user.name,
             email: user.email,
-            commentsEnabled: Boolean(user.comments_enabled),
           },
           groups: [],
           needsGroupSelection: true,
@@ -311,7 +309,6 @@ auth.post('/verify-magic-link', async (c) => {
             id: user.id,
             name: user.name,
             email: user.email,
-            commentsEnabled: Boolean(user.comments_enabled),
           },
           currentGroup: {
             id: membership.group_id,
@@ -336,7 +333,6 @@ auth.post('/verify-magic-link', async (c) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          commentsEnabled: Boolean(user.comments_enabled),
         },
         groups: memberships.map((m) => ({
           id: m.group_id,
@@ -414,7 +410,6 @@ auth.post('/switch-group', requireAuth, async (c) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        commentsEnabled: Boolean(user.comments_enabled),
       },
       currentGroup: {
         id: groupId,
@@ -498,7 +493,6 @@ auth.post('/select-group', async (c) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        commentsEnabled: Boolean(user.comments_enabled),
       },
       currentGroup: {
         id: groupId,
@@ -556,7 +550,6 @@ auth.post('/refresh', async (c) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          commentsEnabled: Boolean(user.comments_enabled),
         },
         currentGroup: null,
         groups: memberships.map((m) => ({
@@ -601,7 +594,6 @@ auth.post('/refresh', async (c) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        commentsEnabled: Boolean(user.comments_enabled),
       },
       currentGroup: {
         id: payload.groupId,

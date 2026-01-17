@@ -13,7 +13,6 @@ export interface User {
   email: string;
   created_at: number;
   last_seen_at: number | null;
-  comments_enabled: boolean;
 }
 
 export type MembershipRole = 'admin' | 'member';
@@ -33,7 +32,6 @@ export interface MembershipWithGroup extends Membership {
 export interface MembershipWithUser extends Membership {
   user_name: string;
   user_email: string;
-  comments_enabled: boolean;
 }
 
 export interface MagicLinkToken {
@@ -189,7 +187,7 @@ export async function getGroupMembers(
   const [membersResult, group] = await Promise.all([
     db
       .prepare(
-        `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email, u.comments_enabled
+        `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email
          FROM memberships m
          JOIN users u ON m.user_id = u.id
          WHERE m.group_id = ?
@@ -717,29 +715,6 @@ export async function getUserReaction(
     .first<{ emoji: string }>();
 
   return result?.emoji ?? null;
-}
-
-// User preference functions
-export async function getUserCommentsEnabled(db: D1Database, userId: string): Promise<boolean> {
-  const result = await db
-    .prepare('SELECT comments_enabled FROM users WHERE id = ?')
-    .bind(userId)
-    .first<{ comments_enabled: number }>();
-
-  return result?.comments_enabled === 1;
-}
-
-export async function updateUserCommentsEnabled(
-  db: D1Database,
-  userId: string,
-  commentsEnabled: boolean
-): Promise<boolean> {
-  const result = await db
-    .prepare('UPDATE users SET comments_enabled = ? WHERE id = ?')
-    .bind(commentsEnabled ? 1 : 0, userId)
-    .run();
-
-  return result.success;
 }
 
 // List photos with reaction and comment counts

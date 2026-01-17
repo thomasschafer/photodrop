@@ -348,7 +348,6 @@ interface ReactionWithUser {
 
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const { user } = useAuth();
-  const commentsEnabled = user?.commentsEnabled ?? false;
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -801,14 +800,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                     reactionDetails={feedReactionDetails.get(photo.id)}
                     onLoadReactionDetails={() => loadFeedReactionDetails(photo.id)}
                     currentUserId={user?.id}
-                    showNames={commentsEnabled}
+                    showNames={true}
                     pickerPosition="above"
                   />
                 </div>
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-3">
                     <p className="text-xs text-text-muted">{formatDate(photo.uploadedAt)}</p>
-                    {commentsEnabled && photo.commentCount > 0 && (
+                    {photo.commentCount > 0 && (
                       <span className="text-xs text-text-muted">
                         {photo.commentCount} {photo.commentCount === 1 ? 'comment' : 'comments'}
                       </span>
@@ -981,7 +980,6 @@ interface CommentPanelProps {
   userReaction: string | null;
   comments: Comment[];
   commentsExpanded: boolean;
-  commentsEnabled: boolean;
   currentUserId?: string;
   isAdmin: boolean;
   // Interactive mode - when false, renders static/disabled version
@@ -1007,7 +1005,6 @@ function CommentPanel({
   userReaction,
   comments,
   commentsExpanded,
-  commentsEnabled,
   currentUserId,
   isAdmin,
   interactive,
@@ -1098,7 +1095,7 @@ function CommentPanel({
         /* Collapsed state */
         <div className="flex items-center justify-between p-2 px-3">
           {reactionPillsElement}
-          {commentsEnabled && expandCollapseButton}
+          {expandCollapseButton}
         </div>
       ) : (
         /* Expanded state */
@@ -1228,7 +1225,6 @@ function Lightbox({
   onPhotoUpdate: (photo: Partial<Photo> & { id: string }) => void;
 }) {
   const { user } = useAuth();
-  const commentsEnabled = user?.commentsEnabled ?? false;
 
   // Local state for expanded/collapsed - resets when lightbox closes
   const [commentsExpanded, setCommentsExpanded] = useState(false);
@@ -1354,21 +1350,17 @@ function Lightbox({
     }
   }, [photo.id]);
 
-  // Load comments when enabled
+  // Load comments
   useEffect(() => {
-    if (commentsEnabled) {
-      // Set loading immediately if we'll need to fetch (no cache)
-      if (!commentsCache.current.has(photo.id)) {
-        setLoadingComments(true);
-      }
-      loadComments();
+    // Set loading immediately if we'll need to fetch (no cache)
+    if (!commentsCache.current.has(photo.id)) {
+      setLoadingComments(true);
     }
-  }, [commentsEnabled, loadComments, photo.id]);
+    loadComments();
+  }, [loadComments, photo.id]);
 
   // Preload comments for adjacent photos
   useEffect(() => {
-    if (!commentsEnabled) return;
-
     const preloadComments = async (photoId: string) => {
       if (commentsCache.current.has(photoId)) return;
       try {
@@ -1381,7 +1373,7 @@ function Lightbox({
 
     if (prevPhoto) preloadComments(prevPhoto.id);
     if (nextPhoto) preloadComments(nextPhoto.id);
-  }, [commentsEnabled, photo.id, prevPhoto, nextPhoto]);
+  }, [photo.id, prevPhoto, nextPhoto]);
 
   const loadReactionDetails = useCallback(async () => {
     if (loadingReactionDetails) return;
@@ -1405,17 +1397,15 @@ function Lightbox({
     }
   }, [photo.id, loadingReactionDetails]);
 
-  // Load reaction details when comments are enabled
+  // Load reaction details
   useEffect(() => {
-    if (commentsEnabled && reactions.length > 0) {
+    if (reactions.length > 0) {
       loadReactionDetails();
     }
-  }, [commentsEnabled, reactions.length, loadReactionDetails]);
+  }, [reactions.length, loadReactionDetails]);
 
   // Preload reaction details for adjacent photos
   useEffect(() => {
-    if (!commentsEnabled) return;
-
     const preloadReactionDetails = async (photoId: string, hasReactions: boolean) => {
       if (!hasReactions || reactionDetailsCache.current.has(photoId)) return;
       try {
@@ -1428,7 +1418,7 @@ function Lightbox({
 
     if (prevPhoto) preloadReactionDetails(prevPhoto.id, prevPhoto.reactions.length > 0);
     if (nextPhoto) preloadReactionDetails(nextPhoto.id, nextPhoto.reactions.length > 0);
-  }, [commentsEnabled, photo.id, prevPhoto, nextPhoto]);
+  }, [photo.id, prevPhoto, nextPhoto]);
 
   const handleReactionClick = async (emoji: string) => {
     if (!user) return;
@@ -1692,7 +1682,6 @@ function Lightbox({
                     userReaction={prevPhoto.userReaction}
                     comments={commentsCache.current.get(prevPhoto.id) || []}
                     commentsExpanded={commentsExpanded}
-                    commentsEnabled={commentsEnabled}
                     currentUserId={user?.id}
                     isAdmin={isAdmin}
                     interactive={false}
@@ -1728,7 +1717,6 @@ function Lightbox({
                   userReaction={userReaction}
                   comments={comments}
                   commentsExpanded={commentsExpanded}
-                  commentsEnabled={commentsEnabled}
                   currentUserId={user?.id}
                   isAdmin={isAdmin}
                   interactive={true}
@@ -1752,7 +1740,7 @@ function Lightbox({
                     reactionDetails: reactionDetails,
                     onLoadReactionDetails: loadReactionDetails,
                     currentUserId: user?.id,
-                    showNames: commentsExpanded,
+                    showNames: true,
                   }}
                   commentSortOrder={commentSortOrder}
                   onSortOrderChange={setCommentSortOrder}
@@ -1798,7 +1786,6 @@ function Lightbox({
                     userReaction={nextPhoto.userReaction}
                     comments={commentsCache.current.get(nextPhoto.id) || []}
                     commentsExpanded={commentsExpanded}
-                    commentsEnabled={commentsEnabled}
                     currentUserId={user?.id}
                     isAdmin={isAdmin}
                     interactive={false}

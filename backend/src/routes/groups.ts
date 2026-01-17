@@ -6,7 +6,6 @@ import {
   updateMembershipRole,
   deleteMembership,
   updateUserName,
-  updateUserCommentsEnabled,
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
@@ -72,7 +71,6 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
         email: m.user_email,
         role: m.role,
         joinedAt: m.joined_at,
-        commentsEnabled: Boolean(m.comments_enabled),
       })),
     });
   } catch (error) {
@@ -94,7 +92,7 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
     }
 
     const body = await c.req.json();
-    const { role, name, commentsEnabled } = body;
+    const { role, name } = body;
 
     // Check if membership exists
     const membership = await getMembership(c.env.DB, userId, groupId);
@@ -133,15 +131,6 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
       }
 
       await updateUserName(c.env.DB, userId, trimmedName);
-    }
-
-    // Handle commentsEnabled update
-    if (commentsEnabled !== undefined) {
-      if (typeof commentsEnabled !== 'boolean') {
-        return c.json({ error: 'commentsEnabled must be a boolean' }, 400);
-      }
-
-      await updateUserCommentsEnabled(c.env.DB, userId, commentsEnabled);
     }
 
     return c.json({ message: 'Member updated successfully' });

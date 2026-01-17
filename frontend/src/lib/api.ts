@@ -166,18 +166,6 @@ export const api = {
       return response.json();
     },
 
-    updateMemberCommentsEnabled: async (
-      groupId: string,
-      userId: string,
-      commentsEnabled: boolean
-    ) => {
-      const response = await fetchWithAuth(`/groups/${groupId}/members/${userId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ commentsEnabled }),
-      });
-      return response.json();
-    },
-
     deleteGroup: async (groupId: string) => {
       const response = await fetchWithAuth(`/groups/${groupId}`, {
         method: 'DELETE',
@@ -213,14 +201,6 @@ export const api = {
     delete: async (userId: string) => {
       const response = await fetchWithAuth(`/users/${userId}`, {
         method: 'DELETE',
-      });
-      return response.json();
-    },
-
-    updatePreferences: async (preferences: { commentsEnabled?: boolean }) => {
-      const response = await fetchWithAuth('/users/me/preferences', {
-        method: 'PATCH',
-        body: JSON.stringify(preferences),
       });
       return response.json();
     },

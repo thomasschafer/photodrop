@@ -132,55 +132,60 @@ test.describe('Reactions and comments', () => {
     await expect(photoCard.locator('text=❤️').first()).toBeVisible();
   });
 
-  test('default mode: comments hidden in lightbox with show prompt', async ({ page }) => {
+  test('comments start collapsed in lightbox with expand button visible', async ({ page }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Should see "Comments hidden" prompt
-    await expect(page.getByText(/comments hidden/i)).toBeVisible();
+    // Expand button should be visible (comments collapsed by default)
+    const expandButton = dialog.getByRole('button', { name: /expand comments/i });
+    await expect(expandButton).toBeVisible();
+
+    // Comment input should NOT be visible when collapsed
+    await expect(dialog.getByPlaceholder(/add a comment/i)).not.toBeVisible();
   });
 
-  test('clicking show enables comments globally', async ({ page }) => {
+  test('clicking expand shows comments section', async ({ page }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Click to show comments
-    await page.getByRole('button', { name: 'Show', exact: true }).click();
+    // Click to expand comments
+    const expandButton = dialog.getByRole('button', { name: /expand comments/i });
+    await expandButton.click();
 
     // Should now see comments section with input
-    await expect(page.getByPlaceholder(/add a comment/i)).toBeVisible();
-    await expect(page.getByText(/no comments yet/i)).toBeVisible();
+    await expect(dialog.getByPlaceholder(/add a comment/i)).toBeVisible();
   });
 
-  test('user can add comment when comments enabled', async ({ page }) => {
+  test('user can add comment', async ({ page }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Enable comments if not already
-    const showButton = page.getByRole('button', { name: 'Show', exact: true });
-    if (await showButton.isVisible()) {
-      await showButton.click();
-    }
+    // Expand comments
+    const expandButton = dialog.getByRole('button', { name: /expand comments/i });
+    await expandButton.click();
 
     // Add a comment
-    const commentInput = page.getByPlaceholder(/add a comment/i);
+    const commentInput = dialog.getByPlaceholder(/add a comment/i);
     await commentInput.fill('This is a test comment!');
-    await page.getByRole('button', { name: /post/i }).click();
+    await dialog.getByRole('button', { name: /post/i }).click();
 
     // Should see the comment
-    await expect(page.getByText('This is a test comment!')).toBeVisible();
+    await expect(dialog.getByText('This is a test comment!')).toBeVisible();
   });
 
   test('user can delete their own comment', async ({ page }) => {
@@ -189,25 +194,24 @@ test.describe('Reactions and comments', () => {
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Enable comments if needed
-    const showButton = page.getByRole('button', { name: 'Show', exact: true });
-    if (await showButton.isVisible()) {
-      await showButton.click();
-    }
+    // Expand comments
+    const expandButton = dialog.getByRole('button', { name: /expand comments/i });
+    await expandButton.click();
 
     // Use a unique comment text to avoid interference from other tests
     const uniqueCommentText = `Delete test comment ${Date.now()}`;
 
     // Add a comment so we have something to delete
-    const commentInput = page.getByPlaceholder(/add a comment/i);
+    const commentInput = dialog.getByPlaceholder(/add a comment/i);
     await expect(commentInput).toBeVisible();
     await commentInput.fill(uniqueCommentText);
-    await page.getByRole('button', { name: /post/i }).click();
+    await dialog.getByRole('button', { name: /post/i }).click();
 
     // Verify comment appears
-    const commentParagraph = page.locator('p.text-text-secondary', { hasText: uniqueCommentText });
+    const commentParagraph = dialog.locator('p.text-text-secondary', { hasText: uniqueCommentText });
     await expect(commentParagraph).toBeVisible({ timeout: 5000 });
 
     // Find the delete button within the same comment container (parent div of the paragraph)
@@ -226,82 +230,62 @@ test.describe('Reactions and comments', () => {
     await confirmModal.getByRole('button', { name: 'Delete' }).click();
 
     // Comment should be gone
-    await expect(page.getByText(uniqueCommentText)).not.toBeVisible({ timeout: 5000 });
+    await expect(dialog.getByText(uniqueCommentText)).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('hide comments returns to hidden mode', async ({ page }) => {
+  test('collapse button returns to collapsed mode', async ({ page }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Enable comments if needed
-    const showButton = page.getByRole('button', { name: 'Show', exact: true });
-    if (await showButton.isVisible()) {
-      await showButton.click();
-    }
+    // Expand comments
+    const expandButton = dialog.getByRole('button', { name: /expand comments/i });
+    await expandButton.click();
 
-    // Click hide button
-    await page.getByRole('button', { name: /hide/i }).click();
+    // Verify expanded
+    await expect(dialog.getByPlaceholder(/add a comment/i)).toBeVisible();
 
-    // Should see hidden prompt again
-    await expect(page.getByText(/comments hidden/i)).toBeVisible();
+    // Click collapse button
+    const collapseButton = dialog.getByRole('button', { name: /collapse comments/i });
+    await collapseButton.click();
+
+    // Comment input should be hidden again
+    await expect(dialog.getByPlaceholder(/add a comment/i)).not.toBeVisible();
   });
 
-  test('preference persists across page refresh', async ({ page }) => {
+  test('expanded state resets when lightbox closes', async ({ page }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    let dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Enable comments
-    const showButton = page.getByRole('button', { name: 'Show', exact: true });
-    if (await showButton.isVisible()) {
-      await showButton.click();
-    }
+    // Expand comments
+    const expandButton = dialog.getByRole('button', { name: /expand comments/i });
+    await expandButton.click();
+    await expect(dialog.getByPlaceholder(/add a comment/i)).toBeVisible();
 
-    // Close lightbox and reload
+    // Close lightbox
     await page.keyboard.press('Escape');
-    await page.reload();
+    await expect(dialog).not.toBeVisible();
 
-    // Open lightbox again
-    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+    // Reopen lightbox
     await page.locator('article').first().click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
 
-    // Comments should still be enabled (comment input visible)
-    await expect(page.getByPlaceholder(/add a comment/i)).toBeVisible();
+    // Comments should be collapsed again (expand button visible, input not visible)
+    await expect(dialog.getByRole('button', { name: /expand comments/i })).toBeVisible();
+    await expect(dialog.getByPlaceholder(/add a comment/i)).not.toBeVisible();
   });
 
-  test('admin can toggle user commentsEnabled in members list', async ({ page }) => {
-    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
-    await loginWithMagicLink(page, magicLink);
-
-    // Navigate to Group tab
-    await page.getByRole('tab', { name: 'Group' }).click();
-
-    // Look for the comments toggle button (speech bubble icon)
-    const memberRow = page.locator('div').filter({ hasText: testGroup.adminEmail }).first();
-    const commentsToggle = memberRow.locator('button[title*="Comments"]').first();
-
-    // Assert the toggle is visible
-    await expect(commentsToggle).toBeVisible({ timeout: 5000 });
-
-    // Click to toggle
-    await commentsToggle.click();
-
-    // Should see success message
-    await expect(page.getByText(/comments (enabled|disabled)/i)).toBeVisible({ timeout: 5000 });
-  });
-
-  test('comments disabled: reaction tooltip does not show names on hover in lightbox', async ({
-    page,
-    request,
-  }) => {
+  test('reaction tooltip shows names on hover in feed', async ({ page, request }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
@@ -318,98 +302,27 @@ test.describe('Reactions and comments', () => {
 
     await page.reload();
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
-    await page.locator('article').first().click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
 
-    // Verify comments are hidden (default state)
-    await expect(page.getByText(/comments hidden/i)).toBeVisible();
-
-    // Find and hover over the reaction pill
-    const heartPill = dialog.getByRole('button', { name: /❤️ reaction/i });
-    await expect(heartPill).toBeVisible();
-    await heartPill.hover();
-
-    // Wait a moment for tooltip to potentially appear
-    await page.waitForTimeout(300);
-
-    // The tooltip should NOT show names when comments are disabled
-    // Look for "You" or "Admin User" text in a tooltip (which should NOT be visible)
-    const tooltip = dialog.locator('.absolute.whitespace-nowrap');
-    await expect(tooltip).not.toBeVisible();
-  });
-
-  test('comments enabled: reaction tooltip shows names on hover in lightbox', async ({
-    page,
-    request,
-  }) => {
-    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
-    await loginWithMagicLink(page, magicLink);
-
-    const token = await getAuthToken(page);
-
-    // Add a reaction via API so there's something to hover over
-    await request.post(`${API_BASE}/photos/${photoId}/react`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      data: { emoji: '❤️' },
-    });
-
-    await page.reload();
-    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
-    await page.locator('article').first().click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-
-    // Enable comments
-    const showButton = page.getByRole('button', { name: 'Show', exact: true });
-    if (await showButton.isVisible()) {
-      await showButton.click();
-    }
-
-    // Verify comments are now enabled
-    await expect(page.getByPlaceholder(/add a comment/i)).toBeVisible();
-
-    // Find and hover over the reaction pill
-    const heartPill = dialog.getByRole('button', { name: /❤️ reaction/i });
+    // Find and hover over the reaction pill in the feed (not lightbox)
+    const photoCard = page.locator('article').filter({ hasText: 'Test photo for reactions' });
+    const heartPill = photoCard.getByRole('button', { name: /❤️ reaction/i });
     await expect(heartPill).toBeVisible();
     await heartPill.hover();
 
     // Wait for tooltip to appear
     await page.waitForTimeout(300);
 
-    // The tooltip SHOULD show "You" when comments are enabled
-    const tooltip = dialog.locator('.absolute.whitespace-nowrap');
+    // The tooltip should show "You"
+    const tooltip = photoCard.locator('.absolute.whitespace-nowrap');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText('You');
   });
 
-  test('comments disabled: reaction tooltip does not show names on hover in feed', async ({
-    page,
-    request,
-  }) => {
+  test('reaction tooltip shows names on hover in lightbox', async ({ page, request }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
     const token = await getAuthToken(page);
-
-    // Disable comments first by hiding them
-    await page.locator('article').first().click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-
-    // If comments are enabled, hide them
-    const hideButton = page.getByRole('button', { name: /hide/i });
-    if (await hideButton.isVisible()) {
-      await hideButton.click();
-    }
-    await expect(page.getByText(/comments hidden/i)).toBeVisible();
-
-    // Close lightbox
-    await page.keyboard.press('Escape');
-    await expect(dialog).not.toBeVisible();
 
     // Add a reaction via API so there's something to hover over
     await request.post(`${API_BASE}/photos/${photoId}/react`, {
@@ -422,68 +335,20 @@ test.describe('Reactions and comments', () => {
 
     await page.reload();
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
-
-    // Find and hover over the reaction pill in the feed (not lightbox)
-    const photoCard = page.locator('article').filter({ hasText: 'Test photo for reactions' });
-    const heartPill = photoCard.getByRole('button', { name: /❤️ reaction/i });
-    await expect(heartPill).toBeVisible();
-    await heartPill.hover();
-
-    // Wait a moment for tooltip to potentially appear
-    await page.waitForTimeout(300);
-
-    // The tooltip should NOT show names when comments are disabled
-    const tooltip = photoCard.locator('.absolute.whitespace-nowrap');
-    await expect(tooltip).not.toBeVisible();
-  });
-
-  test('comments enabled: reaction tooltip shows names on hover in feed', async ({
-    page,
-    request,
-  }) => {
-    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
-    await loginWithMagicLink(page, magicLink);
-
-    const token = await getAuthToken(page);
-
-    // Enable comments first
     await page.locator('article').first().click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
-    const showButton = page.getByRole('button', { name: 'Show', exact: true });
-    if (await showButton.isVisible()) {
-      await showButton.click();
-    }
-    await expect(page.getByPlaceholder(/add a comment/i)).toBeVisible();
-
-    // Close lightbox
-    await page.keyboard.press('Escape');
-    await expect(dialog).not.toBeVisible();
-
-    // Add a reaction via API so there's something to hover over
-    await request.post(`${API_BASE}/photos/${photoId}/react`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      data: { emoji: '❤️' },
-    });
-
-    await page.reload();
-    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
-
-    // Find and hover over the reaction pill in the feed (not lightbox)
-    const photoCard = page.locator('article').filter({ hasText: 'Test photo for reactions' });
-    const heartPill = photoCard.getByRole('button', { name: /❤️ reaction/i });
+    // Find and hover over the reaction pill
+    const heartPill = dialog.getByRole('button', { name: /❤️ reaction/i });
     await expect(heartPill).toBeVisible();
     await heartPill.hover();
 
     // Wait for tooltip to appear
     await page.waitForTimeout(300);
 
-    // The tooltip SHOULD show "You" when comments are enabled
-    const tooltip = photoCard.locator('.absolute.whitespace-nowrap');
+    // The tooltip should show "You"
+    const tooltip = dialog.locator('.absolute.whitespace-nowrap');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText('You');
   });

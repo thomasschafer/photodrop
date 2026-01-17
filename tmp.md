@@ -1,11 +1,12 @@
 # Todo
+[ ] allow multiswipe
 [ ] fix lots of reactions etc. on mobile - layout too crushed
-[x] remove flicker
+[ ] flicker after Newest/Oldest - triangle to the right only appears after the image stops
+[ ] for the n/m counter below photos: when comments are expanded, there is too much padding below: more padding below than above, even though the padding is equal when comments are not expanded.
 [ ] align comment hiding with expansion - no db, just state in component which resets
 [ ] fix light mode colours
 [ ] stop notifying sender
 [ ] fix mobile landscape
-[ ] allow multiswipe
 [ ] keyboard nav on comments dropdown etc., also outline cropped
 
 # Done
@@ -28,3 +29,4 @@
 [x] when hovering (or holding on mobile) over the reaction pills, the names are quite small - can you make a liittle larger, and also add margin between pill and popup to make it easier to see when holding on mobile?
 [x] make reactions appear above +
 [x] scrolling improvements (scrolling left and right on comments also scrolls image, please fix/properly scroll pictures like gallery?):
+[x] remove flicker

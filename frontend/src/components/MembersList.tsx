@@ -13,7 +13,6 @@ interface Member {
   email: string;
   role: MembershipRole;
   joinedAt: number;
-  commentsEnabled: boolean;
 }
 
 export function MembersList() {
@@ -208,34 +207,6 @@ export function MembersList() {
     setConfirmRemove(null);
     if (memberIdToFocus) {
       removeButtonRefs.current.get(memberIdToFocus)?.focus();
-    }
-  };
-
-  const handleCommentsEnabledToggle = async (
-    memberId: string,
-    memberName: string,
-    enabled: boolean
-  ) => {
-    if (!currentGroup) return;
-
-    setActionLoading(memberId);
-    setError(null);
-
-    try {
-      await api.groups.updateMemberCommentsEnabled(currentGroup.id, memberId, enabled);
-      setMembers((prev) =>
-        prev.map((m) => (m.userId === memberId ? { ...m, commentsEnabled: enabled } : m))
-      );
-      showSuccess(`Comments ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);
-    } catch (err) {
-      console.error('Failed to update comments setting:', err);
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError('Failed to update comments setting');
-      }
-    } finally {
-      setActionLoading(null);
     }
   };
 
@@ -459,35 +430,6 @@ export function MembersList() {
                     >
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      handleCommentsEnabledToggle(
-                        member.userId,
-                        member.name,
-                        !member.commentsEnabled
-                      )
-                    }
-                    disabled={isLoading}
-                    className={`p-2 transition-colors disabled:opacity-50 cursor-pointer ${
-                      member.commentsEnabled
-                        ? 'text-accent'
-                        : 'text-text-tertiary hover:text-accent'
-                    }`}
-                    title={member.commentsEnabled ? 'Comments enabled' : 'Comments disabled'}
-                    aria-label={`${member.commentsEnabled ? 'Disable' : 'Enable'} comments for ${member.name}`}
-                  >
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill={member.commentsEnabled ? 'currentColor' : 'none'}
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                     </svg>
                   </button>
 

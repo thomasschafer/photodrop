@@ -19,7 +19,6 @@ import {
   getComment,
   deleteComment,
   getCommentCount,
-  updateUserCommentsEnabled,
   getReactionSummary,
   getUserReaction,
   getPhotoReactionsWithUsers,
@@ -773,29 +772,6 @@ describe('Comment functions', () => {
       const result = await getCommentCount(db, 'photo-empty');
 
       expect(result).toBe(0);
-    });
-  });
-});
-
-describe('User preference functions', () => {
-  describe('updateUserCommentsEnabled', () => {
-    it('updates commentsEnabled to true', async () => {
-      const db = createMockDb([]);
-
-      const result = await updateUserCommentsEnabled(db, 'user-1', true);
-
-      expect(result).toBe(true);
-      expect(db._mocks.mockBind).toHaveBeenCalledWith(1, 'user-1');
-      expect(db._mocks.mockRun).toHaveBeenCalled();
-    });
-
-    it('updates commentsEnabled to false', async () => {
-      const db = createMockDb([]);
-
-      const result = await updateUserCommentsEnabled(db, 'user-1', false);
-
-      expect(result).toBe(true);
-      expect(db._mocks.mockBind).toHaveBeenCalledWith(0, 'user-1');
     });
   });
 });
