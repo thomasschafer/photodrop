@@ -52,6 +52,15 @@ export function useSwipeGesture({
     onSwipeRightRef.current = onSwipeRight;
   }, [onSwipeLeft, onSwipeRight]);
 
+  // Cleanup timeout on unmount to prevent firing on unmounted component
+  useEffect(() => {
+    return () => {
+      if (animationTimeoutRef.current) {
+        clearTimeout(animationTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const reset = useCallback(() => {
     if (animationTimeoutRef.current) {
       clearTimeout(animationTimeoutRef.current);
@@ -156,6 +165,8 @@ export function useSwipeGesture({
           pendingNavigationRef.current = 'left';
 
           animationTimeoutRef.current = setTimeout(() => {
+            // Don't reset offset here - let the consumer reset after navigation
+            // via useLayoutEffect to avoid flashing old content
             onSwipeLeftRef.current?.();
             animationTimeoutRef.current = null;
           }, animationDuration);
@@ -167,6 +178,8 @@ export function useSwipeGesture({
           pendingNavigationRef.current = 'right';
 
           animationTimeoutRef.current = setTimeout(() => {
+            // Don't reset offset here - let the consumer reset after navigation
+            // via useLayoutEffect to avoid flashing old content
             onSwipeRightRef.current?.();
             animationTimeoutRef.current = null;
           }, animationDuration);

@@ -1,4 +1,11 @@
 # Todo
+[ ] fix lots of reactions etc. on mobile - layout too crushed
+[x] remove flicker
+[ ] align comment hiding with expansion - no db, just state in component which resets
+[ ] fix light mode colours
+[ ] stop notifying sender
+[ ] fix mobile landscape
+[ ] allow multiswipe
 [ ] keyboard nav on comments dropdown etc., also outline cropped
 
 # Done

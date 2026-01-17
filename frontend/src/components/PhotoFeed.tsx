@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, API_BASE_URL } from '../lib/api';
 import { useFocusRestore } from '../lib/hooks';
@@ -922,7 +922,23 @@ function ProgressiveImage({
   fullSrc: string;
   alt: string;
 }) {
-  const [fullLoaded, setFullLoaded] = useState(false);
+  // Check if image is already in browser cache on mount/src change
+  const [fullLoaded, setFullLoaded] = useState(() => {
+    const img = new Image();
+    img.src = fullSrc;
+    return img.complete && img.naturalWidth > 0;
+  });
+
+  // Handle src changes when component is reused (no key remount)
+  useEffect(() => {
+    const img = new Image();
+    img.src = fullSrc;
+    if (img.complete && img.naturalWidth > 0) {
+      setFullLoaded(true);
+    } else {
+      setFullLoaded(false);
+    }
+  }, [fullSrc]);
 
   return (
     <div className="relative w-full h-full">
@@ -1269,20 +1285,23 @@ function Lightbox({
   const commentsCache = useRef<Map<string, Comment[]>>(new Map());
   const reactionDetailsCache = useRef<Map<string, ReactionWithUser[]>>(new Map());
 
-  // Reset state when navigating to a different photo (restore from cache if available)
+  // Reset swipe state synchronously before paint to prevent flashing old content
+  useLayoutEffect(() => {
+    resetSwipe();
+  }, [photo.id, resetSwipe]);
+
+  // Reset other state when navigating to a different photo (restore from cache if available)
   useEffect(() => {
     setUserReaction(photo.userReaction);
     setReactions(photo.reactions);
     setShowReactionPicker(false);
     setNewComment('');
-    resetSwipe();
 
     // Restore from cache if available
     const cachedComments = commentsCache.current.get(photo.id);
     const cachedReactionDetails = reactionDetailsCache.current.get(photo.id);
     setComments(cachedComments ?? []);
     setReactionDetails(cachedReactionDetails ?? []);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
 
   // Preload adjacent images
@@ -1660,9 +1679,11 @@ function Lightbox({
                   )}
                 </div>
               </div>
-              <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
-                {currentIndex} / {totalCount}
-              </div>
+              {prevPhoto && (
+                <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
+                  {currentIndex} / {totalCount}
+                </div>
+              )}
               {/* Placeholder panel - sticks to bottom, only show if there's a prev photo */}
               {prevPhoto && (
                 <div className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}>
@@ -1688,7 +1709,6 @@ function Lightbox({
               >
                 <div className="w-full h-full flex items-center justify-center">
                   <ProgressiveImage
-                    key={photo.id}
                     thumbnailSrc={`${API_BASE_URL}/photos/${photo.id}/thumbnail?token=${token}`}
                     fullSrc={`${API_BASE_URL}/photos/${photo.id}/download?token=${token}`}
                     alt={photo.caption || 'Photo'}
@@ -1765,9 +1785,11 @@ function Lightbox({
                   )}
                 </div>
               </div>
-              <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
-                {currentIndex + 2} / {totalCount}
-              </div>
+              {nextPhoto && (
+                <div className="flex-shrink-0 text-center text-white/70 text-sm py-2">
+                  {currentIndex + 2} / {totalCount}
+                </div>
+              )}
               {/* Placeholder panel - sticks to bottom, only show if there's a next photo */}
               {nextPhoto && (
                 <div className={`mt-auto w-full px-4 pb-4 ${commentsExpanded ? 'h-[40%]' : ''}`}>
