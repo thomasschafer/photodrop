@@ -494,6 +494,7 @@ export interface PushSubscription {
   endpoint: string;
   p256dh: string;
   auth: string;
+  deletion_token: string;
   created_at: number;
 }
 
@@ -504,24 +505,25 @@ export async function createPushSubscription(
   endpoint: string,
   p256dh: string,
   auth: string
-): Promise<string> {
+): Promise<{ id: string; deletionToken: string }> {
   const id = generateId();
+  const deletionToken = generateId();
   const now = Math.floor(Date.now() / 1000);
 
   await db
     .prepare(
-      `INSERT INTO push_subscriptions (id, user_id, group_id, endpoint, p256dh, auth, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (endpoint) DO UPDATE SET
+      `INSERT INTO push_subscriptions (id, user_id, group_id, endpoint, p256dh, auth, deletion_token, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (endpoint, group_id) DO UPDATE SET
          user_id = excluded.user_id,
-         group_id = excluded.group_id,
          p256dh = excluded.p256dh,
-         auth = excluded.auth`
+         auth = excluded.auth,
+         deletion_token = excluded.deletion_token`
     )
-    .bind(id, userId, groupId, endpoint, p256dh, auth, now)
+    .bind(id, userId, groupId, endpoint, p256dh, auth, deletionToken, now)
     .run();
 
-  return id;
+  return { id, deletionToken };
 }
 
 export async function getPushSubscription(
@@ -591,6 +593,28 @@ export async function deletePushSubscription(db: D1Database, endpoint: string): 
     .run();
 
   return result.success;
+}
+
+export async function deletePushSubscriptionWithToken(
+  db: D1Database,
+  endpoint: string,
+  deletionToken: string
+): Promise<{ success: boolean; tokenValid: boolean }> {
+  const subscription = await db
+    .prepare('SELECT id FROM push_subscriptions WHERE endpoint = ? AND deletion_token = ?')
+    .bind(endpoint, deletionToken)
+    .first();
+
+  if (!subscription) {
+    return { success: false, tokenValid: false };
+  }
+
+  const result = await db
+    .prepare('DELETE FROM push_subscriptions WHERE endpoint = ?')
+    .bind(endpoint)
+    .run();
+
+  return { success: result.success, tokenValid: true };
 }
 
 export async function deletePushSubscriptionForGroup(

@@ -1,5 +1,5 @@
 # Todo
-[x] new landscape view on mobile
+[ ] add e.g. "show comments" by up arrow (how should this work on landscape unexpanded?)
 [ ] fix lots of reactions etc. on mobile - layout too crushed
 [ ] fix light mode colours
 [ ] stop notifying sender
@@ -33,3 +33,4 @@
 [x] remove 1/n from lightbox
 [x] align comment hiding with expansion - no db, just state in component which resets
 [x] render times (comments, photos, whatever) as absolute when over a week old
+[x] new landscape view on mobile

@@ -77,6 +77,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      if ('serviceWorker' in navigator && 'PushManager' in window) {
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.getSubscription();
+          if (subscription) {
+            await api.push.unsubscribe(subscription.endpoint);
+          }
+        } catch (pushError) {
+          console.error('Error cleaning up push subscription:', pushError);
+        }
+      }
+
       await api.auth.logout();
     } catch (error) {
       console.error('Logout error:', error);

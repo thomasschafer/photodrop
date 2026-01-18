@@ -2,6 +2,17 @@ import { buildPushPayload } from '@block65/webcrypto-web-push';
 import type { PushSubscription } from './db';
 import { deletePushSubscription } from './db';
 
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY_MS = 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableError(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
 export interface PushPayload {
   title: string;
   body: string;
@@ -43,48 +54,70 @@ export async function sendPushNotification(
     throw new Error('VAPID not configured');
   }
 
-  try {
-    console.log('Sending push notification to:', subscription.endpoint.substring(0, 60) + '...');
+  const message = {
+    data: JSON.stringify(payload),
+    options: { ttl: 86400, urgency: 'normal' as const },
+  };
 
-    const message = {
-      data: JSON.stringify(payload),
-      options: { ttl: 86400, urgency: 'normal' as const },
-    };
+  const librarySubscription = {
+    endpoint: subscription.endpoint,
+    expirationTime: null,
+    keys: {
+      p256dh: subscription.p256dh,
+      auth: subscription.auth,
+    },
+  };
 
-    const librarySubscription = {
-      endpoint: subscription.endpoint,
-      expirationTime: null,
-      keys: {
-        p256dh: subscription.p256dh,
-        auth: subscription.auth,
-      },
-    };
+  let lastError: Error | null = null;
+  let lastStatus: number | null = null;
 
-    const fetchOptions = await buildPushPayload(message, librarySubscription, {
-      subject: vapidConfig.subject,
-      publicKey: vapidConfig.publicKey,
-      privateKey: vapidConfig.privateKey,
-    });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+        console.log(`Retry attempt ${attempt}/${MAX_RETRIES} after ${delayMs}ms delay`);
+        await sleep(delayMs);
+      }
 
-    const response = await fetch(subscription.endpoint, fetchOptions);
+      const fetchOptions = await buildPushPayload(message, librarySubscription, {
+        subject: vapidConfig.subject,
+        publicKey: vapidConfig.publicKey,
+        privateKey: vapidConfig.privateKey,
+      });
 
-    if (response.ok || response.status === 201) {
-      console.log('Push notification sent successfully');
-      return { success: true };
+      const response = await fetch(subscription.endpoint, fetchOptions);
+
+      if (response.ok || response.status === 201) {
+        if (attempt > 0) {
+          console.log(`Push notification sent successfully after ${attempt} retries`);
+        }
+        return { success: true };
+      }
+
+      lastStatus = response.status;
+
+      if (response.status === 404 || response.status === 410) {
+        await deletePushSubscription(db, subscription.endpoint);
+        return { success: false, removed: true };
+      }
+
+      if (!isRetryableError(response.status)) {
+        console.error('Push notification failed with non-retryable error:', response.status);
+        return { success: false };
+      }
+
+      console.warn(`Push notification failed with retryable error: ${response.status}`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`Push notification attempt ${attempt + 1} failed:`, lastError.message);
     }
-
-    console.error('Push notification failed:', response.status, await response.text());
-
-    if (response.status === 404 || response.status === 410) {
-      await deletePushSubscription(db, subscription.endpoint);
-      return { success: false, removed: true };
-    }
-
-    return { success: false };
-  } catch (error) {
-    console.error('Push notification error:', error);
-    return { success: false };
   }
+
+  console.error(
+    `Push notification failed after ${MAX_RETRIES} retries.`,
+    lastStatus ? `Last status: ${lastStatus}` : `Last error: ${lastError?.message}`
+  );
+  return { success: false };
 }
 
 export async function sendPushNotifications(

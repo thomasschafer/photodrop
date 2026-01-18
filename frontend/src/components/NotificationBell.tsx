@@ -82,7 +82,7 @@ export function NotificationBell() {
       const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
-        await api.push.unsubscribe(subscription.endpoint);
+        await api.push.unsubscribeFromCurrentGroup(subscription.endpoint);
         await subscription.unsubscribe();
       }
 

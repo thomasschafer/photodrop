@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import {
   createPushSubscription,
   deletePushSubscriptionForGroup,
+  deletePushSubscriptionWithToken,
   getUserPushSubscriptionsForGroup,
   type MembershipRole,
 } from '../lib/db';
@@ -36,12 +37,49 @@ push.post('/subscribe', requireAuth, async (c) => {
       return c.json({ error: 'Invalid subscription data' }, 400);
     }
 
-    await createPushSubscription(c.env.DB, user.id, user.groupId, endpoint, keys.p256dh, keys.auth);
+    const { deletionToken } = await createPushSubscription(
+      c.env.DB,
+      user.id,
+      user.groupId,
+      endpoint,
+      keys.p256dh,
+      keys.auth
+    );
 
-    return c.json({ message: 'Subscribed successfully' }, 201);
+    return c.json({ message: 'Subscribed successfully', deletionToken }, 201);
   } catch (error) {
     console.error('Error subscribing to push:', error);
     return c.json({ error: 'Failed to subscribe' }, 500);
+  }
+});
+
+push.delete('/unsubscribe', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { endpoint, deletionToken } = body;
+
+    if (!endpoint || !deletionToken) {
+      return c.json({ error: 'Endpoint and deletionToken are required' }, 400);
+    }
+
+    const { success, tokenValid } = await deletePushSubscriptionWithToken(
+      c.env.DB,
+      endpoint,
+      deletionToken
+    );
+
+    if (!tokenValid) {
+      return c.json({ error: 'Invalid deletion token' }, 403);
+    }
+
+    if (!success) {
+      return c.json({ error: 'Failed to unsubscribe' }, 500);
+    }
+
+    return c.json({ message: 'Unsubscribed successfully' });
+  } catch (error) {
+    console.error('Error unsubscribing by endpoint:', error);
+    return c.json({ error: 'Failed to unsubscribe' }, 500);
   }
 });
 

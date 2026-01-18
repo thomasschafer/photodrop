@@ -205,7 +205,7 @@ export function useVirtualCarousel({
       centerIndexRef.current = newCenterIndex;
       setState({ centerIndex: newCenterIndex, offset: -offsetFromCenter });
     },
-    [totalCount]
+    [totalCount, containerRef]
   );
 
   const handleTouchEnd = useCallback(
@@ -288,7 +288,7 @@ export function useVirtualCarousel({
         }
       }, ANIMATION_DURATION_MS);
     },
-    [totalCount]
+    [totalCount, containerRef]
   );
 
   return {

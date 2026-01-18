@@ -313,10 +313,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(subscription),
       });
-      return response.json();
+      const data = await response.json();
+      if (data.deletionToken && subscription.endpoint) {
+        localStorage.setItem(`push_deletion_token:${subscription.endpoint}`, data.deletionToken);
+      }
+      return data;
     },
 
-    unsubscribe: async (endpoint: string) => {
+    unsubscribeFromCurrentGroup: async (endpoint: string) => {
       const response = await fetchWithAuth('/push/subscribe', {
         method: 'DELETE',
         body: JSON.stringify({ endpoint }),
@@ -327,6 +331,20 @@ export const api = {
     getStatus: async (endpoint: string): Promise<{ subscribed: boolean }> => {
       const response = await fetchWithAuth(`/push/status?endpoint=${encodeURIComponent(endpoint)}`);
       return response.json();
+    },
+
+    unsubscribe: async (endpoint: string) => {
+      const deletionToken = localStorage.getItem(`push_deletion_token:${endpoint}`);
+      if (!deletionToken) {
+        console.warn('No deletion token found for endpoint, skipping unsubscribe');
+        return;
+      }
+      await fetch(`${API_BASE_URL}/push/unsubscribe`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint, deletionToken }),
+      });
+      localStorage.removeItem(`push_deletion_token:${endpoint}`);
     },
   },
 };

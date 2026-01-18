@@ -783,7 +783,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                 </div>
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-3">
-                    <p className="text-xs text-text-muted">{formatRelativeTime(photo.uploadedAt)}</p>
+                    <p className="text-xs text-text-muted">
+                      {formatRelativeTime(photo.uploadedAt)}
+                    </p>
                     {photo.commentCount > 0 && (
                       <span className="text-xs text-text-muted">
                         {photo.commentCount} {photo.commentCount === 1 ? 'comment' : 'comments'}
@@ -994,7 +996,14 @@ function CommentPanel({
       aria-label={commentsExpanded ? 'Collapse comments' : 'Expand comments'}
     >
       {/* Portrait: up/down arrows */}
-      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" className="landscape:hidden">
+      <svg
+        width="20"
+        height="20"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        className="landscape:hidden"
+      >
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -1003,7 +1012,14 @@ function CommentPanel({
         />
       </svg>
       {/* Landscape: left/right arrows - collapsed points left (expand), expanded points right (collapse) */}
-      <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" className="hidden landscape:block">
+      <svg
+        width="20"
+        height="20"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        className="hidden landscape:block"
+      >
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -1026,9 +1042,7 @@ function CommentPanel({
           <div className="landscape:order-2 landscape:[&>div]:flex-col landscape:[&>div]:items-start">
             {reactionPillsElement}
           </div>
-          <div className="landscape:order-1 landscape:self-start">
-            {expandCollapseButton}
-          </div>
+          <div className="landscape:order-1 landscape:self-start">{expandCollapseButton}</div>
         </div>
       ) : (
         /* Expanded state */
@@ -1572,7 +1586,12 @@ function Lightbox({
               className="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer hidden md:flex items-center justify-center text-white transition-colors hover:bg-white/20"
             >
               <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
               </svg>
             </button>
           )}
@@ -1588,7 +1607,10 @@ function Lightbox({
               {visibleIndices.map((photoIndex) => {
                 if (photoIndex < 0 || photoIndex >= photos.length) {
                   return (
-                    <div key={`placeholder-${photoIndex}`} className="flex-shrink-0 w-full h-full" />
+                    <div
+                      key={`placeholder-${photoIndex}`}
+                      className="flex-shrink-0 w-full h-full"
+                    />
                   );
                 }
 
