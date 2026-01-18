@@ -13,7 +13,6 @@ interface UseDropdownReturn {
   containerRef: React.RefObject<HTMLDivElement | null>;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   optionRefs: React.MutableRefObject<(HTMLButtonElement | null)[]>;
-  handleTriggerKeyDown: (e: React.KeyboardEvent) => void;
   handleOptionKeyDown: (e: React.KeyboardEvent, index: number) => void;
   handleBlur: (e: React.FocusEvent) => void;
 }
@@ -69,21 +68,6 @@ export function useDropdown({
     [onClose]
   );
 
-  // Keyboard navigation for trigger button
-  const handleTriggerKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      const direction = getNavDirection(e);
-      const openKeys = horizontal ? ['left', 'right'] : ['up', 'down'];
-
-      if (direction && openKeys.includes(direction)) {
-        e.preventDefault();
-        // Don't call anything here - the parent handles opening
-        // This just prevents default scrolling
-      }
-    },
-    [horizontal]
-  );
-
   // Keyboard navigation for options
   const handleOptionKeyDown = useCallback(
     (e: React.KeyboardEvent, index: number) => {
@@ -117,7 +101,6 @@ export function useDropdown({
     containerRef,
     triggerRef,
     optionRefs,
-    handleTriggerKeyDown,
     handleOptionKeyDown,
     handleBlur,
   };

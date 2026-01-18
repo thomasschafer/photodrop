@@ -1,12 +1,18 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 
+const DEFAULT_WINDOW_SIZE = 5;
+const VELOCITY_THRESHOLD_PX_PER_MS = 0.3;
+const EDGE_RESISTANCE_FACTOR = 0.3;
+const ANIMATION_DURATION_MS = 300;
+
 interface UseVirtualCarouselOptions {
   totalCount: number;
   initialIndex: number;
   onIndexChange: (index: number) => void;
   windowSize?: number;
   excludeRef?: React.RefObject<HTMLElement | null>;
+  containerRef?: React.RefObject<HTMLElement | null>;
 }
 
 interface UseVirtualCarouselReturn {
@@ -31,8 +37,9 @@ export function useVirtualCarousel({
   totalCount,
   initialIndex,
   onIndexChange,
-  windowSize = 5,
+  windowSize = DEFAULT_WINDOW_SIZE,
   excludeRef,
+  containerRef,
 }: UseVirtualCarouselOptions): UseVirtualCarouselReturn {
   // Combined state for atomic updates
   const [state, setState] = useState<CarouselState>({
@@ -165,7 +172,7 @@ export function useVirtualCarousel({
       // Prevent vertical scrolling while swiping horizontally
       e.preventDefault();
 
-      const slideWidth = window.innerWidth;
+      const slideWidth = containerRef?.current?.offsetWidth ?? window.innerWidth;
 
       // Calculate how many "slides" we've moved (fractional)
       // Negative deltaX (swipe left) = moving to higher indices
@@ -178,11 +185,11 @@ export function useVirtualCarousel({
       // Clamp with resistance at edges
       if (newVirtualIndex < 0) {
         // Apply resistance - the further past 0, the more resistance
-        newVirtualIndex = newVirtualIndex * 0.3;
+        newVirtualIndex = newVirtualIndex * EDGE_RESISTANCE_FACTOR;
       } else if (newVirtualIndex > totalCount - 1) {
         // Apply resistance at end
         const overshoot = newVirtualIndex - (totalCount - 1);
-        newVirtualIndex = totalCount - 1 + overshoot * 0.3;
+        newVirtualIndex = totalCount - 1 + overshoot * EDGE_RESISTANCE_FACTOR;
       }
 
       virtualIndexRef.current = newVirtualIndex;
@@ -227,7 +234,7 @@ export function useVirtualCarousel({
       let targetIndex: number;
 
       // Velocity threshold: if moving fast enough, go to next/prev
-      const velocityThreshold = 0.3; // pixels per ms
+      const velocityThreshold = VELOCITY_THRESHOLD_PX_PER_MS;
 
       if (Math.abs(velocity) > velocityThreshold) {
         // Use velocity to determine direction
@@ -252,7 +259,7 @@ export function useVirtualCarousel({
 
       // Calculate the offset needed to show targetIndex while keeping centerIndex stable
       // This prevents DOM reordering mid-animation which causes visual jumps
-      const slideWidth = window.innerWidth;
+      const slideWidth = containerRef?.current?.offsetWidth ?? window.innerWidth;
       const currentCenterIndex = centerIndexRef.current;
       const targetOffset = -(targetIndex - currentCenterIndex) * slideWidth;
 
@@ -279,7 +286,7 @@ export function useVirtualCarousel({
           onIndexChangeRef.current(targetIndexRef.current);
           targetIndexRef.current = null;
         }
-      }, 300);
+      }, ANIMATION_DURATION_MS);
     },
     [totalCount]
   );

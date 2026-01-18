@@ -1,13 +1,11 @@
 # Todo
-[x] allow multiswipe (todo: test on mobile)
+[x] new landscape view on mobile
 [ ] fix lots of reactions etc. on mobile - layout too crushed
-[ ] flicker after Newest/Oldest - triangle to the right only appears after the image stops
-[ ] for the n/m counter below photos: when comments are expanded, there is too much padding below: more padding below than above, even though the padding is equal when comments are not expanded.
-[ ] align comment hiding with expansion - no db, just state in component which resets
 [ ] fix light mode colours
 [ ] stop notifying sender
 [ ] fix mobile landscape
 [ ] keyboard nav on comments dropdown etc., also outline cropped
+[ ] how will lightbox perform when there are hundreds of photos? should we make any optimisations?
 
 # Done
 [x] on keyboard nav:
@@ -30,3 +28,8 @@
 [x] make reactions appear above +
 [x] scrolling improvements (scrolling left and right on comments also scrolls image, please fix/properly scroll pictures like gallery?):
 [x] remove flicker
+[x] allow multiswipe (todo: test on mobile)
+[x] flicker after Newest/Oldest - triangle to the right only appears after the image stops
+[x] remove 1/n from lightbox
+[x] align comment hiding with expansion - no db, just state in component which resets
+[x] render times (comments, photos, whatever) as absolute when over a week old
