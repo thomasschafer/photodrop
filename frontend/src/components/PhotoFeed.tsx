@@ -306,7 +306,7 @@ function ReactionPills({
           <div
             role="listbox"
             aria-label="Select reaction"
-            className={`absolute left-0 ${pickerPositionClass} z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1`}
+            className={`absolute right-0 ${pickerPositionClass} z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1`}
           >
             {EMOJI_OPTIONS.map((emoji, index) => (
               <button
@@ -1618,7 +1618,7 @@ function Lightbox({
                 return (
                   <div
                     key={slidePhoto.id}
-                    className="flex-shrink-0 w-full h-full flex items-center justify-center p-4"
+                    className="flex-shrink-0 w-full h-full flex items-center justify-center p-2"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <ProgressiveImage
@@ -1637,7 +1637,7 @@ function Lightbox({
         <div
           ref={commentsPanelRef}
           onClick={(e) => e.stopPropagation()}
-          className={`p-4 landscape:pl-0 flex-shrink-0 ${
+          className={`p-2 pt-0 landscape:pt-2 landscape:pl-0 flex-shrink-0 ${
             commentsExpanded
               ? 'h-[45%] landscape:h-full landscape:w-[min(35%,28rem)]'
               : 'landscape:max-w-[280px]'
@@ -1666,7 +1666,7 @@ function Lightbox({
               onPickerBlur: handleReactionPickerBlur,
               onTriggerKeyDown: handleReactionTriggerKeyDown,
               onOptionKeyDown: handleReactionOptionKeyDown,
-              pickerPosition: 'above',
+              pickerPosition: 'below',
               reactionDetails: reactionDetails,
               onLoadReactionDetails: loadReactionDetails,
               currentUserId: user?.id,

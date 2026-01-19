@@ -152,10 +152,11 @@ async function mockPushSubscribed(page: import('@playwright/test').Page, endpoin
 // Helper to create a push subscription in the database
 function createPushSubscription(userId: string, groupId: string, endpoint: string): void {
   const id = generateId();
+  const deletionToken = generateId();
   const now = Math.floor(Date.now() / 1000);
 
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO push_subscriptions (id, user_id, group_id, endpoint, p256dh, auth, created_at) VALUES ('${id}', '${userId}', '${groupId}', '${endpoint}', 'mock-p256dh', 'mock-auth', ${now});"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO push_subscriptions (id, user_id, group_id, endpoint, p256dh, auth, deletion_token, created_at) VALUES ('${id}', '${userId}', '${groupId}', '${endpoint}', 'mock-p256dh', 'mock-auth', '${deletionToken}', ${now});"`,
     { stdio: 'pipe' }
   );
 }

@@ -445,6 +445,7 @@ describe('Push subscription functions', () => {
         'https://push.example.com/abc',
         'p256dh-key',
         'auth-key',
+        expect.any(String), // deletion_token
         expect.any(Number) // created_at
       );
       expect(db._mocks.mockRun).toHaveBeenCalled();
