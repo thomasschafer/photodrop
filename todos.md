@@ -1,5 +1,4 @@
 # Todo
-[ ] add e.g. "show comments" by up arrow (how should this work on landscape unexpanded?)
 [ ] fix lots of reactions etc. on mobile - layout too crushed
 [ ] fix light mode colours
 [ ] fix mobile landscape
@@ -34,3 +33,4 @@
 [x] render times (comments, photos, whatever) as absolute when over a week old
 [x] new landscape view on mobile
 [x] stop notifying sender (check for improvements)
+[x] add e.g. "show comments" by up arrow (how should this work on landscape unexpanded?)

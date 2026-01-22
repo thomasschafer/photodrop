@@ -986,19 +986,14 @@ function CommentPanel({
     <ReactionPills reactions={reactions} userReaction={userReaction} {...reactionPillsProps} />
   );
 
-  const expandCollapseButton = (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggleExpanded();
-      }}
-      className="p-2 rounded-lg transition-colors text-text-muted flex-shrink-0 hover:bg-bg-tertiary hover:text-text-secondary cursor-pointer"
-      aria-label={commentsExpanded ? 'Collapse comments' : 'Expand comments'}
-    >
+  const commentCount = comments.length;
+
+  const arrowIcon = (
+    <>
       {/* Portrait: up/down arrows */}
       <svg
-        width="20"
-        height="20"
+        width="16"
+        height="16"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -1011,10 +1006,10 @@ function CommentPanel({
           d={commentsExpanded ? 'M19 9l-7 7-7-7' : 'M5 15l7-7 7 7'}
         />
       </svg>
-      {/* Landscape: left/right arrows - collapsed points left (expand), expanded points right (collapse) */}
+      {/* Landscape: left/right arrows */}
       <svg
-        width="20"
-        height="20"
+        width="16"
+        height="16"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -1027,6 +1022,31 @@ function CommentPanel({
           d={commentsExpanded ? 'M9 5l7 7-7 7' : 'M15 19l-7-7 7-7'}
         />
       </svg>
+    </>
+  );
+
+  const expandCollapseButton = (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggleExpanded();
+      }}
+      className="p-2 rounded-lg transition-colors text-text-muted flex-shrink-0 hover:bg-bg-tertiary hover:text-text-secondary cursor-pointer flex items-center gap-2 landscape:flex-col landscape:gap-2.5"
+      aria-label={
+        commentsExpanded
+          ? `Collapse comments (${commentCount} ${commentCount === 1 ? 'comment' : 'comments'})`
+          : `Expand comments (${commentCount} ${commentCount === 1 ? 'comment' : 'comments'})`
+      }
+    >
+      <span aria-hidden="true">{arrowIcon}</span>
+      {!commentsExpanded && (
+        <span className="relative text-xl" aria-hidden="true">
+          💬
+          <span className="absolute -top-2 -right-2.5 min-w-[1.25rem] h-[1.25rem] px-1 flex items-center justify-center text-xs font-semibold bg-red-500 text-white rounded-full shadow-sm">
+            {commentCount}
+          </span>
+        </span>
+      )}
     </button>
   );
 
@@ -1037,12 +1057,12 @@ function CommentPanel({
       }`}
     >
       {!commentsExpanded ? (
-        /* Collapsed state - horizontal in portrait, vertical in landscape */
-        <div className="flex items-center justify-between p-2 px-3 landscape:flex-col landscape:items-stretch landscape:gap-3 landscape:p-3">
-          <div className="landscape:order-2 landscape:[&>div]:flex-col landscape:[&>div]:items-start">
+        /* Collapsed state - row in portrait (reactions left, comments right), column in landscape (reactions top, comments bottom) */
+        <div className="flex items-center justify-between p-2 px-3 landscape:flex-col landscape:items-stretch landscape:justify-between landscape:flex-1 landscape:p-3">
+          <div className="landscape:[&>div]:flex-col landscape:[&>div]:items-start">
             {reactionPillsElement}
           </div>
-          <div className="landscape:order-1 landscape:self-start">{expandCollapseButton}</div>
+          <div className="landscape:self-start">{expandCollapseButton}</div>
         </div>
       ) : (
         /* Expanded state */
@@ -1618,7 +1638,7 @@ function Lightbox({
                 return (
                   <div
                     key={slidePhoto.id}
-                    className="flex-shrink-0 w-full h-full flex items-center justify-center p-2"
+                    className="flex-shrink-0 w-full h-full flex items-center justify-center p-1"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <ProgressiveImage

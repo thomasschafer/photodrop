@@ -16,6 +16,7 @@
 - ✅ Phase 2.5 (Reactions and comments): Complete - emoji reactions, comments, privacy mode
 - ❌ Phase 2.5.1 (Profile colors): Not started - colored avatars with initials, user menu
 - ❌ Phase 2.6 (Production hardening): Not started - rate limiting, CSP
+- ❌ Phase 2.7 (Performance optimizations): Not started - N+1 query fix, infinite scroll, non-blocking notifications
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 
@@ -1013,6 +1014,78 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Verify CSP headers don't break functionality
 - [ ] Test CORS rejects unauthorized origins
 
+### Phase 2.7: Performance optimizations
+
+**Goal:** Optimize the app to handle hundreds of photos with hundreds of users, comments, and reactions per photo.
+
+#### 1. Replace N+1 queries with aggregated query
+
+**Problem:** `listPhotosWithCounts` makes 1 + 3N queries (61 queries for 20 photos).
+
+**Solution:** Use two queries total with LEFT JOINs and batch reaction fetching.
+
+**File:** `backend/src/lib/db.ts`
+
+- [ ] Rewrite `listPhotosWithCounts` to use single aggregated SQL query
+- [ ] Add batch query for reaction emoji breakdown
+- [ ] Add unit tests for new implementation
+
+#### 2. Implement infinite scroll pagination
+
+**Problem:** PhotoFeed only loads 20 photos with no way to load more.
+
+**Solution:** Add IntersectionObserver-based infinite scroll.
+
+**Files:**
+- `backend/src/routes/photos.ts` - Add `hasMore` to response
+- `frontend/src/lib/api.ts` - Update return type
+- `frontend/src/components/PhotoFeed.tsx` - Add scroll detection
+
+- [ ] Add `hasMore` field to photos list response
+- [ ] Add pagination state and `loadMorePhotos` function
+- [ ] Add IntersectionObserver to detect scroll to bottom
+- [ ] Add sentinel element at end of photo list
+- [ ] Add E2E test for infinite scroll
+
+#### 3. Make push notifications non-blocking
+
+**Problem:** Photo upload blocks until all push notifications sent.
+
+**Solution:** Use `c.executionCtx.waitUntil()` to run notifications in background.
+
+**File:** `backend/src/routes/photos.ts`
+
+- [ ] Extract notification logic into separate function
+- [ ] Wrap with `c.executionCtx.waitUntil()`
+- [ ] Verify existing E2E tests still pass
+
+#### 4. Add missing database indexes
+
+**Problem:** Missing indexes on `comments.created_at` and `photo_reactions.user_id`.
+
+**File:** `backend/migrations/0006_add_performance_indexes.sql`
+
+- [ ] Add index on `comments(created_at)`
+- [ ] Add index on `photo_reactions(user_id)`
+
+#### Testing
+
+**Unit tests:**
+- [ ] Test photos return with correct counts
+- [ ] Test photos with no reactions/comments (null coalescing)
+- [ ] Test empty group returns empty array
+- [ ] Test reaction summaries correctly aggregated per photo
+
+**E2E tests:**
+- [ ] Test infinite scroll loads more photos when scrolling to bottom
+- [ ] Test all photos eventually visible with repeated scrolling
+
+**Manual testing:**
+- [ ] Verify feed loads with correct reaction/comment counts
+- [ ] Verify infinite scroll works smoothly
+- [ ] Verify photo upload returns quickly (<500ms)
+- [ ] Verify push notifications still arrive
+
 ### Phase 3: Polish
 
 - [x] Admin photo deletion UI
@@ -1095,6 +1168,7 @@ Schema is defined in `backend/migrations/0001_initial_schema.sql`. For schema ch
 - [x] httpOnly cookies (refresh tokens)
 - [ ] Rate limiting
 - [ ] CSP headers
+- [ ] Rate limiting on auth endpoints
 - [x] R2 bucket private
 - [x] Signed URLs expire (1 hour)
 - [x] Magic links single-use (15 min expiry)
