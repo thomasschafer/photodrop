@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import {
   createPushSubscription,
   deletePushSubscriptionForGroup,
-  deletePushSubscriptionWithToken,
+  deleteAllPushSubscriptionsForEndpointWithToken,
   getUserPushSubscriptionsForGroup,
   type MembershipRole,
 } from '../lib/db';
@@ -62,7 +62,7 @@ push.delete('/unsubscribe', async (c) => {
       return c.json({ error: 'Endpoint and deletionToken are required' }, 400);
     }
 
-    const { success, tokenValid } = await deletePushSubscriptionWithToken(
+    const { success, tokenValid } = await deleteAllPushSubscriptionsForEndpointWithToken(
       c.env.DB,
       endpoint,
       deletionToken

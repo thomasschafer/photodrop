@@ -5,6 +5,7 @@ import {
   getMembership,
   updateMembershipRole,
   deleteMembership,
+  deleteAllUserPushSubscriptionsForGroup,
   updateUserName,
   getGroupPhotoKeys,
   getGroupPhotoCount,
@@ -165,6 +166,8 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
       }
       return c.json({ error: 'Failed to remove member' }, 500);
     }
+
+    await deleteAllUserPushSubscriptionsForGroup(c.env.DB, userId, groupId);
 
     return c.json({ message: 'Member removed successfully' });
   } catch (error) {

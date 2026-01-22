@@ -2,7 +2,6 @@
 [ ] add e.g. "show comments" by up arrow (how should this work on landscape unexpanded?)
 [ ] fix lots of reactions etc. on mobile - layout too crushed
 [ ] fix light mode colours
-[ ] stop notifying sender
 [ ] fix mobile landscape
 [ ] keyboard nav on comments dropdown etc., also outline cropped
 [ ] how will lightbox perform when there are hundreds of photos? should we make any optimisations?
@@ -34,3 +33,4 @@
 [x] align comment hiding with expansion - no db, just state in component which resets
 [x] render times (comments, photos, whatever) as absolute when over a week old
 [x] new landscape view on mobile
+[x] stop notifying sender (check for improvements)

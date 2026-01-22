@@ -595,7 +595,13 @@ export async function deletePushSubscription(db: D1Database, endpoint: string): 
   return result.success;
 }
 
-export async function deletePushSubscriptionWithToken(
+/**
+ * Deletes ALL push subscriptions for an endpoint if the provided token matches
+ * any subscription for that endpoint. Used during logout to clean up all
+ * subscriptions from the current browser - the token proves ownership of
+ * the endpoint without requiring authentication.
+ */
+export async function deleteAllPushSubscriptionsForEndpointWithToken(
   db: D1Database,
   endpoint: string,
   deletionToken: string
@@ -626,6 +632,19 @@ export async function deletePushSubscriptionForGroup(
   const result = await db
     .prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND group_id = ? AND endpoint = ?')
     .bind(userId, groupId, endpoint)
+    .run();
+
+  return result.success;
+}
+
+export async function deleteAllUserPushSubscriptionsForGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND group_id = ?')
+    .bind(userId, groupId)
     .run();
 
   return result.success;

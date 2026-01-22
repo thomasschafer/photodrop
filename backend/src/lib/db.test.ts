@@ -14,6 +14,7 @@ import {
   getGroupPushSubscriptions,
   deletePushSubscription,
   deletePushSubscriptionForGroup,
+  deleteAllUserPushSubscriptionsForGroup,
   createComment,
   getCommentsByPhotoId,
   getComment,
@@ -650,6 +651,21 @@ describe('Push subscription functions', () => {
         'group-1',
         'https://push.example.com/abc'
       );
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteAllUserPushSubscriptionsForGroup', () => {
+    it('removes all subscriptions for a user in a specific group', async () => {
+      const db = createMockDb([]);
+
+      const result = await deleteAllUserPushSubscriptionsForGroup(db, 'user-1', 'group-1');
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM push_subscriptions WHERE user_id = ? AND group_id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
   });
