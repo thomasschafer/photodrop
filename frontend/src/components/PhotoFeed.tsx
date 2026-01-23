@@ -5,6 +5,7 @@ import { formatRelativeTime } from '../lib/dateFormat';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection, isHorizontalNavKey } from '../lib/keyboard';
 import { useDropdown } from '../lib/useDropdown';
+import { useIsPortrait } from '../lib/useIsPortrait';
 import { useVirtualCarousel } from '../lib/useVirtualCarousel';
 import { ConfirmModal } from './ConfirmModal';
 import { SelectDropdown } from './SelectDropdown';
@@ -53,6 +54,7 @@ interface ReactionPillsProps {
   onOptionKeyDown?: (e: React.KeyboardEvent, index: number) => void;
   onPickerSelect?: (emoji: string) => void;
   pickerPosition?: 'above' | 'below';
+  useViewportPositioning?: boolean;
   reactionDetails?: ReactionWithUser[];
   onLoadReactionDetails?: () => void;
   currentUserId?: string;
@@ -149,7 +151,7 @@ function ReactionPillButton({
         className={`${pillBaseClass} px-2.5 gap-1 ${
           isUserReaction
             ? 'bg-accent/25 hover:bg-accent/35'
-            : 'bg-bg-secondary hover:bg-bg-tertiary'
+            : 'bg-bg-tertiary hover:bg-bg-border'
         }`}
         aria-label={`${isUserReaction ? 'Remove' : 'Add'} ${emoji} reaction`}
         aria-pressed={isUserReaction}
@@ -184,6 +186,7 @@ function ReactionPills({
   onOptionKeyDown,
   onPickerSelect,
   pickerPosition = 'below',
+  useViewportPositioning = false,
   reactionDetails,
   onLoadReactionDetails,
   currentUserId,
@@ -191,6 +194,60 @@ function ReactionPills({
 }: ReactionPillsProps) {
   const hasLoadedRef = useRef(false);
   const [longPressTooltipEmoji, setLongPressTooltipEmoji] = useState<string | null>(null);
+  const internalTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const internalPickerRef = useRef<HTMLDivElement | null>(null);
+  const [, setResizeCounter] = useState(0);
+
+  // Memoized ref callback to avoid creating new function each render
+  const setTriggerRef = useCallback(
+    (el: HTMLButtonElement | null) => {
+      internalTriggerRef.current = el;
+      triggerRef?.(el);
+    },
+    [triggerRef]
+  );
+
+  // Recalculate position on resize/orientation change while picker is open
+  useEffect(() => {
+    if (!showPicker || !useViewportPositioning) return;
+
+    const handleResize = () => setResizeCounter((c) => c + 1);
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, [showPicker, useViewportPositioning]);
+
+  // Calculate picker position synchronously, clamping to viewport
+  const getPickerStyle = (): React.CSSProperties | undefined => {
+    if (!useViewportPositioning || !internalTriggerRef.current) return undefined;
+
+    const button = internalTriggerRef.current;
+    const rect = button.getBoundingClientRect();
+    // Use measured width if available, otherwise estimate
+    const pickerWidth = internalPickerRef.current?.offsetWidth ?? 280;
+    const padding = 8;
+    const viewportWidth = window.innerWidth;
+
+    // Center picker on button, then clamp to viewport
+    let left = rect.left + rect.width / 2 - pickerWidth / 2;
+    left = Math.max(padding, Math.min(left, viewportWidth - pickerWidth - padding));
+
+    const style: React.CSSProperties = {
+      position: 'fixed',
+      left: `${left}px`,
+    };
+
+    if (pickerPosition === 'above') {
+      style.bottom = `${window.innerHeight - rect.top + 8}px`;
+    } else {
+      style.top = `${rect.bottom + 8}px`;
+    }
+
+    return style;
+  };
 
   // Dismiss tooltip on any interaction elsewhere
   useEffect(() => {
@@ -211,8 +268,6 @@ function ReactionPills({
 
   const pillBaseClass =
     'h-9 rounded-full flex items-center justify-center text-sm transition-colors cursor-pointer select-none';
-
-  const pickerPositionClass = pickerPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1';
 
   // Compute reactions and reactionsByEmoji from reactionDetails if available
   const { computedReactions, reactionsByEmoji } = useMemo(() => {
@@ -283,7 +338,7 @@ function ReactionPills({
       {/* Add reaction button */}
       <div className="relative">
         <button
-          ref={triggerRef}
+          ref={setTriggerRef}
           onClick={(e) => {
             e.stopPropagation();
             onAddClick();
@@ -292,7 +347,7 @@ function ReactionPills({
           className={`${pillBaseClass} w-9 ${
             showPicker
               ? 'bg-bg-tertiary text-text-primary'
-              : 'bg-bg-secondary hover:bg-bg-tertiary text-text-muted'
+              : 'bg-bg-tertiary hover:bg-bg-border text-text-secondary'
           }`}
           aria-label="Add reaction"
           aria-expanded={showPicker}
@@ -304,9 +359,20 @@ function ReactionPills({
         {/* Reaction picker dropdown */}
         {showPicker && (
           <div
+            ref={(el) => {
+              internalPickerRef.current = el;
+              if (pickerRef && 'current' in pickerRef) {
+                (pickerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+              }
+            }}
             role="listbox"
             aria-label="Select reaction"
-            className={`absolute right-0 ${pickerPositionClass} z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1`}
+            className={`z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1 ${
+              useViewportPositioning
+                ? ''
+                : `absolute right-0 ${pickerPosition === 'above' ? 'bottom-full mb-2' : 'top-full mt-2'}`
+            }`}
+            style={getPickerStyle()}
           >
             {EMOJI_OPTIONS.map((emoji, index) => (
               <button
@@ -779,6 +845,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                     currentUserId={user?.id}
                     showNames={true}
                     pickerPosition="above"
+                    useViewportPositioning={true}
                   />
                 </div>
                 <div className="flex justify-between items-center">
@@ -1042,7 +1109,7 @@ function CommentPanel({
       {!commentsExpanded && (
         <span className="relative text-xl" aria-hidden="true">
           💬
-          <span className="absolute -top-2 -right-2.5 min-w-[1.25rem] h-[1.25rem] px-1 flex items-center justify-center text-xs font-semibold bg-red-500 text-white rounded-full shadow-sm">
+          <span className="absolute -top-2 -right-2.5 min-w-[1.25rem] h-[1.25rem] px-1 flex items-center justify-center text-xs font-semibold bg-accent text-white rounded-full shadow-sm">
             {commentCount}
           </span>
         </span>
@@ -1175,6 +1242,8 @@ function Lightbox({
 
   // Local state for expanded/collapsed - resets when lightbox closes
   const [commentsExpanded, setCommentsExpanded] = useState(false);
+
+  const isPortrait = useIsPortrait();
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
@@ -1686,7 +1755,8 @@ function Lightbox({
               onPickerBlur: handleReactionPickerBlur,
               onTriggerKeyDown: handleReactionTriggerKeyDown,
               onOptionKeyDown: handleReactionOptionKeyDown,
-              pickerPosition: 'below',
+              pickerPosition: isPortrait ? 'above' : 'below',
+              useViewportPositioning: isPortrait,
               reactionDetails: reactionDetails,
               onLoadReactionDetails: loadReactionDetails,
               currentUserId: user?.id,

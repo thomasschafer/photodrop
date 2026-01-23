@@ -1,8 +1,4 @@
 # Todo
-[ ] fix lots of reactions etc. on mobile - layout too crushed
-[ ] fix light mode colours
-[ ] fix mobile landscape
-[ ] keyboard nav on comments dropdown etc., also outline cropped
 [ ] how will lightbox perform when there are hundreds of photos? should we make any optimisations?
 
 # Done
@@ -34,3 +30,7 @@
 [x] new landscape view on mobile
 [x] stop notifying sender (check for improvements)
 [x] add e.g. "show comments" by up arrow (how should this work on landscape unexpanded?)
+[x] fix lots of reactions etc. on mobile - layout too crushed
+[x] fix light mode colours
+[x] fix mobile landscape
+[x] keyboard nav on comments dropdown etc., also outline cropped

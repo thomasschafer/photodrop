@@ -14,11 +14,11 @@
     /* Text */
     --color-text-primary: #3a3632;
     --color-text-secondary: #6b635b;
-    --color-text-muted: #9a918a;
+    --color-text-muted: #857d76;
 
     /* Borders */
-    --color-border: #e0d9d2;
-    --color-border-hover: #d4ccc4;
+    --color-border: #cfc7bf;
+    --color-border-hover: #c0b8b0;
     --color-border-strong: #b8afa5;
 
     /* Accent (terracotta) */

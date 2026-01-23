@@ -18,6 +18,7 @@ export default {
           primary: 'var(--color-bg-primary)',
           secondary: 'var(--color-bg-secondary)',
           tertiary: 'var(--color-bg-tertiary)',
+          border: 'var(--color-border)',
         },
         text: {
           primary: 'var(--color-text-primary)',

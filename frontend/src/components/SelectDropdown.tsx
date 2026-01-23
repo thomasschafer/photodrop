@@ -56,7 +56,7 @@ export function SelectDropdown<T extends string>({
         onKeyDown={handleTriggerKeyDown}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-bg-secondary border border-border text-text-muted text-sm cursor-pointer hover:bg-bg-tertiary transition-colors"
+        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-bg-secondary border border-border-strong text-text-secondary text-sm cursor-pointer hover:bg-bg-tertiary transition-colors"
       >
         <span>{currentOption.label}</span>
         <svg
@@ -87,7 +87,7 @@ export function SelectDropdown<T extends string>({
               aria-selected={value === option.value}
               onClick={() => handleSelect(option.value)}
               onKeyDown={(e) => handleOptionKeyDown(e, index)}
-              className={`w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary ${
+              className={`w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary focus-visible:relative focus-visible:z-10 ${
                 index === 0 ? 'rounded-t-lg' : ''
               } ${index === options.length - 1 ? 'rounded-b-lg' : ''} ${
                 value === option.value
