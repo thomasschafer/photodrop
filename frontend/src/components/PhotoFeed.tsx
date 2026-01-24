@@ -46,7 +46,7 @@ interface ReactionPillsProps {
   onReactionClick: (emoji: string) => void;
   onAddClick: () => void;
   showPicker: boolean;
-  pickerRef?: React.RefObject<HTMLDivElement | null>;
+  pickerRef?: React.MutableRefObject<HTMLDivElement | null>;
   triggerRef?: React.RefCallback<HTMLButtonElement | null>;
   optionRefs?: React.MutableRefObject<(HTMLButtonElement | null)[]>;
   onPickerBlur?: (e: React.FocusEvent) => void;
@@ -149,9 +149,7 @@ function ReactionPillButton({
         onTouchEnd={enableLongPress ? handleTouchEnd : undefined}
         onClick={handleClick}
         className={`${pillBaseClass} px-2.5 gap-1 ${
-          isUserReaction
-            ? 'bg-accent/25 hover:bg-accent/35'
-            : 'bg-bg-tertiary hover:bg-bg-border'
+          isUserReaction ? 'bg-accent/25 hover:bg-accent/35' : 'bg-bg-tertiary hover:bg-bg-border'
         }`}
         aria-label={`${isUserReaction ? 'Remove' : 'Add'} ${emoji} reaction`}
         aria-pressed={isUserReaction}
@@ -196,7 +194,7 @@ function ReactionPills({
   const [longPressTooltipEmoji, setLongPressTooltipEmoji] = useState<string | null>(null);
   const internalTriggerRef = useRef<HTMLButtonElement | null>(null);
   const internalPickerRef = useRef<HTMLDivElement | null>(null);
-  const [, setResizeCounter] = useState(0);
+  const [resizeCounter, setResizeCounter] = useState(0);
 
   // Memoized ref callback to avoid creating new function each render
   const setTriggerRef = useCallback(
@@ -220,14 +218,24 @@ function ReactionPills({
     };
   }, [showPicker, useViewportPositioning]);
 
-  // Calculate picker position synchronously, clamping to viewport
-  const getPickerStyle = (): React.CSSProperties | undefined => {
-    if (!useViewportPositioning || !internalTriggerRef.current) return undefined;
+  // Calculate picker position in layout effect, clamping to viewport
+  useLayoutEffect(() => {
+    const picker = internalPickerRef.current;
+    if (!picker) return;
+
+    if (!showPicker || !useViewportPositioning || !internalTriggerRef.current) {
+      // Clear any previously set inline styles
+      picker.style.position = '';
+      picker.style.left = '';
+      picker.style.top = '';
+      picker.style.bottom = '';
+      return;
+    }
 
     const button = internalTriggerRef.current;
     const rect = button.getBoundingClientRect();
     // Use measured width if available, otherwise estimate
-    const pickerWidth = internalPickerRef.current?.offsetWidth ?? 280;
+    const pickerWidth = picker.offsetWidth || 280;
     const padding = 8;
     const viewportWidth = window.innerWidth;
 
@@ -235,19 +243,17 @@ function ReactionPills({
     let left = rect.left + rect.width / 2 - pickerWidth / 2;
     left = Math.max(padding, Math.min(left, viewportWidth - pickerWidth - padding));
 
-    const style: React.CSSProperties = {
-      position: 'fixed',
-      left: `${left}px`,
-    };
+    picker.style.position = 'fixed';
+    picker.style.left = `${left}px`;
 
     if (pickerPosition === 'above') {
-      style.bottom = `${window.innerHeight - rect.top + 8}px`;
+      picker.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+      picker.style.top = '';
     } else {
-      style.top = `${rect.bottom + 8}px`;
+      picker.style.top = `${rect.bottom + 8}px`;
+      picker.style.bottom = '';
     }
-
-    return style;
-  };
+  }, [showPicker, useViewportPositioning, pickerPosition, resizeCounter]);
 
   // Dismiss tooltip on any interaction elsewhere
   useEffect(() => {
@@ -361,8 +367,8 @@ function ReactionPills({
           <div
             ref={(el) => {
               internalPickerRef.current = el;
-              if (pickerRef && 'current' in pickerRef) {
-                (pickerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+              if (pickerRef) {
+                pickerRef.current = el;
               }
             }}
             role="listbox"
@@ -372,7 +378,6 @@ function ReactionPills({
                 ? ''
                 : `absolute right-0 ${pickerPosition === 'above' ? 'bottom-full mb-2' : 'top-full mt-2'}`
             }`}
-            style={getPickerStyle()}
           >
             {EMOJI_OPTIONS.map((emoji, index) => (
               <button

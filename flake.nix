@@ -46,9 +46,9 @@
             echo ""
           fi
 
-          # Install dependencies if needed
-          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
-          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+          # Install dependencies
+          (cd backend && npm install)
+          (cd frontend && npm install)
 
           # Run migrations
           echo "Running migrations..."
