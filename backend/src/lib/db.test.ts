@@ -23,6 +23,7 @@ import {
   getReactionSummary,
   getUserReaction,
   getPhotoReactionsWithUsers,
+  listPhotosWithCounts,
 } from './db';
 
 function createMockDb(results: unknown[] = [], error?: Error) {
@@ -79,6 +80,51 @@ function createSequentialMockDb(firstResults: (unknown | null)[], error?: Error)
   const mockAll = vi.fn().mockImplementation(() => {
     if (error) throw error;
     return Promise.resolve({ results: [], success: true });
+  });
+
+  const mockRun = vi.fn().mockImplementation(() => {
+    if (error) throw error;
+    return Promise.resolve({ success: true, changes: 1 });
+  });
+
+  const mockBind = vi.fn().mockReturnValue({
+    first: mockFirst,
+    all: mockAll,
+    run: mockRun,
+  });
+
+  const mockPrepare = vi.fn().mockReturnValue({
+    bind: mockBind,
+  });
+
+  return {
+    prepare: mockPrepare,
+    _mocks: { mockPrepare, mockBind, mockFirst, mockAll, mockRun },
+  } as unknown as D1Database & {
+    _mocks: {
+      mockPrepare: ReturnType<typeof vi.fn>;
+      mockBind: ReturnType<typeof vi.fn>;
+      mockFirst: ReturnType<typeof vi.fn>;
+      mockAll: ReturnType<typeof vi.fn>;
+      mockRun: ReturnType<typeof vi.fn>;
+    };
+  };
+}
+
+// Creates a mock that returns different results for sequential all() calls
+function createSequentialAllMockDb(allResults: unknown[][], error?: Error) {
+  let callIndex = 0;
+
+  const mockFirst = vi.fn().mockImplementation(() => {
+    if (error) throw error;
+    return Promise.resolve(null);
+  });
+
+  const mockAll = vi.fn().mockImplementation(() => {
+    if (error) throw error;
+    const results = allResults[callIndex] ?? [];
+    callIndex++;
+    return Promise.resolve({ results, success: true });
   });
 
   const mockRun = vi.fn().mockImplementation(() => {
@@ -877,5 +923,150 @@ describe('Reaction functions', () => {
 
       expect(result).toEqual([]);
     });
+  });
+});
+
+describe('listPhotosWithCounts', () => {
+  it('returns photos with correct counts', async () => {
+    const photos = [
+      {
+        id: 'photo-1',
+        group_id: 'group-1',
+        r2_key: 'photos/1.jpg',
+        caption: 'Test photo',
+        uploaded_by: 'user-1',
+        uploaded_at: 1000,
+        thumbnail_r2_key: 'thumbs/1.jpg',
+        comment_count: 5,
+        reaction_count: 10,
+        user_reaction: '❤️',
+      },
+    ];
+    const reactions = [
+      { photo_id: 'photo-1', emoji: '❤️', count: 7 },
+      { photo_id: 'photo-1', emoji: '😂', count: 3 },
+    ];
+    const db = createSequentialAllMockDb([photos, reactions]);
+
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('photo-1');
+    expect(result[0].comment_count).toBe(5);
+    expect(result[0].reaction_count).toBe(10);
+    expect(result[0].user_reaction).toBe('❤️');
+    expect(result[0].reactions).toHaveLength(2);
+    expect(result[0].reactions[0]).toEqual({ emoji: '❤️', count: 7 });
+    expect(result[0].reactions[1]).toEqual({ emoji: '😂', count: 3 });
+  });
+
+  it('handles photos with no reactions or comments', async () => {
+    const photos = [
+      {
+        id: 'photo-1',
+        group_id: 'group-1',
+        r2_key: 'photos/1.jpg',
+        caption: null,
+        uploaded_by: 'user-1',
+        uploaded_at: 1000,
+        thumbnail_r2_key: 'thumbs/1.jpg',
+        comment_count: 0,
+        reaction_count: 0,
+        user_reaction: null,
+      },
+    ];
+    const reactions: unknown[] = [];
+    const db = createSequentialAllMockDb([photos, reactions]);
+
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].comment_count).toBe(0);
+    expect(result[0].reaction_count).toBe(0);
+    expect(result[0].user_reaction).toBeNull();
+    expect(result[0].reactions).toEqual([]);
+  });
+
+  it('returns empty array for group with no photos', async () => {
+    const db = createSequentialAllMockDb([[], []]);
+
+    const result = await listPhotosWithCounts(db, 'group-empty', 'user-1', 20, 0);
+
+    expect(result).toEqual([]);
+  });
+
+  it('correctly aggregates reaction summaries per photo for multiple photos', async () => {
+    const photos = [
+      {
+        id: 'photo-1',
+        group_id: 'group-1',
+        r2_key: 'photos/1.jpg',
+        caption: 'First',
+        uploaded_by: 'user-1',
+        uploaded_at: 2000,
+        thumbnail_r2_key: 'thumbs/1.jpg',
+        comment_count: 2,
+        reaction_count: 5,
+        user_reaction: '❤️',
+      },
+      {
+        id: 'photo-2',
+        group_id: 'group-1',
+        r2_key: 'photos/2.jpg',
+        caption: 'Second',
+        uploaded_by: 'user-1',
+        uploaded_at: 1000,
+        thumbnail_r2_key: 'thumbs/2.jpg',
+        comment_count: 0,
+        reaction_count: 3,
+        user_reaction: null,
+      },
+    ];
+    const reactions = [
+      { photo_id: 'photo-1', emoji: '❤️', count: 3 },
+      { photo_id: 'photo-1', emoji: '🔥', count: 2 },
+      { photo_id: 'photo-2', emoji: '😂', count: 3 },
+    ];
+    const db = createSequentialAllMockDb([photos, reactions]);
+
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+
+    expect(result).toHaveLength(2);
+
+    // First photo
+    expect(result[0].id).toBe('photo-1');
+    expect(result[0].reactions).toHaveLength(2);
+    expect(result[0].reactions).toContainEqual({ emoji: '❤️', count: 3 });
+    expect(result[0].reactions).toContainEqual({ emoji: '🔥', count: 2 });
+
+    // Second photo
+    expect(result[1].id).toBe('photo-2');
+    expect(result[1].reactions).toHaveLength(1);
+    expect(result[1].reactions[0]).toEqual({ emoji: '😂', count: 3 });
+  });
+
+  it('passes correct parameters to queries', async () => {
+    const photos = [
+      {
+        id: 'photo-1',
+        group_id: 'group-1',
+        r2_key: 'photos/1.jpg',
+        caption: 'Test',
+        uploaded_by: 'user-1',
+        uploaded_at: 1000,
+        thumbnail_r2_key: 'thumbs/1.jpg',
+        comment_count: 0,
+        reaction_count: 0,
+        user_reaction: null,
+      },
+    ];
+    const db = createSequentialAllMockDb([photos, []]);
+
+    await listPhotosWithCounts(db, 'group-1', 'user-1', 10, 5);
+
+    // First call: photos query with userId, groupId, limit, offset
+    expect(db._mocks.mockBind).toHaveBeenNthCalledWith(1, 'user-1', 'group-1', 10, 5);
+    // Second call: reactions query with photo IDs
+    expect(db._mocks.mockBind).toHaveBeenNthCalledWith(2, 'photo-1');
   });
 });

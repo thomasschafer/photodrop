@@ -1,6 +1,3 @@
-# Todo
-[ ] how will lightbox perform when there are hundreds of photos? should we make any optimisations?
-
 # Done
 [x] on keyboard nav:
 * popup now gets hidden at bottom, when it reaches the end of list item in the feed
@@ -34,3 +31,4 @@
 [x] fix light mode colours
 [x] fix mobile landscape
 [x] keyboard nav on comments dropdown etc., also outline cropped
+[x] how will lightbox perform when there are hundreds of photos? should we make any optimisations?

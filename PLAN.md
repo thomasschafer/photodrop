@@ -16,7 +16,7 @@
 - ✅ Phase 2.5 (Reactions and comments): Complete - emoji reactions, comments, privacy mode
 - ❌ Phase 2.5.1 (Profile colors): Not started - colored avatars with initials, user menu
 - ❌ Phase 2.6 (Production hardening): Not started - rate limiting, CSP
-- ❌ Phase 2.7 (Performance optimizations): Not started - N+1 query fix, infinite scroll, non-blocking notifications
+- ✅ Phase 2.7 (Performance optimizations): Complete - N+1 query fix, infinite scroll, non-blocking notifications
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 
@@ -1026,9 +1026,9 @@ The migration assigns random colors to all existing users so the column can be N
 
 **File:** `backend/src/lib/db.ts`
 
-- [ ] Rewrite `listPhotosWithCounts` to use single aggregated SQL query
-- [ ] Add batch query for reaction emoji breakdown
-- [ ] Add unit tests for new implementation
+- [x] Rewrite `listPhotosWithCounts` to use single aggregated SQL query
+- [x] Add batch query for reaction emoji breakdown
+- [x] Add unit tests for new implementation
 
 #### 2. Implement infinite scroll pagination
 
@@ -1041,11 +1041,11 @@ The migration assigns random colors to all existing users so the column can be N
 - `frontend/src/lib/api.ts` - Update return type
 - `frontend/src/components/PhotoFeed.tsx` - Add scroll detection
 
-- [ ] Add `hasMore` field to photos list response
-- [ ] Add pagination state and `loadMorePhotos` function
-- [ ] Add IntersectionObserver to detect scroll to bottom
-- [ ] Add sentinel element at end of photo list
-- [ ] Add E2E test for infinite scroll
+- [x] Add `hasMore` field to photos list response
+- [x] Add pagination state and `loadMorePhotos` function
+- [x] Add IntersectionObserver to detect scroll to bottom
+- [x] Add sentinel element at end of photo list
+- [x] Add E2E test for infinite scroll
 
 #### 3. Make push notifications non-blocking
 
@@ -1055,9 +1055,9 @@ The migration assigns random colors to all existing users so the column can be N
 
 **File:** `backend/src/routes/photos.ts`
 
-- [ ] Extract notification logic into separate function
-- [ ] Wrap with `c.executionCtx.waitUntil()`
-- [ ] Verify existing E2E tests still pass
+- [x] Extract notification logic into separate function
+- [x] Wrap with `c.executionCtx.waitUntil()`
+- [x] Verify existing E2E tests still pass
 
 #### 4. Add missing database indexes
 
@@ -1065,20 +1065,20 @@ The migration assigns random colors to all existing users so the column can be N
 
 **File:** `backend/migrations/0006_add_performance_indexes.sql`
 
-- [ ] Add index on `comments(created_at)`
-- [ ] Add index on `photo_reactions(user_id)`
+- [x] Add index on `comments(created_at)`
+- [x] Add index on `photo_reactions(user_id)`
 
 #### Testing
 
 **Unit tests:**
-- [ ] Test photos return with correct counts
-- [ ] Test photos with no reactions/comments (null coalescing)
-- [ ] Test empty group returns empty array
-- [ ] Test reaction summaries correctly aggregated per photo
+- [x] Test photos return with correct counts
+- [x] Test photos with no reactions/comments (null coalescing)
+- [x] Test empty group returns empty array
+- [x] Test reaction summaries correctly aggregated per photo
 
 **E2E tests:**
-- [ ] Test infinite scroll loads more photos when scrolling to bottom
-- [ ] Test all photos eventually visible with repeated scrolling
+- [x] Test infinite scroll loads more photos when scrolling to bottom
+- [x] Test all photos eventually visible with repeated scrolling
 
 **Manual testing:**
 - [ ] Verify feed loads with correct reaction/comment counts

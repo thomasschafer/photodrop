@@ -426,6 +426,8 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -442,6 +444,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const feedReactionPickerRef = useRef<HTMLDivElement>(null);
   const feedReactionTriggerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const feedReactionOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { photoId } = useParams<{ photoId: string }>();
 
@@ -507,6 +510,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       setError(null);
       const data = await api.photos.list(20, 0);
       setPhotos(data.photos);
+      setHasMore(data.hasMore ?? false);
       setFeedReactionDetails(new Map());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load photos');
@@ -515,9 +519,41 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   };
 
+  const loadMorePhotos = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+
+    try {
+      setLoadingMore(true);
+      const data = await api.photos.list(20, photos.length);
+      setPhotos((prev) => [...prev, ...data.photos]);
+      setHasMore(data.hasMore ?? false);
+    } catch (err) {
+      console.error('Failed to load more photos:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, photos.length]);
+
   useEffect(() => {
     loadPhotos();
   }, []);
+
+  // Infinite scroll: observe sentinel element
+  useEffect(() => {
+    if (!loadMoreRef.current || !hasMore || loading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore) {
+          loadMorePhotos();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, loadMorePhotos]);
 
   useEffect(() => {
     if (!loading && photoId && photos.length > 0 && selectedPhotoIndex === -1) {
@@ -889,6 +925,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             </article>
           ))}
         </div>
+        {hasMore && (
+          <div
+            ref={loadMoreRef}
+            className="h-16 flex items-center justify-center text-text-muted text-sm"
+          >
+            {loadingMore && 'Loading more photos...'}
+          </div>
+        )}
       </div>
 
       {selectedPhoto && selectedPhotoIndex !== null && selectedPhotoIndex >= 0 && (

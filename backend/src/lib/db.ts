@@ -760,7 +760,14 @@ export async function getUserReaction(
   return result?.emoji ?? null;
 }
 
-// List photos with reaction and comment counts
+// Internal type for the aggregated query result
+interface PhotoWithCountsRow extends Photo {
+  comment_count: number;
+  reaction_count: number;
+  user_reaction: string | null;
+}
+
+// List photos with reaction and comment counts (optimized: 2 queries instead of 1+3N)
 export async function listPhotosWithCounts(
   db: D1Database,
   groupId: string,
@@ -768,25 +775,79 @@ export async function listPhotosWithCounts(
   limit: number = 20,
   offset: number = 0
 ): Promise<PhotoWithCounts[]> {
-  const photos = await listPhotos(db, groupId, limit, offset);
+  // Query 1: Get photos with aggregated counts in a single query
+  const photosResult = await db
+    .prepare(
+      `SELECT
+        p.id,
+        p.group_id,
+        p.r2_key,
+        p.caption,
+        p.uploaded_by,
+        p.uploaded_at,
+        p.thumbnail_r2_key,
+        COALESCE(c.comment_count, 0) as comment_count,
+        COALESCE(r.reaction_count, 0) as reaction_count,
+        ur.emoji as user_reaction
+      FROM photos p
+      LEFT JOIN (
+        SELECT photo_id, COUNT(*) as comment_count
+        FROM comments
+        GROUP BY photo_id
+      ) c ON c.photo_id = p.id
+      LEFT JOIN (
+        SELECT photo_id, COUNT(*) as reaction_count
+        FROM photo_reactions
+        GROUP BY photo_id
+      ) r ON r.photo_id = p.id
+      LEFT JOIN photo_reactions ur ON ur.photo_id = p.id AND ur.user_id = ?
+      WHERE p.group_id = ?
+      ORDER BY p.uploaded_at DESC
+      LIMIT ? OFFSET ?`
+    )
+    .bind(userId, groupId, limit, offset)
+    .all<PhotoWithCountsRow>();
 
-  const photosWithCounts = await Promise.all(
-    photos.map(async (photo) => {
-      const [reactions, commentCount, userReaction] = await Promise.all([
-        getReactionSummary(db, photo.id),
-        getCommentCount(db, photo.id),
-        getUserReaction(db, photo.id, userId),
-      ]);
+  const photos = photosResult.results || [];
 
-      return {
-        ...photo,
-        reaction_count: reactions.reduce((sum, r) => sum + r.count, 0),
-        comment_count: commentCount,
-        reactions,
-        user_reaction: userReaction,
-      };
-    })
-  );
+  if (photos.length === 0) {
+    return [];
+  }
 
-  return photosWithCounts;
+  // Query 2: Get reaction breakdown for all photos in a single batch query
+  const photoIds = photos.map((p) => p.id);
+  const placeholders = photoIds.map(() => '?').join(',');
+
+  const reactionsResult = await db
+    .prepare(
+      `SELECT photo_id, emoji, COUNT(*) as count
+       FROM photo_reactions
+       WHERE photo_id IN (${placeholders})
+       GROUP BY photo_id, emoji
+       ORDER BY count DESC, emoji ASC`
+    )
+    .bind(...photoIds)
+    .all<{ photo_id: string; emoji: string; count: number }>();
+
+  const reactionsByPhoto = new Map<string, ReactionSummary[]>();
+  for (const row of reactionsResult.results || []) {
+    const existing = reactionsByPhoto.get(row.photo_id) || [];
+    existing.push({ emoji: row.emoji, count: row.count });
+    reactionsByPhoto.set(row.photo_id, existing);
+  }
+
+  // Combine photos with their reaction summaries
+  return photos.map((photo) => ({
+    id: photo.id,
+    group_id: photo.group_id,
+    r2_key: photo.r2_key,
+    caption: photo.caption,
+    uploaded_by: photo.uploaded_by,
+    uploaded_at: photo.uploaded_at,
+    thumbnail_r2_key: photo.thumbnail_r2_key,
+    reaction_count: photo.reaction_count,
+    comment_count: photo.comment_count,
+    reactions: reactionsByPhoto.get(photo.id) || [],
+    user_reaction: photo.user_reaction,
+  }));
 }

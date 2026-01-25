@@ -41,16 +41,75 @@ type Variables = {
 
 const photos = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+// Send push notifications in background (non-blocking)
+async function sendPhotoUploadNotifications(
+  env: Bindings,
+  groupId: string,
+  uploaderId: string,
+  photoId: string,
+  caption: string | null
+): Promise<void> {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
+    console.warn('VAPID keys not configured, skipping notifications');
+    return;
+  }
+
+  try {
+    configureVapid(
+      env.VAPID_PUBLIC_KEY,
+      env.VAPID_PRIVATE_KEY,
+      `mailto:noreply@${new URL(env.FRONTEND_URL || 'http://localhost').hostname}`
+    );
+
+    const subscriptions = await getGroupPushSubscriptions(env.DB, groupId, uploaderId);
+
+    if (subscriptions.length === 0) return;
+
+    const [group, uploader] = await Promise.all([
+      getGroup(env.DB, groupId),
+      getUserById(env.DB, uploaderId),
+    ]);
+
+    const groupName = group?.name || 'your group';
+    const uploaderName = uploader?.name || 'Someone';
+
+    await sendPushNotifications(
+      subscriptions,
+      {
+        title: `New photo in ${groupName}`,
+        body: caption || `${uploaderName} shared a new photo`,
+        data: {
+          url: `${env.FRONTEND_URL || ''}/photo/${photoId}`,
+          groupId,
+          photoId,
+        },
+      },
+      env.DB
+    );
+  } catch (pushError) {
+    console.error('Failed to send push notifications:', pushError);
+  }
+}
+
 photos.get('/', requireAuth, async (c) => {
   try {
     const limit = parseInt(c.req.query('limit') || '20');
     const offset = parseInt(c.req.query('offset') || '0');
     const user = c.get('user');
 
-    const photoList = await listPhotosWithCounts(c.env.DB, user.groupId, user.id, limit, offset);
+    // Fetch one extra to determine if there are more photos
+    const photoList = await listPhotosWithCounts(
+      c.env.DB,
+      user.groupId,
+      user.id,
+      limit + 1,
+      offset
+    );
+    const hasMore = photoList.length > limit;
+    const photosToReturn = hasMore ? photoList.slice(0, limit) : photoList;
 
     return c.json({
-      photos: photoList.map((photo) => ({
+      photos: photosToReturn.map((photo) => ({
         id: photo.id,
         caption: photo.caption,
         uploadedBy: photo.uploaded_by,
@@ -62,6 +121,7 @@ photos.get('/', requireAuth, async (c) => {
       })),
       limit,
       offset,
+      hasMore,
     });
   } catch (error) {
     console.error('Error listing photos:', error);
@@ -118,51 +178,10 @@ photos.post('/', requireAdmin, async (c) => {
       caption || undefined
     );
 
-    // Send push notifications to all subscribed users in the group (except uploader)
-    if (c.env.VAPID_PUBLIC_KEY && c.env.VAPID_PRIVATE_KEY) {
-      try {
-        configureVapid(
-          c.env.VAPID_PUBLIC_KEY,
-          c.env.VAPID_PRIVATE_KEY,
-          `mailto:noreply@${new URL(c.env.FRONTEND_URL || 'http://localhost').hostname}`
-        );
-
-        const subscriptions = await getGroupPushSubscriptions(
-          c.env.DB,
-          currentUser.groupId,
-          currentUser.id
-        );
-
-        if (subscriptions.length > 0) {
-          const [group, uploader] = await Promise.all([
-            getGroup(c.env.DB, currentUser.groupId),
-            getUserById(c.env.DB, currentUser.id),
-          ]);
-
-          const groupName = group?.name || 'your group';
-          const uploaderName = uploader?.name || 'Someone';
-
-          await sendPushNotifications(
-            subscriptions,
-            {
-              title: `New photo in ${groupName}`,
-              body: caption || `${uploaderName} shared a new photo`,
-              data: {
-                url: `${c.env.FRONTEND_URL || ''}/photo/${photoId}`,
-                groupId: currentUser.groupId,
-                photoId,
-              },
-            },
-            c.env.DB
-          );
-        }
-      } catch (pushError) {
-        // Log but don't fail the upload if notifications fail
-        console.error('Failed to send push notifications:', pushError);
-      }
-    } else {
-      console.warn('Found missing VAPID_PUBLIC_KEY or VAPID_PRIVATE_KEY so skipping notifications');
-    }
+    // Send push notifications in background (non-blocking)
+    c.executionCtx.waitUntil(
+      sendPhotoUploadNotifications(c.env, currentUser.groupId, currentUser.id, photoId, caption)
+    );
 
     return c.json(
       {
