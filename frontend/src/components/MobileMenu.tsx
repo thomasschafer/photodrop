@@ -3,6 +3,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
 import { getNavDirection, isVerticalNavKey } from '../lib/keyboard';
+import { useColorSelect } from '../lib/useColorSelect';
+import { Avatar } from './Avatar';
+import { ColorPickerModal } from './ColorPickerModal';
 
 type Theme = 'system' | 'light' | 'dark';
 
@@ -61,9 +64,11 @@ const themes: { value: Theme; label: string; icon: JSX.Element }[] = [
 
 export function MobileMenu() {
   const { user, currentGroup, groups, switchGroup, logout } = useAuth();
+  const handleColorSelect = useColorSelect();
   const { theme, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -71,6 +76,7 @@ export function MobileMenu() {
   const allItems = [
     ...groups.map((g) => ({ type: 'group' as const, id: g.id, group: g })),
     ...themes.map((t) => ({ type: 'theme' as const, id: t.value, theme: t })),
+    { type: 'change-color' as const, id: 'change-color' },
     { type: 'signout' as const, id: 'signout' },
   ];
 
@@ -190,59 +196,59 @@ export function MobileMenu() {
     return null;
   }
 
-  let itemIndex = 0;
+  const changeColorIdx = groups.length + themes.length;
+  const signOutIdx = changeColorIdx + 1;
 
   return (
-    <div ref={dropdownRef} className="relative" onBlur={handleBlur}>
-      <button
-        ref={triggerRef}
-        onClick={() => setIsOpen(!isOpen)}
-        onKeyDown={handleTriggerKeyDown}
-        aria-label="Menu"
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        disabled={isLoading}
-        className="flex items-center justify-center w-9 h-9 rounded-lg border border-border cursor-pointer bg-surface text-text-secondary transition-colors hover:border-border-strong disabled:opacity-50"
-      >
-        {isLoading ? (
-          <div className="w-4 h-4 border-2 border-text-tertiary border-t-transparent rounded-full animate-spin" />
-        ) : (
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M3 12h18M3 6h18M3 18h18" />
-          </svg>
-        )}
-      </button>
-
-      {isOpen && (
-        <div
-          role="menu"
-          aria-label="Main menu"
-          className="absolute top-[calc(100%+0.5rem)] right-0 min-w-[220px] bg-surface border border-border rounded-lg shadow-elevated z-50"
+    <>
+      <div ref={dropdownRef} className="relative" onBlur={handleBlur}>
+        <button
+          ref={triggerRef}
+          onClick={() => setIsOpen(!isOpen)}
+          onKeyDown={handleTriggerKeyDown}
+          aria-label="Menu"
+          aria-expanded={isOpen}
+          aria-haspopup="menu"
+          disabled={isLoading}
+          className="flex items-center justify-center w-9 h-9 rounded-lg border border-border cursor-pointer bg-surface text-text-secondary transition-colors hover:border-border-strong disabled:opacity-50"
         >
-          {/* Groups section */}
-          <div className="py-1">
-            <div className="px-3.5 py-2 text-xs font-medium text-text-tertiary uppercase tracking-wide">
-              Groups
-            </div>
-            {groups.map((group) => {
-              const idx = itemIndex++;
-              return (
+          {isLoading ? (
+            <div className="w-4 h-4 border-2 border-text-tertiary border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+          )}
+        </button>
+
+        {isOpen && (
+          <div
+            role="menu"
+            aria-label="Main menu"
+            className="absolute top-[calc(100%+0.5rem)] right-0 min-w-[220px] bg-surface border border-border rounded-lg shadow-elevated z-50"
+          >
+            {/* Groups section */}
+            <div className="py-1">
+              <div className="px-3.5 py-2 text-xs font-medium text-text-tertiary uppercase tracking-wide">
+                Groups
+              </div>
+              {groups.map((group, i) => (
                 <button
                   key={group.id}
                   ref={(el) => {
-                    itemRefs.current[idx] = el;
+                    itemRefs.current[i] = el;
                   }}
                   role="menuitemradio"
                   aria-checked={currentGroup?.id === group.id}
                   onClick={() => handleGroupSelect(group.id)}
-                  onKeyDown={(e) => handleKeyDown(e, idx)}
+                  onKeyDown={(e) => handleKeyDown(e, i)}
                   className={`flex items-center justify-between w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary ${
                     currentGroup?.id === group.id
                       ? 'bg-bg-secondary text-text-primary'
@@ -279,73 +285,106 @@ export function MobileMenu() {
                     {ROLE_DISPLAY_NAMES[group.ownerId === user?.id ? 'owner' : group.role]}
                   </span>
                 </button>
-              );
-            })}
-          </div>
-
-          <div className="h-px bg-border mx-2" />
-
-          {/* Theme section */}
-          <div className="py-1">
-            <div className="px-3.5 py-2 text-xs font-medium text-text-tertiary uppercase tracking-wide">
-              Theme
+              ))}
             </div>
-            {themes.map((t) => {
-              const idx = itemIndex++;
-              return (
-                <button
-                  key={t.value}
-                  ref={(el) => {
-                    itemRefs.current[idx] = el;
-                  }}
-                  role="menuitemradio"
-                  aria-checked={theme === t.value}
-                  onClick={() => handleThemeSelect(t.value)}
-                  onKeyDown={(e) => handleKeyDown(e, idx)}
-                  className={`flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary ${
-                    theme === t.value
-                      ? 'bg-bg-secondary text-text-primary'
-                      : 'bg-transparent text-text-secondary'
-                  }`}
-                >
-                  <span className={theme === t.value ? 'text-accent' : ''}>{t.icon}</span>
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
 
-          <div className="h-px bg-border mx-2" />
+            <div className="h-px bg-border mx-2" />
 
-          {/* User section */}
-          <div className="py-1">
-            <div className="px-3.5 py-2 text-xs text-text-tertiary">
-              Signed in as <span className="font-medium text-text-secondary">{user.name}</span>
+            {/* Theme section */}
+            <div className="py-1">
+              <div className="px-3.5 py-2 text-xs font-medium text-text-tertiary uppercase tracking-wide">
+                Theme
+              </div>
+              {themes.map((t, i) => {
+                const idx = groups.length + i;
+                return (
+                  <button
+                    key={t.value}
+                    ref={(el) => {
+                      itemRefs.current[idx] = el;
+                    }}
+                    role="menuitemradio"
+                    aria-checked={theme === t.value}
+                    onClick={() => handleThemeSelect(t.value)}
+                    onKeyDown={(e) => handleKeyDown(e, idx)}
+                    className={`flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary ${
+                      theme === t.value
+                        ? 'bg-bg-secondary text-text-primary'
+                        : 'bg-transparent text-text-secondary'
+                    }`}
+                  >
+                    <span className={theme === t.value ? 'text-accent' : ''}>{t.icon}</span>
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
-            <button
-              ref={(el) => {
-                itemRefs.current[itemIndex] = el;
-              }}
-              role="menuitem"
-              onClick={handleSignOut}
-              onKeyDown={(e) => handleKeyDown(e, itemIndex)}
-              className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-accent transition-colors hover:bg-bg-tertiary rounded-b-lg"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+
+            <div className="h-px bg-border mx-2" />
+
+            {/* User section */}
+            <div className="py-1">
+              <div className="px-3.5 py-2 flex items-center gap-2 text-xs text-text-tertiary">
+                <Avatar name={user.name} color={user.profileColor} size="sm" />
+                <span>
+                  Signed in as <span className="font-medium text-text-secondary">{user.name}</span>
+                </span>
+              </div>
+              <button
+                ref={(el) => {
+                  itemRefs.current[changeColorIdx] = el;
+                }}
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  setShowColorPicker(true);
+                }}
+                onKeyDown={(e) => handleKeyDown(e, changeColorIdx)}
+                className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-text-secondary bg-transparent transition-colors hover:bg-bg-tertiary"
               >
-                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-              </svg>
-              Sign out
-            </button>
+                <div
+                  className="w-4 h-4 rounded-full"
+                  style={{ backgroundColor: `var(--profile-${user.profileColor})` }}
+                  aria-hidden="true"
+                />
+                Change color
+              </button>
+              <button
+                ref={(el) => {
+                  itemRefs.current[signOutIdx] = el;
+                }}
+                role="menuitem"
+                onClick={handleSignOut}
+                onKeyDown={(e) => handleKeyDown(e, signOutIdx)}
+                className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-accent transition-colors hover:bg-bg-tertiary rounded-b-lg"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+                </svg>
+                Sign out
+              </button>
+            </div>
           </div>
-        </div>
+        )}
+      </div>
+
+      {showColorPicker && (
+        <ColorPickerModal
+          currentColor={user.profileColor}
+          onSelect={handleColorSelect}
+          onClose={() => {
+            setShowColorPicker(false);
+            triggerRef.current?.focus();
+          }}
+        />
       )}
-    </div>
+    </>
   );
 }

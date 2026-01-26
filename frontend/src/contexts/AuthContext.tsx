@@ -1,20 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { api } from '../lib/api';
+import { api, type User, type Group } from '../lib/api';
 import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
-import type { MembershipRole } from '../lib/roles';
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-}
-
-interface Group {
-  id: string;
-  name: string;
-  role: MembershipRole;
-  ownerId: string;
-}
+import type { ProfileColor } from '../lib/profileColors';
 
 interface AuthState {
   user: User | null;
@@ -41,6 +28,7 @@ interface AuthContextType {
   switchGroup: (groupId: string) => Promise<void>;
   selectGroup: (groupId: string) => Promise<void>;
   onGroupDeleted: (deletedGroupId: string) => void;
+  updateProfileColor: (color: ProfileColor) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -114,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setAuthState({
         user: data.user,
-        currentGroup: data.currentGroup,
+        currentGroup: data.currentGroup ?? null,
         groups: data.groups,
         needsGroupSelection:
           data.needsGroupSelection || (!data.currentGroup && data.groups.length > 0),
@@ -134,10 +122,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const switchGroup = useCallback(async (groupId: string) => {
     try {
       const data = await api.auth.switchGroup(groupId);
+      if (!data.accessToken) {
+        throw new Error('No access token received from switchGroup');
+      }
       localStorage.setItem('accessToken', data.accessToken);
       setAuthState({
         user: data.user,
-        currentGroup: data.currentGroup,
+        currentGroup: data.currentGroup ?? null,
         groups: data.groups,
         needsGroupSelection: false,
       });
@@ -156,10 +147,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const data = await api.auth.selectGroup(authState.user.id, groupId);
+        if (!data.accessToken) {
+          throw new Error('No access token received from selectGroup');
+        }
         localStorage.setItem('accessToken', data.accessToken);
         setAuthState({
           user: data.user,
-          currentGroup: data.currentGroup,
+          currentGroup: data.currentGroup ?? null,
           groups: data.groups,
           needsGroupSelection: false,
         });
@@ -171,6 +165,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [authState.user]
   );
+
+  const updateProfileColor = useCallback((color: ProfileColor) => {
+    setAuthState((prev) => ({
+      ...prev,
+      user: prev.user ? { ...prev.user, profileColor: color } : null,
+    }));
+  }, []);
 
   const onGroupDeleted = useCallback(
     (deletedGroupId: string) => {
@@ -199,6 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               id: userData.id,
               name: userData.name,
               email: userData.email,
+              profileColor: userData.profileColor,
             },
             currentGroup: userData.currentGroup,
             groups: userData.groups,
@@ -253,6 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         switchGroup,
         selectGroup,
         onGroupDeleted,
+        updateProfileColor,
       }}
     >
       {children}

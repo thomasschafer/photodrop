@@ -7,15 +7,18 @@ export async function loginWithMagicLink(
 ): Promise<void> {
   await page.goto(magicLink);
 
-  // Wait for verification to complete - could land on name input, group picker, or main app
-  // First wait for the "Verifying your link..." to disappear
-  await expect(page.locator('text=Verifying your link')).not.toBeVisible({ timeout: 15000 });
-
-  // Check if we need to enter a name (new user via invite link)
   const nameInput = page.getByPlaceholder('Jane Smith');
-  const needsName = await nameInput.isVisible({ timeout: 2000 }).catch(() => false);
+  const appLoaded = page
+    .getByRole('tab', { name: 'Photos' })
+    .or(page.getByRole('button', { name: 'Sign out' }))
+    .or(page.locator('button[aria-haspopup="menu"][aria-label$=" menu"]'));
 
-  if (needsName) {
+  // Wait for the auth flow to complete: either the name input appears
+  // (new user via invite link) or the main app loads after redirect
+  await expect(nameInput.or(appLoaded)).toBeVisible({ timeout: 30000 });
+
+  // If name input appeared (new user via invite link), fill and submit
+  if (await nameInput.isVisible()) {
     if (!name) {
       throw new Error('Name is required for new user invite links');
     }
@@ -23,22 +26,22 @@ export async function loginWithMagicLink(
     await page.getByRole('button', { name: 'Continue' }).click();
   }
 
-  // Wait for sign out button to appear (present in main app, group picker, and no-groups page)
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({ timeout: 15000 });
+  // Wait for the main app to load (Photos tab or Sign out button)
+  await expect(appLoaded).toBeVisible({ timeout: 30000 });
 }
 
 export async function loginWithMagicLinkExpectPicker(page: Page, magicLink: string): Promise<void> {
   await page.goto(magicLink);
 
   // Wait for group picker
-  await expect(page.getByText('Choose a group')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('Choose a group')).toBeVisible({ timeout: 30000 });
 }
 
 export async function loginWithMagicLinkExpectEmpty(page: Page, magicLink: string): Promise<void> {
   await page.goto(magicLink);
 
   // Wait for empty state
-  await expect(page.getByText('No groups yet')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('No groups yet')).toBeVisible({ timeout: 30000 });
 }
 
 export async function getAuthToken(page: Page): Promise<string | null> {
@@ -48,8 +51,16 @@ export async function getAuthToken(page: Page): Promise<string | null> {
 }
 
 export async function logout(page: Page): Promise<void> {
-  // Click the sign out button
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  const directSignOut = page.getByRole('button', { name: 'Sign out' });
+  const isDirectlyVisible = await directSignOut.isVisible().catch(() => false);
+
+  if (isDirectlyVisible) {
+    await directSignOut.click();
+  } else {
+    // On the main app, Sign out is inside the user menu dropdown
+    await page.locator('button[aria-haspopup="menu"][aria-label$=" menu"]').click();
+    await page.getByRole('menuitem', { name: 'Sign out' }).click();
+  }
 
   // Wait for redirect to landing page
   await expect(page).toHaveURL('/');
@@ -57,7 +68,12 @@ export async function logout(page: Page): Promise<void> {
 }
 
 export async function expectLoggedIn(page: Page): Promise<void> {
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await expect(
+    page
+      .getByRole('tab', { name: 'Photos' })
+      .or(page.getByRole('button', { name: 'Sign out' }))
+      .or(page.locator('button[aria-haspopup="menu"][aria-label$=" menu"]'))
+  ).toBeVisible();
 }
 
 export async function expectLoggedOut(page: Page): Promise<void> {

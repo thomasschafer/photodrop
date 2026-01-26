@@ -1,5 +1,39 @@
 import { generateId, generateInviteToken } from './crypto';
 
+// Keep in sync with frontend/src/lib/profileColors.ts
+export const PROFILE_COLORS = [
+  'terracotta',
+  'coral',
+  'amber',
+  'rust',
+  'clay',
+  'copper',
+  'sienna',
+  'sage',
+  'olive',
+  'forest',
+  'moss',
+  'jade',
+  'slate',
+  'ocean',
+  'teal',
+  'indigo',
+  'plum',
+  'wine',
+  'mauve',
+  'rose',
+] as const;
+
+export type ProfileColor = (typeof PROFILE_COLORS)[number];
+
+export function isProfileColor(value: string): value is ProfileColor {
+  return (PROFILE_COLORS as readonly string[]).includes(value);
+}
+
+export function getRandomProfileColor(): ProfileColor {
+  return PROFILE_COLORS[Math.floor(Math.random() * PROFILE_COLORS.length)];
+}
+
 export interface Group {
   id: string;
   name: string;
@@ -11,6 +45,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  profile_color: ProfileColor;
   created_at: number;
   last_seen_at: number | null;
 }
@@ -32,6 +67,7 @@ export interface MembershipWithGroup extends Membership {
 export interface MembershipWithUser extends Membership {
   user_name: string;
   user_email: string;
+  user_profile_color: ProfileColor;
 }
 
 export interface MagicLinkToken {
@@ -70,6 +106,7 @@ export interface PhotoReaction {
 
 export interface PhotoReactionWithUser extends PhotoReaction {
   user_name: string;
+  user_profile_color: ProfileColor;
 }
 
 export interface Comment {
@@ -77,6 +114,7 @@ export interface Comment {
   photo_id: string;
   user_id: string | null;
   author_name: string;
+  author_profile_color: ProfileColor | null;
   content: string;
   created_at: number;
 }
@@ -119,13 +157,14 @@ export async function getGroup(db: D1Database, groupId: string): Promise<Group |
 export async function createUser(db: D1Database, name: string, email: string): Promise<string> {
   const userId = generateId();
   const now = Math.floor(Date.now() / 1000);
+  const profileColor = getRandomProfileColor();
 
   await db
     .prepare(
-      `INSERT INTO users (id, name, email, created_at)
-       VALUES (?, ?, ?, ?)`
+      `INSERT INTO users (id, name, email, profile_color, created_at)
+       VALUES (?, ?, ?, ?, ?)`
     )
-    .bind(userId, name, email, now)
+    .bind(userId, name, email, profileColor, now)
     .run();
 
   return userId;
@@ -187,7 +226,7 @@ export async function getGroupMembers(
   const [membersResult, group] = await Promise.all([
     db
       .prepare(
-        `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email
+        `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email, u.profile_color as user_profile_color
          FROM memberships m
          JOIN users u ON m.user_id = u.id
          WHERE m.group_id = ?
@@ -269,6 +308,19 @@ export async function updateUserName(
   const result = await db
     .prepare('UPDATE users SET name = ? WHERE id = ?')
     .bind(name, userId)
+    .run();
+
+  return result.success;
+}
+
+export async function updateUserProfileColor(
+  db: D1Database,
+  userId: string,
+  color: ProfileColor
+): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE users SET profile_color = ? WHERE id = ?')
+    .bind(color, userId)
     .run();
 
   return result.success;
@@ -675,10 +727,11 @@ export async function createComment(
 export async function getCommentsByPhotoId(db: D1Database, photoId: string): Promise<Comment[]> {
   const result = await db
     .prepare(
-      `SELECT id, photo_id, user_id, author_name, content, created_at
-       FROM comments
-       WHERE photo_id = ?
-       ORDER BY created_at DESC`
+      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.profile_color as author_profile_color, c.content, c.created_at
+       FROM comments c
+       LEFT JOIN users u ON c.user_id = u.id
+       WHERE c.photo_id = ?
+       ORDER BY c.created_at DESC`
     )
     .bind(photoId)
     .all<Comment>();
@@ -717,7 +770,7 @@ export async function getPhotoReactionsWithUsers(
 ): Promise<PhotoReactionWithUser[]> {
   const result = await db
     .prepare(
-      `SELECT pr.photo_id, pr.user_id, pr.emoji, pr.created_at, u.name as user_name
+      `SELECT pr.photo_id, pr.user_id, pr.emoji, pr.created_at, u.name as user_name, u.profile_color as user_profile_color
        FROM photo_reactions pr
        JOIN users u ON pr.user_id = u.id
        WHERE pr.photo_id = ?

@@ -10,7 +10,7 @@ export function GroupSwitcher() {
   const [isLoading, setIsLoading] = useState(false);
 
   const currentIndex = currentGroup ? groups.findIndex((g) => g.id === currentGroup.id) : 0;
-  const { containerRef, triggerRef, optionRefs, handleOptionKeyDown, handleBlur } = useDropdown({
+  const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
     isOpen,
     onClose: () => setIsOpen(false),
     itemCount: groups.length,
@@ -87,9 +87,7 @@ export function GroupSwitcher() {
           {groups.map((group, index) => (
             <button
               key={group.id}
-              ref={(el) => {
-                optionRefs.current[index] = el;
-              }}
+              ref={setOptionRef(index)}
               role="option"
               aria-selected={currentGroup?.id === group.id}
               onClick={() => handleSelect(group.id)}

@@ -465,6 +465,7 @@ photos.get('/:id/reactions', requireAuth, async (c) => {
         emoji: r.emoji,
         userId: r.user_id,
         userName: r.user_name,
+        profileColor: r.user_profile_color,
         createdAt: r.created_at,
       })),
     });
@@ -492,6 +493,7 @@ photos.get('/:id/comments', requireAuth, async (c) => {
         id: comment.id,
         userId: comment.user_id,
         authorName: comment.author_name,
+        authorProfileColor: comment.author_profile_color,
         content: comment.content,
         createdAt: comment.created_at,
         isDeleted: comment.user_id === null,

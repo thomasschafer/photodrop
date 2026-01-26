@@ -25,7 +25,7 @@ export function SelectDropdown<T extends string>({
   const currentIndex = options.findIndex((o) => o.value === value);
   const currentOption = options[currentIndex] || options[0];
 
-  const { containerRef, triggerRef, optionRefs, handleOptionKeyDown, handleBlur } = useDropdown({
+  const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
     isOpen,
     onClose: () => setIsOpen(false),
     itemCount: options.length,
@@ -80,9 +80,7 @@ export function SelectDropdown<T extends string>({
           {options.map((option, index) => (
             <button
               key={option.value}
-              ref={(el) => {
-                optionRefs.current[index] = el;
-              }}
+              ref={setOptionRef(index)}
               role="option"
               aria-selected={value === option.value}
               onClick={() => handleSelect(option.value)}

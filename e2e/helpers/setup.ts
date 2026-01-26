@@ -33,7 +33,7 @@ export function createTestGroup(name: string): TestGroup {
 
   // Create user first (needed before group due to owner_id FK)
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, created_at) VALUES ('${ownerId}', '${ownerName}', '${ownerEmail}', ${now});"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, profile_color, created_at) VALUES ('${ownerId}', '${ownerName}', '${ownerEmail}', 'terracotta', ${now});"`,
     { stdio: 'pipe' }
   );
 

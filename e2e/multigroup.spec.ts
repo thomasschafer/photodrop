@@ -11,6 +11,7 @@ import {
   loginWithMagicLink,
   loginWithMagicLinkExpectPicker,
   loginWithMagicLinkExpectEmpty,
+  logout,
   getAuthToken,
 } from './helpers/auth';
 import { uploadPhotoViaApi } from './helpers/api';
@@ -63,7 +64,7 @@ test.describe('Multi-group login flow', () => {
     await expect(page.getByText('Choose a group')).not.toBeVisible();
 
     // Should see the group name in the group switcher button
-    await expect(page.getByRole('button', { name: 'Single Group Test' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Single Group Test', exact: true })).toBeVisible();
   });
 });
 
@@ -92,8 +93,7 @@ test.describe('Multi-group selection', () => {
     addUserToGroup(userId!, groupB.groupId, 'member');
 
     // Logout
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Login again - should see picker
     const loginLink = createFreshMagicLink(groupA.groupId, memberA.email, 'login');
@@ -114,8 +114,7 @@ test.describe('Multi-group selection', () => {
     addUserToGroup(userId!, groupB.groupId, 'member');
 
     // Logout and login again
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     const loginLink = createFreshMagicLink(groupA.groupId, member.email, 'login');
     await loginWithMagicLinkExpectPicker(page, loginLink);
@@ -124,7 +123,7 @@ test.describe('Multi-group selection', () => {
     await page.getByRole('button', { name: /Group Beta/i }).click();
 
     // Should land on feed with Group Beta selected
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.locator('button[aria-haspopup="menu"][aria-label$=" menu"]')).toBeVisible();
     await expect(page.getByText('Group Beta')).toBeVisible();
   });
 });
@@ -155,10 +154,10 @@ test.describe('Group switcher', () => {
 
     // Refresh to get updated group list
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.locator('button[aria-haspopup="menu"][aria-label$=" menu"]')).toBeVisible();
 
     // Click the group switcher
-    await page.getByRole('button', { name: /Switcher Alpha/i }).click();
+    await page.getByRole('button', { name: 'Switcher Alpha', exact: true }).click();
 
     // Should see both groups in dropdown
     await expect(page.getByRole('option', { name: /Switcher Alpha/i })).toBeVisible();
@@ -181,16 +180,16 @@ test.describe('Group switcher', () => {
 
     // Refresh and switch to group B
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
-    await page.getByRole('button', { name: /Switcher Alpha/i }).click();
+    await expect(page.getByRole('tab', { name: 'Photos' })).toBeVisible();
+    await page.getByRole('button', { name: 'Switcher Alpha', exact: true }).click();
     await page.getByRole('option', { name: /Switcher Beta/i }).click();
 
     // Wait for switch to complete
-    await expect(page.getByRole('button', { name: /Switcher Beta/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Switcher Beta', exact: true })).toBeVisible();
 
     // Reload to ensure token is fully updated in localStorage
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Photos' })).toBeVisible();
 
     // Upload photo to Beta
     const tokenB = await getAuthToken(page);
@@ -202,13 +201,13 @@ test.describe('Group switcher', () => {
     await expect(page.getByText('Alpha Photo')).not.toBeVisible();
 
     // Switch back to Alpha
-    await page.getByRole('button', { name: /Switcher Beta/i }).click();
+    await page.getByRole('button', { name: 'Switcher Beta', exact: true }).click();
     await page.getByRole('option', { name: /Switcher Alpha/i }).click();
-    await expect(page.getByRole('button', { name: /Switcher Alpha/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Switcher Alpha', exact: true })).toBeVisible();
 
     // Reload to ensure photos are refreshed for new group
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Photos' })).toBeVisible();
 
     // Should see Alpha's photo, not Beta's
     await expect(page.getByText('Alpha Photo')).toBeVisible();
@@ -239,13 +238,13 @@ test.describe('Per-group roles', () => {
     expect(userId).toBeTruthy();
     addUserToGroup(userId!, groupB.groupId, 'member');
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Photos' })).toBeVisible();
 
     // In group A (admin) - should see Upload button
     await expect(page.getByRole('button', { name: /upload/i })).toBeVisible();
 
     // Switch to group B
-    await page.getByRole('button', { name: /Role Test Alpha/i }).click();
+    await page.getByRole('button', { name: 'Role Test Alpha', exact: true }).click();
     await page.getByRole('option', { name: /Role Test Beta/i }).click();
     await expect(page.getByText('Role Test Beta')).toBeVisible();
 
@@ -279,16 +278,14 @@ test.describe('Member management', () => {
   test('admin can promote member to admin', async ({ page }) => {
     // First, create the admin user by using the invite link
     await loginWithMagicLink(page, testGroup.magicLink);
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Create a member
     const member = createTestMember(testGroup.groupId, 'Promotable Member');
 
     // Login as member to create the user
     await loginWithMagicLink(page, member.magicLink, member.name);
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Login as admin (now user exists, so login link works)
     const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
@@ -313,8 +310,7 @@ test.describe('Member management', () => {
   test('admin can demote another admin to member', async ({ page }) => {
     // First, create the admin user by using the invite link
     await loginWithMagicLink(page, testGroup.magicLink);
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Create another admin
     const otherAdmin = createTestMember(testGroup.groupId, 'Other Admin');
@@ -329,8 +325,7 @@ test.describe('Member management', () => {
       { stdio: 'pipe' }
     );
 
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Login as original admin
     const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
@@ -370,16 +365,14 @@ test.describe('Member management', () => {
   test('admin can remove a member from the group', async ({ page }) => {
     // First, create the admin user by using the invite link
     await loginWithMagicLink(page, testGroup.magicLink);
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Create a member
     const member = createTestMember(testGroup.groupId, 'Removable Member');
 
     // Login as member first to create user
     await loginWithMagicLink(page, member.magicLink, member.name);
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Login as admin
     const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
@@ -415,8 +408,7 @@ test.describe('Member management', () => {
   test('removed user no longer sees group in their list', async ({ page }) => {
     // First, create the admin user by using the invite link
     await loginWithMagicLink(page, testGroup.magicLink);
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Create a member in both this group and another
     const otherGroup = createTestGroup('Other Group For Removal Test');
@@ -430,8 +422,7 @@ test.describe('Member management', () => {
     expect(userId).toBeTruthy();
     addUserToGroup(userId!, otherGroup.groupId, 'member');
 
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Login as admin and remove member
     const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
@@ -442,8 +433,7 @@ test.describe('Member management', () => {
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText('Member To Remove', { exact: true })).not.toBeVisible({ timeout: 5000 });
 
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Login as member - should only see other group
     const memberLogin = createFreshMagicLink(otherGroup.groupId, member.email, 'login');
@@ -520,14 +510,12 @@ test.describe('Member management', () => {
   test('API rejects promoting to owner (400)', async ({ page, request }) => {
     // Login as owner
     await loginWithMagicLink(page, testGroup.magicLink);
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Create a member
     const member = createTestMember(testGroup.groupId, 'Cannot Be Owner');
     await loginWithMagicLink(page, member.magicLink, member.name);
-    await page.getByRole('button', { name: 'Sign out' }).click();
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible();
+    await logout(page);
 
     // Login as owner again
     const ownerLogin = createFreshMagicLink(testGroup.groupId, testGroup.ownerEmail, 'login');
@@ -569,7 +557,7 @@ test.describe('Empty state', () => {
 
     // Create user directly in DB
     execSync(
-      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, created_at) VALUES ('${uniqueUserId}', 'Orphan User', '${email}', ${now});"`,
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, profile_color, created_at) VALUES ('${uniqueUserId}', 'Orphan User', '${email}', 'terracotta', ${now});"`,
       { stdio: 'pipe' }
     );
 

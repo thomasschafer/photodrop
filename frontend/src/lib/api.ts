@@ -1,3 +1,41 @@
+import type { ProfileColor } from './profileColors';
+import type { MembershipRole } from './roles';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  profileColor: ProfileColor;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  role: MembershipRole;
+  ownerId: string;
+}
+
+export interface AuthResponse {
+  accessToken: string | null;
+  user: User;
+  currentGroup?: Group | null;
+  groups: Group[];
+  needsGroupSelection?: boolean;
+}
+
+interface VerifyMagicLinkNeedsName {
+  needsName: true;
+  email: string;
+  groupId: string;
+}
+
+export type VerifyMagicLinkResponse = AuthResponse | VerifyMagicLinkNeedsName;
+
+interface GetMeResponse extends User {
+  currentGroup: Group | null;
+  groups: Group[];
+}
+
 function getApiBaseUrl(): string {
   const hostname = window.location.hostname;
 
@@ -87,7 +125,7 @@ export const api = {
       return response.json();
     },
 
-    verifyMagicLink: async (token: string, name?: string) => {
+    verifyMagicLink: async (token: string, name?: string): Promise<VerifyMagicLinkResponse> => {
       const response = await fetchWithAuth(
         '/auth/verify-magic-link',
         {
@@ -99,7 +137,7 @@ export const api = {
       return response.json();
     },
 
-    refresh: async () => {
+    refresh: async (): Promise<AuthResponse> => {
       const response = await fetchWithAuth('/auth/refresh', { method: 'POST' }, false);
       return response.json();
     },
@@ -111,7 +149,7 @@ export const api = {
       return response.json();
     },
 
-    switchGroup: async (groupId: string) => {
+    switchGroup: async (groupId: string): Promise<AuthResponse> => {
       const response = await fetchWithAuth('/auth/switch-group', {
         method: 'POST',
         body: JSON.stringify({ groupId }),
@@ -119,7 +157,7 @@ export const api = {
       return response.json();
     },
 
-    selectGroup: async (userId: string, groupId: string) => {
+    selectGroup: async (userId: string, groupId: string): Promise<AuthResponse> => {
       const response = await fetchWithAuth(
         '/auth/select-group',
         {
@@ -180,7 +218,7 @@ export const api = {
   },
 
   users: {
-    getMe: async () => {
+    getMe: async (): Promise<GetMeResponse> => {
       const response = await fetchWithAuth('/users/me');
       return response.json();
     },
@@ -201,6 +239,14 @@ export const api = {
     delete: async (userId: string) => {
       const response = await fetchWithAuth(`/users/${userId}`, {
         method: 'DELETE',
+      });
+      return response.json();
+    },
+
+    updateProfile: async (profileColor: ProfileColor) => {
+      const response = await fetchWithAuth('/users/me/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ profileColor }),
       });
       return response.json();
     },

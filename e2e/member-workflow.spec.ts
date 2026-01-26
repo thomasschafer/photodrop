@@ -45,8 +45,8 @@ test.describe('Member workflow', () => {
     const magicLink = createFreshMagicLink(testGroup.groupId, memberEmail, 'login');
     await loginWithMagicLink(page, magicLink);
 
-    // Verify we're on the main app (Sign out button is visible for all users)
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+    // Verify we're on the main app (user menu is visible)
+    await expect(page.locator('button[aria-haspopup="menu"][aria-label$=" menu"]')).toBeVisible();
   });
 
   test('member can view all group photos', async ({ page }) => {

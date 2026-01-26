@@ -70,6 +70,7 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
         userId: m.user_id,
         name: m.user_name,
         email: m.user_email,
+        profileColor: m.user_profile_color,
         role: m.role,
         joinedAt: m.joined_at,
       })),

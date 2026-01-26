@@ -33,6 +33,28 @@
     /* Status colors */
     --color-error: #c45454;
     --color-success: #6a9a72;
+
+    /* Profile colors - background */
+    --profile-terracotta: #c67d5a;
+    --profile-coral: #d4826a;
+    --profile-amber: #c7923c;
+    --profile-rust: #b8603a;
+    --profile-clay: #a87b5e;
+    --profile-copper: #b47046;
+    --profile-sienna: #9e6b4a;
+    --profile-sage: #7a9a78;
+    --profile-olive: #8a8f5a;
+    --profile-forest: #5a8a6a;
+    --profile-moss: #6e8a5e;
+    --profile-jade: #5a9a8a;
+    --profile-slate: #6b7d8a;
+    --profile-ocean: #5a7a9a;
+    --profile-teal: #4a8a8a;
+    --profile-indigo: #6a6a9a;
+    --profile-plum: #8a5a8a;
+    --profile-wine: #8a4a5a;
+    --profile-mauve: #9a7a8a;
+    --profile-rose: #b06878;
   }
 
   .dark {

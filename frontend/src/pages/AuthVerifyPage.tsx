@@ -18,21 +18,17 @@ export function AuthVerifyPage() {
 
   const handleVerificationResult = useCallback(
     (data: Awaited<ReturnType<typeof api.auth.verifyMagicLink>>) => {
-      if (data.needsName) {
+      if ('needsName' in data) {
         setStatus('needs_name');
         return;
       }
 
       login(
         data.accessToken,
-        {
-          id: data.user.id,
-          name: data.user.name,
-          email: data.user.email,
-        },
-        data.currentGroup || null,
-        data.groups || [],
-        data.needsGroupSelection || false
+        data.user,
+        data.currentGroup ?? null,
+        data.groups ?? [],
+        data.needsGroupSelection ?? false
       );
 
       setStatus('success');

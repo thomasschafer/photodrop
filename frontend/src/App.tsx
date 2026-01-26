@@ -10,6 +10,7 @@ import { GroupSwitcher } from './components/GroupSwitcher';
 import { InstallPrompt, InstallButton } from './components/InstallPrompt';
 import { MobileMenu } from './components/MobileMenu';
 import { NotificationBell } from './components/NotificationBell';
+import { UserMenu } from './components/UserMenu';
 import { NotificationPrompt } from './components/NotificationPrompt';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { LoginPage } from './pages/LoginPage';
@@ -23,7 +24,7 @@ const tabs = [
 ];
 
 function MainApp() {
-  const { user, currentGroup, logout } = useAuth();
+  const { user, currentGroup } = useAuth();
   const location = useLocation();
   const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
@@ -89,13 +90,7 @@ function MainApp() {
                 <InstallButton />
                 <NotificationBell />
                 <ThemeToggle />
-                <span className="text-sm text-text-secondary">{user.name}</span>
-                <button
-                  onClick={logout}
-                  className="text-sm font-medium text-accent bg-transparent border-none cursor-pointer transition-colors hover:text-accent-hover"
-                >
-                  Sign out
-                </button>
+                <UserMenu />
               </div>
 
               <div className="mobile:hidden flex items-center gap-2">

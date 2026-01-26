@@ -4,9 +4,11 @@ import { api, API_BASE_URL } from '../lib/api';
 import { formatRelativeTime } from '../lib/dateFormat';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection, isHorizontalNavKey } from '../lib/keyboard';
+import type { ProfileColor } from '../lib/profileColors';
 import { useDropdown } from '../lib/useDropdown';
 import { useIsPortrait } from '../lib/useIsPortrait';
 import { useVirtualCarousel } from '../lib/useVirtualCarousel';
+import { Avatar } from './Avatar';
 import { ConfirmModal } from './ConfirmModal';
 import { SelectDropdown } from './SelectDropdown';
 import { Modal } from './Modal';
@@ -48,7 +50,7 @@ interface ReactionPillsProps {
   showPicker: boolean;
   pickerRef?: React.MutableRefObject<HTMLDivElement | null>;
   triggerRef?: React.RefCallback<HTMLButtonElement | null>;
-  optionRefs?: React.MutableRefObject<(HTMLButtonElement | null)[]>;
+  setOptionRef?: (index: number) => (el: HTMLButtonElement | null) => void;
   onPickerBlur?: (e: React.FocusEvent) => void;
   onTriggerKeyDown?: (e: React.KeyboardEvent) => void;
   onOptionKeyDown?: (e: React.KeyboardEvent, index: number) => void;
@@ -178,7 +180,7 @@ function ReactionPills({
   showPicker,
   pickerRef,
   triggerRef,
-  optionRefs,
+  setOptionRef,
   onPickerBlur,
   onTriggerKeyDown,
   onOptionKeyDown,
@@ -382,11 +384,7 @@ function ReactionPills({
             {EMOJI_OPTIONS.map((emoji, index) => (
               <button
                 key={emoji}
-                ref={(el) => {
-                  if (optionRefs) {
-                    optionRefs.current[index] = el;
-                  }
-                }}
+                ref={setOptionRef?.(index)}
                 role="option"
                 aria-selected={userReaction === emoji}
                 onClick={(e) => {
@@ -419,6 +417,7 @@ interface ReactionWithUser {
   emoji: string;
   userId: string;
   userName: string;
+  profileColor: ProfileColor;
 }
 
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
@@ -685,7 +684,10 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     if (previousDetails) {
       let newDetails = previousDetails.filter((r) => r.userId !== user.id);
       if (!isRemoving) {
-        newDetails = [...newDetails, { emoji, userId: user.id, userName: user.name }];
+        newDetails = [
+          ...newDetails,
+          { emoji, userId: user.id, userName: user.name, profileColor: user.profileColor },
+        ];
       }
       setFeedReactionDetails((prev) => new Map(prev).set(photoId, newDetails));
     }
@@ -876,7 +878,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                         feedReactionTriggerRefs.current.delete(photo.id);
                       }
                     }}
-                    optionRefs={feedReactionOptionRefs}
+                    setOptionRef={(index) => (el) => {
+                      feedReactionOptionRefs.current[index] = el;
+                    }}
                     onPickerBlur={handleFeedReactionPickerBlur}
                     onTriggerKeyDown={(e) => handleFeedReactionTriggerKeyDown(e, photo.id)}
                     onOptionKeyDown={(e, index) => handleFeedReactionKeyDown(e, index, photo.id)}
@@ -980,6 +984,7 @@ interface Comment {
   id: string;
   userId: string | null;
   authorName: string;
+  authorProfileColor: ProfileColor | null;
   content: string;
   createdAt: number;
   isDeleted: boolean;
@@ -1214,14 +1219,25 @@ function CommentPanel({
                 {sortedComments.map((comment) => (
                   <div key={comment.id} className="text-sm">
                     <div className="flex justify-between items-start gap-2">
-                      <span
-                        className={
-                          comment.isDeleted
-                            ? 'font-medium text-text-muted'
-                            : 'font-medium text-text-primary'
-                        }
-                      >
-                        {comment.isDeleted ? `(deleted) ${comment.authorName}` : comment.authorName}
+                      <span className="flex items-center gap-1.5">
+                        {comment.authorProfileColor && !comment.isDeleted && (
+                          <Avatar
+                            name={comment.authorName}
+                            color={comment.authorProfileColor}
+                            size="sm"
+                          />
+                        )}
+                        <span
+                          className={
+                            comment.isDeleted
+                              ? 'font-medium text-text-muted'
+                              : 'font-medium text-text-primary'
+                          }
+                        >
+                          {comment.isDeleted
+                            ? `(deleted) ${comment.authorName}`
+                            : comment.authorName}
+                        </span>
                       </span>
                       {(comment.userId === currentUserId || isAdmin) && !comment.isDeleted && (
                         <button
@@ -1331,7 +1347,7 @@ function Lightbox({
   const {
     containerRef: reactionPickerRef,
     triggerRef: reactionTriggerRef,
-    optionRefs: reactionOptionRefs,
+    setOptionRef: reactionSetOptionRef,
     handleOptionKeyDown: handleReactionOptionKeyDown,
     handleBlur: handleReactionPickerBlur,
   } = useDropdown({
@@ -1538,7 +1554,10 @@ function Lightbox({
     // Optimistic update for reaction details
     let newDetails = reactionDetails.filter((r) => r.userId !== user.id);
     if (!isRemoving) {
-      newDetails = [...newDetails, { emoji, userId: user.id, userName: user.name }];
+      newDetails = [
+        ...newDetails,
+        { emoji, userId: user.id, userName: user.name, profileColor: user.profileColor },
+      ];
     }
     setReactionDetails(newDetails);
     reactionDetailsCache.current.set(photo.id, newDetails);
@@ -1576,6 +1595,7 @@ function Lightbox({
         id: result.id,
         userId: user?.id ?? null,
         authorName: user?.name ?? 'You',
+        authorProfileColor: user?.profileColor ?? null,
         content: newComment.trim(),
         createdAt: Math.floor(Date.now() / 1000),
         isDeleted: false,
@@ -1800,7 +1820,7 @@ function Lightbox({
               triggerRef: (el) => {
                 reactionTriggerRef.current = el;
               },
-              optionRefs: reactionOptionRefs,
+              setOptionRef: reactionSetOptionRef,
               onPickerBlur: handleReactionPickerBlur,
               onTriggerKeyDown: handleReactionTriggerKeyDown,
               onOptionKeyDown: handleReactionOptionKeyDown,

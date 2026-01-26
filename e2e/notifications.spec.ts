@@ -390,7 +390,7 @@ test.describe('Push Notifications', () => {
 
       // Reload to get updated group list
       await page.reload();
-      await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+      await expect(page.getByRole('tab', { name: 'Photos' })).toBeVisible();
 
       // Re-apply the mock after reload
       await page.route('**/push/status**', async (route) => {
@@ -403,7 +403,7 @@ test.describe('Push Notifications', () => {
       });
 
       // Switch to group 2 via the group switcher
-      await page.getByRole('button', { name: /Notifications Test Group/i }).click();
+      await page.getByRole('button', { name: 'Notifications Test Group', exact: true }).click();
       await page.getByRole('option', { name: /Second Notifications Group/i }).click();
 
       // Update the mock to return unsubscribed for group 2

@@ -81,9 +81,12 @@ if [ -n "$EXISTING_USER" ]; then
 else
     # Create new user
     USER_ID=$(generate_id)
+    # Pick a random profile color
+    PROFILE_COLORS=("terracotta" "coral" "amber" "rust" "clay" "copper" "sienna" "sage" "olive" "forest" "moss" "jade" "slate" "ocean" "teal" "indigo" "plum" "wine" "mauve" "rose")
+    RANDOM_COLOR=${PROFILE_COLORS[$((RANDOM % ${#PROFILE_COLORS[@]}))]}
     wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
-INSERT INTO users (id, name, email, created_at)
-VALUES ('$USER_ID', '$OWNER_NAME', '$OWNER_EMAIL', $NOW);
+INSERT INTO users (id, name, email, profile_color, created_at)
+VALUES ('$USER_ID', '$OWNER_NAME', '$OWNER_EMAIL', '$RANDOM_COLOR', $NOW);
 "
     echo "Created new user (ID: $USER_ID)"
 fi

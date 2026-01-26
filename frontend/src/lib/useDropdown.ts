@@ -7,12 +7,13 @@ interface UseDropdownOptions {
   itemCount: number;
   initialFocusIndex?: number;
   horizontal?: boolean;
+  closeOnScroll?: boolean;
 }
 
 interface UseDropdownReturn {
   containerRef: React.RefObject<HTMLDivElement | null>;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
-  optionRefs: React.MutableRefObject<(HTMLButtonElement | null)[]>;
+  setOptionRef: (index: number) => (el: HTMLButtonElement | null) => void;
   handleOptionKeyDown: (e: React.KeyboardEvent, index: number) => void;
   handleBlur: (e: React.FocusEvent) => void;
 }
@@ -23,6 +24,7 @@ export function useDropdown({
   itemCount,
   initialFocusIndex = 0,
   horizontal = false,
+  closeOnScroll = false,
 }: UseDropdownOptions): UseDropdownReturn {
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -55,8 +57,24 @@ export function useDropdown({
     };
 
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
+
+    const handleScroll = (e: Event) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+
+    if (closeOnScroll) {
+      document.addEventListener('scroll', handleScroll, true);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      if (closeOnScroll) {
+        document.removeEventListener('scroll', handleScroll, true);
+      }
+    };
+  }, [isOpen, onClose, closeOnScroll]);
 
   // Handle blur (tab out)
   const handleBlur = useCallback(
@@ -97,10 +115,17 @@ export function useDropdown({
     [horizontal, focusOption, itemCount, onClose]
   );
 
+  const setOptionRef = useCallback(
+    (index: number) => (el: HTMLButtonElement | null) => {
+      optionRefs.current[index] = el;
+    },
+    []
+  );
+
   return {
     containerRef,
     triggerRef,
-    optionRefs,
+    setOptionRef,
     handleOptionKeyDown,
     handleBlur,
   };

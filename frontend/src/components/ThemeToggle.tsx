@@ -65,7 +65,7 @@ export function ThemeToggle() {
   const currentThemeIndex = themes.findIndex((t) => t.value === theme);
   const currentTheme = themes[currentThemeIndex] || themes[0];
 
-  const { containerRef, triggerRef, optionRefs, handleOptionKeyDown, handleBlur } = useDropdown({
+  const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
     isOpen,
     onClose: () => setIsOpen(false),
     itemCount: themes.length,
@@ -111,9 +111,7 @@ export function ThemeToggle() {
           {themes.map((t, index) => (
             <button
               key={t.value}
-              ref={(el) => {
-                optionRefs.current[index] = el;
-              }}
+              ref={setOptionRef(index)}
               role="option"
               aria-selected={theme === t.value}
               onClick={() => handleSelect(t.value)}

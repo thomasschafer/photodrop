@@ -14,7 +14,7 @@
 - ✅ Phase 2.3 (Push notifications): Complete - bell UI, per-group subscriptions, tests done
 - ✅ Phase 2.4 (Offline caching): Complete - service worker caching, offline indicator
 - ✅ Phase 2.5 (Reactions and comments): Complete - emoji reactions, comments, privacy mode
-- ❌ Phase 2.5.1 (Profile colors): Not started - colored avatars with initials, user menu
+- ✅ Phase 2.5.1 (Profile colors): Complete - colored avatars with initials, user menu
 - ❌ Phase 2.6 (Production hardening): Not started - rate limiting, CSP
 - ✅ Phase 2.7 (Performance optimizations): Complete - N+1 query fix, infinite scroll, non-blocking notifications
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
@@ -920,29 +920,29 @@ The migration assigns random colors to all existing users so the column can be N
 
 #### Backend changes
 
-- [ ] Add migration for `profile_color` column with random assignment for existing users
-- [ ] Define color palette constant (array of 20 color identifiers)
-- [ ] Update `createUser()` to assign random color from palette
-- [ ] Include `profileColor` in all user responses (`/users/me`, `/groups/:id/members`, comments)
-- [ ] Add `PATCH /users/me/profile` endpoint to update own color
-- [ ] Validate color is in allowed palette
+- [x] Add migration for `profile_color` column with random assignment for existing users
+- [x] Define color palette constant (array of 20 color identifiers)
+- [x] Update `createUser()` to assign random color from palette
+- [x] Include `profileColor` in all user responses (`/users/me`, `/groups/:id/members`, comments)
+- [x] Add `PATCH /users/me/profile` endpoint to update own color
+- [x] Validate color is in allowed palette
 
 #### Frontend changes
 
 **New components:**
 
-- [ ] `Avatar` component (reusable):
+- [x] `Avatar` component (reusable):
   - Props: `name: string`, `color: string`, `size?: 'sm' | 'md' | 'lg'`
   - Renders colored circle with up to 2 initials
   - Initials logic: first + last name initial (e.g., "Mary Jane Watson" → "MW")
 
-- [ ] `UserMenu` component:
+- [x] `UserMenu` component:
   - Renders avatar button in header (replaces username text + sign out button)
   - Dropdown using `useDropdown` hook (reuses existing pattern from ThemeToggle/GroupSwitcher)
   - Menu items: "Change color", "Sign out"
   - "Change color" opens `ColorPickerModal`
 
-- [ ] `ColorPickerModal` component:
+- [x] `ColorPickerModal` component:
   - Uses existing `Modal` component
   - Grid of 20 color swatches
   - Current color highlighted
@@ -950,33 +950,33 @@ The migration assigns random colors to all existing users so the column can be N
 
 **Updates:**
 
-- [ ] Replace username + sign out button in `App.tsx` header with `<UserMenu />`
-- [ ] Update `MembersList` to use `Avatar` with member's color
-- [ ] Update comments display in `PhotoFeed` to use `Avatar`
-- [ ] Update reactions popover to show avatars
-- [ ] Update `AuthContext` User type to include `profileColor`
-- [ ] Update `MobileMenu` to use avatar and include color picker access
+- [x] Replace username + sign out button in `App.tsx` header with `<UserMenu />`
+- [x] Update `MembersList` to use `Avatar` with member's color
+- [x] Update comments display in `PhotoFeed` to use `Avatar`
+- [x] Update reactions popover to show avatars
+- [x] Update `AuthContext` User type to include `profileColor`
+- [x] Update `MobileMenu` to use avatar and include color picker access
 
 #### CSS changes
 
-- [ ] Add profile color CSS variables to `index.css` (20 colors, light/dark mode compatible)
+- [x] Add profile color CSS variables to `index.css` (20 colors, light/dark mode compatible)
 
 #### Testing
 
 **Unit tests (Vitest)**:
-- [ ] `createUser()` assigns random color from valid palette
-- [ ] `updateUserProfile()` updates color
-- [ ] `updateUserProfile()` rejects invalid color names
-- [ ] User responses include `profileColor` field
+- [x] `createUser()` assigns random color from valid palette
+- [x] `updateUserProfile()` updates color
+- [x] `updateUserProfile()` rejects invalid color names
+- [x] User responses include `profileColor` field
 
 **E2E tests (Playwright)**:
-- [ ] Avatar appears in header with user's initials and color
-- [ ] Clicking avatar opens menu with "Change color" and "Sign out"
-- [ ] Color picker modal shows all colors with current highlighted
-- [ ] Selecting new color updates avatar immediately
-- [ ] Avatars appear in member list with correct colors
-- [ ] Avatars appear in comments with correct colors
-- [ ] New users get random color assigned on creation
+- [x] Avatar appears in header with user's initials and color
+- [x] Clicking avatar opens menu with "Change color" and "Sign out"
+- [x] Color picker modal shows all colors with current highlighted
+- [x] Selecting new color updates avatar immediately
+- [x] Avatars appear in member list with correct colors
+- [x] Avatars appear in comments with correct colors
+- [x] New users get random color assigned on creation
 
 ### Phase 2.6: Production hardening
 

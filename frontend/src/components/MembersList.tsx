@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
 import { useFocusRestore } from '../lib/hooks';
+import type { ProfileColor } from '../lib/profileColors';
 import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
+import { Avatar } from './Avatar';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { InviteForm } from './InviteForm';
@@ -11,6 +13,7 @@ interface Member {
   userId: string;
   name: string;
   email: string;
+  profileColor: ProfileColor;
   role: MembershipRole;
   joinedAt: number;
 }
@@ -389,11 +392,7 @@ export function MembersList() {
             <div key={member.userId} className="py-4 first:pt-0 last:pb-0">
               <div className="flex flex-col mobile:flex-row mobile:items-center mobile:justify-between gap-3 mobile:gap-4">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
-                    <span className="text-accent font-semibold">
-                      {member.name.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
+                  <Avatar name={member.name} color={member.profileColor} size="lg" />
                   <div className="min-w-0">
                     <div className="font-medium text-text-primary truncate">
                       {member.name}

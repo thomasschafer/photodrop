@@ -24,6 +24,11 @@ import {
   getUserReaction,
   getPhotoReactionsWithUsers,
   listPhotosWithCounts,
+  createUser,
+  updateUserProfileColor,
+  getRandomProfileColor,
+  PROFILE_COLORS,
+  type ProfileColor,
 } from './db';
 
 function createMockDb(results: unknown[] = [], error?: Error) {
@@ -1068,5 +1073,99 @@ describe('listPhotosWithCounts', () => {
     expect(db._mocks.mockBind).toHaveBeenNthCalledWith(1, 'user-1', 'group-1', 10, 5);
     // Second call: reactions query with photo IDs
     expect(db._mocks.mockBind).toHaveBeenNthCalledWith(2, 'photo-1');
+  });
+});
+
+describe('Profile color functions', () => {
+  describe('PROFILE_COLORS', () => {
+    it('contains exactly 20 colors', () => {
+      expect(PROFILE_COLORS).toHaveLength(20);
+    });
+
+    it('contains all expected color names', () => {
+      const expected = [
+        'terracotta',
+        'coral',
+        'amber',
+        'rust',
+        'clay',
+        'copper',
+        'sienna',
+        'sage',
+        'olive',
+        'forest',
+        'moss',
+        'jade',
+        'slate',
+        'ocean',
+        'teal',
+        'indigo',
+        'plum',
+        'wine',
+        'mauve',
+        'rose',
+      ];
+      expect([...PROFILE_COLORS]).toEqual(expected);
+    });
+
+    it('contains no duplicates', () => {
+      const unique = new Set(PROFILE_COLORS);
+      expect(unique.size).toBe(PROFILE_COLORS.length);
+    });
+  });
+
+  describe('getRandomProfileColor', () => {
+    it('returns a valid profile color', () => {
+      const color = getRandomProfileColor();
+      expect(PROFILE_COLORS).toContain(color);
+    });
+
+    it('returns colors from the palette across multiple calls', () => {
+      const colors = new Set<ProfileColor>();
+      for (let i = 0; i < 100; i++) {
+        colors.add(getRandomProfileColor());
+      }
+      // With 100 random picks from 20 colors, we should get at least a few different ones
+      expect(colors.size).toBeGreaterThan(1);
+    });
+  });
+
+  describe('createUser', () => {
+    it('inserts user with profile_color', async () => {
+      const db = createMockDb([]);
+
+      const userId = await createUser(db, 'Test User', 'test@example.com');
+
+      expect(userId).toBeTruthy();
+      expect(db._mocks.mockPrepare).toHaveBeenCalled();
+      const prepareCall = db._mocks.mockPrepare.mock.calls[0][0];
+      expect(prepareCall).toContain('profile_color');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        expect.any(String), // id
+        'Test User',
+        'test@example.com',
+        expect.any(String), // profile_color (random)
+        expect.any(Number) // created_at
+      );
+
+      // Verify the profile_color is a valid one
+      const profileColor = db._mocks.mockBind.mock.calls[0][3] as ProfileColor;
+      expect(PROFILE_COLORS).toContain(profileColor);
+    });
+  });
+
+  describe('updateUserProfileColor', () => {
+    it('updates profile color', async () => {
+      const db = createMockDb([]);
+
+      const result = await updateUserProfileColor(db, 'user-1', 'sage');
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'UPDATE users SET profile_color = ? WHERE id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('sage', 'user-1');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
   });
 });

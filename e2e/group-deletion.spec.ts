@@ -143,7 +143,7 @@ test.describe('Group deletion', () => {
     // Create second group with a different owner first, then add our user
     const secondOwnerId = randomBytes(16).toString('hex');
     execSync(
-      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, created_at) VALUES ('${secondOwnerId}', 'Second Owner', 'second-owner-${secondGroupId.slice(0, 8)}@test.local', ${now});"`,
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, profile_color, created_at) VALUES ('${secondOwnerId}', 'Second Owner', 'second-owner-${secondGroupId.slice(0, 8)}@test.local', 'terracotta', ${now});"`,
       { stdio: 'pipe' }
     );
     execSync(

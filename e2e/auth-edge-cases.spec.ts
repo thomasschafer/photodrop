@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import { createTestGroup, createFreshMagicLink, cleanupTestGroup, TestGroup } from './helpers/setup';
-import { loginWithMagicLink, expectLoggedIn, expectLoggedOut } from './helpers/auth';
+import { loginWithMagicLink, logout, expectLoggedIn, expectLoggedOut } from './helpers/auth';
 
 test.describe('Auth edge cases', () => {
   let testGroup: TestGroup;
@@ -103,11 +103,8 @@ test.describe('Auth edge cases', () => {
     await loginWithMagicLink(page, magicLink);
     await expectLoggedIn(page);
 
-    // Click sign out
-    await page.getByRole('button', { name: 'Sign out' }).click();
-
-    // Should be on landing page
-    await expectLoggedOut(page);
+    // Sign out via user menu
+    await logout(page);
 
     // Refresh should still be logged out
     await page.reload();
@@ -176,7 +173,7 @@ test.describe('Auth edge cases', () => {
     // Create second group with a different owner
     const group2OwnerId = randomBytes(16).toString('hex');
     execSync(
-      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, created_at) VALUES ('${group2OwnerId}', 'Group 2 Owner', 'owner-${group2Id.slice(0, 8)}@test.local', ${now});"`,
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, profile_color, created_at) VALUES ('${group2OwnerId}', 'Group 2 Owner', 'owner-${group2Id.slice(0, 8)}@test.local', 'terracotta', ${now});"`,
       { stdio: 'pipe' }
     );
     execSync(
