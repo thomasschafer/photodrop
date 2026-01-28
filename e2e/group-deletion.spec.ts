@@ -6,7 +6,7 @@ import {
   createTestAdmin,
   TestGroup,
 } from './helpers/setup';
-import { loginWithMagicLink, getAuthToken } from './helpers/auth';
+import { loginWithMagicLink, loginWithMagicLinkExpectPicker, getAuthToken } from './helpers/auth';
 import { uploadPhotoViaApi, createApiClient } from './helpers/api';
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
@@ -157,10 +157,9 @@ test.describe('Group deletion', () => {
     );
 
     try {
-      // Login as owner of first group
-      await loginWithMagicLink(page, groupToDelete.magicLink);
+      // Login as owner of first group - user has 2 groups so sees picker
+      await loginWithMagicLinkExpectPicker(page, groupToDelete.magicLink);
 
-      // User belongs to multiple groups, so they see the group picker
       // Select the group to delete
       await page.getByRole('button', { name: /Group To Delete/i }).click();
 
