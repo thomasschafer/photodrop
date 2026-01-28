@@ -309,9 +309,6 @@ test.describe('Reactions and comments', () => {
     await expect(heartPill).toBeVisible();
     await heartPill.hover();
 
-    // Wait for tooltip to appear
-    await page.waitForTimeout(300);
-
     // The tooltip should show "You"
     const tooltip = photoCard.locator('.absolute.whitespace-nowrap');
     await expect(tooltip).toBeVisible();
@@ -343,9 +340,6 @@ test.describe('Reactions and comments', () => {
     const heartPill = dialog.getByRole('button', { name: /❤️ reaction/i });
     await expect(heartPill).toBeVisible();
     await heartPill.hover();
-
-    // Wait for tooltip to appear
-    await page.waitForTimeout(300);
 
     // The tooltip should show "You"
     const tooltip = dialog.locator('.absolute.whitespace-nowrap');

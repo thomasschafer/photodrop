@@ -66,6 +66,9 @@ function MainApp() {
   };
 
   if (!user || !currentGroup) {
+    if (location.pathname !== '/') {
+      return <Navigate to="/" replace />;
+    }
     return <LandingPage />;
   }
 

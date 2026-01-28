@@ -256,16 +256,19 @@ test.describe('Per-group roles', () => {
 test.describe('Member management', () => {
   let testGroup: TestGroup;
 
-  test.beforeEach(() => {
+  // Tests share this group for performance. Members added by earlier tests persist,
+  // so new tests should create their own test members rather than assuming an empty group.
+  test.beforeAll(() => {
     testGroup = createTestGroup('Member Mgmt Test');
   });
 
-  test.afterEach(() => {
+  test.afterAll(() => {
     cleanupTestGroup(testGroup.groupId);
   });
 
   test('admin can view members list', async ({ page }) => {
-    await loginWithMagicLink(page, testGroup.magicLink);
+    const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
+    await loginWithMagicLink(page, adminLink);
 
     // Navigate to members tab
     await page.getByRole('tab', { name: 'Group' }).click();
@@ -276,18 +279,12 @@ test.describe('Member management', () => {
   });
 
   test('admin can promote member to admin', async ({ page }) => {
-    // First, create the admin user by using the invite link
-    await loginWithMagicLink(page, testGroup.magicLink);
-    await logout(page);
-
-    // Create a member
+    // Create a member and login to create the user
     const member = createTestMember(testGroup.groupId, 'Promotable Member');
-
-    // Login as member to create the user
     await loginWithMagicLink(page, member.magicLink, member.name);
     await logout(page);
 
-    // Login as admin (now user exists, so login link works)
+    // Login as admin
     const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
     await loginWithMagicLink(page, adminLink);
 
@@ -308,14 +305,8 @@ test.describe('Member management', () => {
   });
 
   test('admin can demote another admin to member', async ({ page }) => {
-    // First, create the admin user by using the invite link
-    await loginWithMagicLink(page, testGroup.magicLink);
-    await logout(page);
-
-    // Create another admin
+    // Create another admin and login to create user
     const otherAdmin = createTestMember(testGroup.groupId, 'Other Admin');
-
-    // Login as other admin to create user
     await loginWithMagicLink(page, otherAdmin.magicLink, otherAdmin.name);
 
     // Promote to admin via direct DB (simulating the flow)
@@ -347,7 +338,8 @@ test.describe('Member management', () => {
   });
 
   test('owner shows immutable owner badge instead of role dropdown', async ({ page }) => {
-    await loginWithMagicLink(page, testGroup.magicLink);
+    const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
+    await loginWithMagicLink(page, adminLink);
 
     // Navigate to members
     await page.getByRole('tab', { name: 'Group' }).click();
@@ -356,21 +348,14 @@ test.describe('Member management', () => {
     const ownerBadge = page.locator('span[class*="emerald"]').filter({ hasText: 'Owner' });
     await expect(ownerBadge).toBeVisible();
 
-    // There should be no select dropdown for the owner row
-    const ownRow = page.locator('div').filter({ hasText: '(you)' }).first();
-    const roleSelect = ownRow.locator('select');
-    await expect(roleSelect).not.toBeVisible();
+    // The owner badge's row should not have a role dropdown - find via the badge's parent container
+    const ownerRow = ownerBadge.locator('xpath=ancestor::div[contains(@class, "flex")]').first();
+    await expect(ownerRow.locator('select')).not.toBeVisible();
   });
 
   test('admin can remove a member from the group', async ({ page }) => {
-    // First, create the admin user by using the invite link
-    await loginWithMagicLink(page, testGroup.magicLink);
-    await logout(page);
-
-    // Create a member
+    // Create a member and login to create user
     const member = createTestMember(testGroup.groupId, 'Removable Member');
-
-    // Login as member first to create user
     await loginWithMagicLink(page, member.magicLink, member.name);
     await logout(page);
 
@@ -393,7 +378,8 @@ test.describe('Member management', () => {
   });
 
   test('owner has no remove button', async ({ page }) => {
-    await loginWithMagicLink(page, testGroup.magicLink);
+    const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
+    await loginWithMagicLink(page, adminLink);
 
     // Navigate to members
     await page.getByRole('tab', { name: 'Group' }).click();
@@ -406,10 +392,6 @@ test.describe('Member management', () => {
   });
 
   test('removed user no longer sees group in their list', async ({ page }) => {
-    // First, create the admin user by using the invite link
-    await loginWithMagicLink(page, testGroup.magicLink);
-    await logout(page);
-
     // Create a member in both this group and another
     const otherGroup = createTestGroup('Other Group For Removal Test');
     const member = createTestMember(testGroup.groupId, 'Member To Remove');
@@ -450,8 +432,9 @@ test.describe('Member management', () => {
   });
 
   test('API rejects changing owner role (403)', async ({ page, request }) => {
-    // Login as owner to create the user
-    await loginWithMagicLink(page, testGroup.magicLink);
+    // Login as owner
+    const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
+    await loginWithMagicLink(page, adminLink);
 
     // Get owner's user ID
     const ownerId = getUserIdByEmail(testGroup.ownerEmail);
@@ -480,8 +463,9 @@ test.describe('Member management', () => {
   });
 
   test('API rejects removing owner (403)', async ({ page, request }) => {
-    // Login as owner to create the user
-    await loginWithMagicLink(page, testGroup.magicLink);
+    // Login as owner
+    const adminLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
+    await loginWithMagicLink(page, adminLink);
 
     // Get owner's user ID
     const ownerId = getUserIdByEmail(testGroup.ownerEmail);
@@ -508,16 +492,12 @@ test.describe('Member management', () => {
   });
 
   test('API rejects promoting to owner (400)', async ({ page, request }) => {
-    // Login as owner
-    await loginWithMagicLink(page, testGroup.magicLink);
-    await logout(page);
-
-    // Create a member
+    // Create a member and login to create user
     const member = createTestMember(testGroup.groupId, 'Cannot Be Owner');
     await loginWithMagicLink(page, member.magicLink, member.name);
     await logout(page);
 
-    // Login as owner again
+    // Login as owner
     const ownerLogin = createFreshMagicLink(testGroup.groupId, testGroup.ownerEmail, 'login');
     await loginWithMagicLink(page, ownerLogin);
 

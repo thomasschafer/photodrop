@@ -31,27 +31,16 @@ export function createTestGroup(name: string): TestGroup {
   const ownerName = `Owner ${name}`;
   const ownerEmail = `owner-${groupId.slice(0, 8)}@test.local`;
 
-  // Create user first (needed before group due to owner_id FK)
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO users (id, name, email, profile_color, created_at) VALUES ('${ownerId}', '${ownerName}', '${ownerEmail}', 'terracotta', ${now});"`,
-    { stdio: 'pipe' }
-  );
+  // Batch all inserts into single command
+  const sql = [
+    `INSERT INTO users (id, name, email, profile_color, created_at) VALUES ('${ownerId}', '${ownerName}', '${ownerEmail}', 'terracotta', ${now})`,
+    `INSERT INTO groups (id, name, owner_id, created_at) VALUES ('${groupId}', '${name}', '${ownerId}', ${now})`,
+    `INSERT INTO memberships (user_id, group_id, role, joined_at) VALUES ('${ownerId}', '${groupId}', 'admin', ${now})`,
+    `INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at) VALUES ('${token}', '${groupId}', '${ownerEmail}', 'login', NULL, ${now}, ${expiresAt})`,
+  ].join('; ');
 
-  // Insert group with owner_id
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO groups (id, name, owner_id, created_at) VALUES ('${groupId}', '${name}', '${ownerId}', ${now});"`,
-    { stdio: 'pipe' }
-  );
-
-  // Create membership for owner with role='admin' (owner is identified via groups.owner_id)
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO memberships (user_id, group_id, role, joined_at) VALUES ('${ownerId}', '${groupId}', 'admin', ${now});"`,
-    { stdio: 'pipe' }
-  );
-
-  // Create login magic link token (user already exists)
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at) VALUES ('${token}', '${groupId}', '${ownerEmail}', 'login', NULL, ${now}, ${expiresAt});"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "${sql};"`,
     { stdio: 'pipe' }
   );
 
@@ -130,42 +119,22 @@ export function createFreshMagicLink(
 }
 
 export function cleanupTestGroup(groupId: string): void {
-  // Delete in order due to foreign key constraints
+  // Batch all deletes in order due to foreign key constraints
   // Note: groups.owner_id references users, so groups must be deleted before users
+  const sql = [
+    `DELETE FROM photo_reactions WHERE photo_id IN (SELECT id FROM photos WHERE group_id = '${groupId}')`,
+    `DELETE FROM photo_views WHERE photo_id IN (SELECT id FROM photos WHERE group_id = '${groupId}')`,
+    `DELETE FROM comments WHERE photo_id IN (SELECT id FROM photos WHERE group_id = '${groupId}')`,
+    `DELETE FROM photos WHERE group_id = '${groupId}'`,
+    `DELETE FROM magic_link_tokens WHERE group_id = '${groupId}'`,
+    `DELETE FROM push_subscriptions WHERE group_id = '${groupId}'`,
+    `DELETE FROM memberships WHERE group_id = '${groupId}'`,
+    `DELETE FROM groups WHERE id = '${groupId}'`,
+    `DELETE FROM users WHERE id NOT IN (SELECT user_id FROM memberships) AND email LIKE '%@test.local'`,
+  ].join('; ');
+
   execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM photo_reactions WHERE photo_id IN (SELECT id FROM photos WHERE group_id = '${groupId}');"`,
-    { stdio: 'pipe' }
-  );
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM photo_views WHERE photo_id IN (SELECT id FROM photos WHERE group_id = '${groupId}');"`,
-    { stdio: 'pipe' }
-  );
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM photos WHERE group_id = '${groupId}';"`,
-    { stdio: 'pipe' }
-  );
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM magic_link_tokens WHERE group_id = '${groupId}';"`,
-    { stdio: 'pipe' }
-  );
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM push_subscriptions WHERE group_id = '${groupId}';"`,
-    { stdio: 'pipe' }
-  );
-  // Delete memberships first
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM memberships WHERE group_id = '${groupId}';"`,
-    { stdio: 'pipe' }
-  );
-  // Delete the group (must come before deleting users due to owner_id FK)
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM groups WHERE id = '${groupId}';"`,
-    { stdio: 'pipe' }
-  );
-  // Now we can delete users who were only in this group
-  // Since we deleted memberships, we need a different approach - delete users with no memberships who were the owner
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM users WHERE id NOT IN (SELECT user_id FROM memberships) AND email LIKE '%@test.local';"`,
+    `cd backend && npx wrangler d1 execute photodrop-db --local --command "${sql};"`,
     { stdio: 'pipe' }
   );
 }
