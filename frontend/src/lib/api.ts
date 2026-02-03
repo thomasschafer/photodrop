@@ -17,6 +17,7 @@ export interface Group {
 
 export interface AuthResponse {
   accessToken: string | null;
+  selectionToken?: string;
   user: User;
   currentGroup?: Group | null;
   groups: Group[];
@@ -157,12 +158,12 @@ export const api = {
       return response.json();
     },
 
-    selectGroup: async (userId: string, groupId: string): Promise<AuthResponse> => {
+    selectGroup: async (selectionToken: string, groupId: string): Promise<AuthResponse> => {
       const response = await fetchWithAuth(
         '/auth/select-group',
         {
           method: 'POST',
-          body: JSON.stringify({ userId, groupId }),
+          body: JSON.stringify({ selectionToken, groupId }),
         },
         false
       );

@@ -10,12 +10,20 @@ import {
   getMembership,
   getUserMemberships,
   markMagicLinkTokenUsed,
+  markMagicLinkTokenPending,
   type MembershipRole,
 } from '../lib/db';
-import { generateAccessToken, generateRefreshToken, verifyJWT } from '../lib/jwt';
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  generateGroupSelectionToken,
+  verifyJWT,
+  verifyGroupSelectionToken,
+} from '../lib/jwt';
 import { verifyMagicLink } from '../lib/magic-links';
 import { sendInviteEmail, sendLoginLinkEmail } from '../lib/email';
 import { requireAuth, requireAdmin } from '../middleware/auth';
+import { createRateLimitMiddleware, rateLimitKeys, getClientIP } from '../middleware/rateLimit';
 import type { Bindings } from '../types';
 
 type Variables = {
@@ -28,8 +36,27 @@ type Variables = {
 
 const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+// Rate limit configurations
+const sendInviteRateLimit = createRateLimitMiddleware({
+  maxRequests: 10,
+  windowSeconds: 60 * 60, // 1 hour
+  keyFn: rateLimitKeys.byUserId('invite'),
+});
+
+const sendLoginLinkRateLimit = createRateLimitMiddleware({
+  maxRequests: 5,
+  windowSeconds: 15 * 60, // 15 minutes
+  keyFn: rateLimitKeys.byEmailFromBody('login'),
+});
+
+const verifyMagicLinkRateLimit = createRateLimitMiddleware({
+  maxRequests: 10,
+  windowSeconds: 15 * 60, // 15 minutes
+  keyFn: (c) => `verify:${getClientIP(c)}`,
+});
+
 // Send invite email (admin only)
-auth.post('/send-invite', requireAdmin, async (c) => {
+auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
   try {
     const body = await c.req.json();
     const { email, role = 'member' } = body;
@@ -84,7 +111,7 @@ auth.post('/send-invite', requireAdmin, async (c) => {
 });
 
 // Send login link (public)
-auth.post('/send-login-link', async (c) => {
+auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
   try {
     const body = await c.req.json();
     const { email } = body;
@@ -124,7 +151,7 @@ auth.post('/send-login-link', async (c) => {
 });
 
 // Verify magic link and issue JWT
-auth.post('/verify-magic-link', async (c) => {
+auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
   try {
     const body = await c.req.json();
     const { token, name } = body;
@@ -148,6 +175,14 @@ auth.post('/verify-magic-link', async (c) => {
     }
 
     const magicToken = result.token;
+
+    // Mark token as pending to prevent concurrent use (race condition protection).
+    // This must happen early, before any business logic, for all paths.
+    const canProceed = await markMagicLinkTokenPending(c.env.DB, token);
+    if (!canProceed) {
+      return c.json({ error: 'This link is already being used. Please try again.' }, 400);
+    }
+
     let user;
     let memberships;
 
@@ -164,11 +199,17 @@ auth.post('/verify-magic-link', async (c) => {
 
         if (!userName) {
           // Don't consume token yet - user needs to provide name
+          // (Token is already marked pending at the start of this handler)
           return c.json({
             needsName: true,
             email: magicToken.email,
             groupId: magicToken.group_id,
           });
+        }
+
+        // Validate name length
+        if (userName.length > 100) {
+          return c.json({ error: 'Name is too long (max 100 characters)' }, 400);
         }
 
         // Create new user with name
@@ -268,6 +309,7 @@ auth.post('/verify-magic-link', async (c) => {
 
       // Handle different membership scenarios for login
       if (memberships.length === 0) {
+        // No groups - user has no memberships, nothing to select
         return c.json({
           accessToken: null,
           user: {
@@ -277,7 +319,7 @@ auth.post('/verify-magic-link', async (c) => {
             profileColor: user.profile_color,
           },
           groups: [],
-          needsGroupSelection: true,
+          needsGroupSelection: false,
         });
       }
 
@@ -329,9 +371,11 @@ auth.post('/verify-magic-link', async (c) => {
         });
       }
 
-      // Multiple groups - return user info and groups, frontend shows picker
+      // Multiple groups - return selection token and groups, frontend shows picker
+      const selectionToken = await generateGroupSelectionToken(user.id, c.env.JWT_SECRET);
       return c.json({
         accessToken: null,
+        selectionToken,
         user: {
           id: user.id,
           name: user.name,
@@ -439,15 +483,23 @@ auth.post('/switch-group', requireAuth, async (c) => {
 auth.post('/select-group', async (c) => {
   try {
     const body = await c.req.json();
-    const { userId, groupId } = body;
+    const { selectionToken, groupId } = body;
 
-    if (!userId || typeof userId !== 'string') {
-      return c.json({ error: 'User ID is required' }, 400);
+    if (!selectionToken || typeof selectionToken !== 'string') {
+      return c.json({ error: 'Selection token is required' }, 400);
     }
 
     if (!groupId || typeof groupId !== 'string') {
       return c.json({ error: 'Group ID is required' }, 400);
     }
+
+    // Verify the selection token and extract userId
+    const tokenResult = await verifyGroupSelectionToken(selectionToken, c.env.JWT_SECRET);
+    if (!tokenResult.valid) {
+      return c.json({ error: 'Invalid or expired selection token' }, 401);
+    }
+
+    const userId = tokenResult.userId;
 
     // Get user
     const user = await getUserById(c.env.DB, userId);
@@ -550,8 +602,13 @@ auth.post('/refresh', async (c) => {
     if (!membership) {
       // User is no longer a member of this group (e.g., group was deleted)
       // Return user info with their remaining groups so they can pick a new one
+      const selectionToken =
+        memberships.length > 0
+          ? await generateGroupSelectionToken(user.id, c.env.JWT_SECRET)
+          : null;
       return c.json({
         accessToken: null,
+        selectionToken,
         user: {
           id: user.id,
           name: user.name,

@@ -15,7 +15,7 @@
 - ✅ Phase 2.4 (Offline caching): Complete - service worker caching, offline indicator
 - ✅ Phase 2.5 (Reactions and comments): Complete - emoji reactions, comments, privacy mode
 - ✅ Phase 2.5.1 (Profile colors): Complete - colored avatars with initials, user menu
-- ❌ Phase 2.6 (Production hardening): Not started - rate limiting, CSP
+- ✅ Phase 2.6 (Production hardening): Complete - rate limiting, security headers, file validation, auth fixes
 - ✅ Phase 2.7 (Performance optimizations): Complete - N+1 query fix, infinite scroll, non-blocking notifications
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
@@ -978,22 +978,38 @@ The migration assigns random colors to all existing users so the column can be N
 - [x] Avatars appear in comments with correct colors
 - [x] New users get random color assigned on creation
 
-### Phase 2.6: Production hardening
+### Phase 2.6: Production hardening ✅
 
 **Goal:** Add security hardening and monitoring. The app is deployed (Phase 2.1.5) with email working (Phase 2.2); this phase improves robustness.
 
 #### Security hardening
 
-- [ ] Add rate limiting:
-  - Use Cloudflare's built-in rate limiting (via dashboard or Workers)
-  - Limit auth endpoints (login, magic link) to prevent abuse
-  - Limit photo upload to reasonable rate
-- [ ] Configure CORS properly:
-  - Allow only production frontend domain
-  - Keep permissive for local dev
-- [ ] Review CSP headers:
-  - Add Content-Security-Policy header
-  - Restrict script sources, frame ancestors
+**Rate limiting (D1-based fixed window):**
+- [x] `/auth/send-login-link`: 5 requests per email per 15 minutes
+- [x] `/auth/send-invite`: 10 requests per admin per hour
+- [x] `/auth/verify-magic-link`: 10 attempts per IP per 15 minutes
+- [x] Photo upload: 20 uploads per user per hour
+- [x] Automatic cleanup of expired rate limit entries
+
+**File upload validation:**
+- [x] Size limits: 20MB for photos, 1MB for thumbnails
+- [x] MIME type validation (JPEG, PNG, WebP, HEIC only)
+- [x] Magic byte validation to prevent spoofed file types
+
+**Authentication hardening:**
+- [x] Fixed auth bypass in `/auth/select-group` - now requires signed selection token
+- [x] Removed query parameter token support (tokens only via Authorization header)
+- [x] Magic link token race condition fix with pending state
+- [x] Name length validation (max 100 characters)
+
+**Security headers:**
+- [x] `X-Content-Type-Options: nosniff`
+- [x] `X-Frame-Options: DENY`
+- [x] `Referrer-Policy: strict-origin-when-cross-origin`
+
+**Other:**
+- [x] Pagination bounds checking (limit clamped to 1-100)
+- [x] CORS configured (production domain only, permissive for local dev)
 
 #### Monitoring and backups
 
@@ -1010,9 +1026,10 @@ The migration assigns random colors to all existing users so the column can be N
 
 #### Testing
 
-- [ ] Test rate limiting doesn't block normal usage
-- [ ] Verify CSP headers don't break functionality
-- [ ] Test CORS rejects unauthorized origins
+- [x] Rate limiting tested via unit tests
+- [x] File validation tested via TypeScript compilation
+- [ ] Manual testing of rate limits in production
+- [ ] CSP headers (deferred - may break inline styles)
 
 ### Phase 2.7: Performance optimizations
 
@@ -1154,6 +1171,17 @@ nix run .#test-e2e-ui    # E2E with Playwright UI
 
 Schema is defined in `backend/migrations/0001_initial_schema.sql`. For schema changes, update this file and reset local dev DB with `nix run .#teardown-dev && nix run .#dev`.
 
+**Current migrations:**
+- `0001_initial_schema.sql` - Core tables (groups, users, memberships, photos, etc.)
+- `0002_push_subscriptions.sql` - Push notification subscriptions
+- `0003_comments_and_reactions.sql` - Comments and reactions tables
+- `0004_remove_comments_enabled.sql` - Schema cleanup
+- `0005_push_subscriptions_multi_group.sql` - Multi-group push support
+- `0006_add_performance_indexes.sql` - Performance indexes
+- `0007_add_user_profile_color.sql` - User profile colors
+- `0008_rate_limits.sql` - Rate limiting table
+- `0009_magic_link_pending.sql` - Magic link pending state for race condition fix
+
 ## Monitoring
 
 - Track R2 storage, Workers requests, D1 queries
@@ -1166,13 +1194,19 @@ Schema is defined in `backend/migrations/0001_initial_schema.sql`. For schema ch
 - [x] CORS configured (production domain only)
 - [x] JWT with strong signing (HS256)
 - [x] httpOnly cookies (refresh tokens)
-- [ ] Rate limiting
-- [ ] CSP headers
-- [ ] Rate limiting on auth endpoints
+- [x] Rate limiting on auth endpoints (D1-based)
+- [x] Rate limiting on photo uploads
+- [x] Security headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy)
+- [ ] CSP headers (deferred - may break inline styles)
 - [x] R2 bucket private
 - [x] Signed URLs expire (1 hour)
 - [x] Magic links single-use (15 min expiry)
+- [x] Magic link race condition protection (pending state)
 - [x] Admin endpoints protected
+- [x] File upload validation (size, type, magic bytes)
+- [x] Auth bypass fix (select-group requires signed token)
+- [x] No query parameter tokens (Authorization header only)
+- [x] Input validation (name length, pagination bounds)
 
 ## Troubleshooting
 

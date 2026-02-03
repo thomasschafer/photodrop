@@ -79,6 +79,7 @@ export interface MagicLinkToken {
   created_at: number;
   expires_at: number;
   used_at: number | null;
+  pending_at: number | null;
 }
 
 export interface Photo {
@@ -368,6 +369,35 @@ export async function markMagicLinkTokenUsed(db: D1Database, token: string): Pro
     .prepare('UPDATE magic_link_tokens SET used_at = ? WHERE token = ?')
     .bind(now, token)
     .run();
+}
+
+/**
+ * Mark a token as pending (verification in progress).
+ * Returns false if the token is already pending within the timeout window.
+ * Uses atomic conditional update to prevent race conditions.
+ */
+export async function markMagicLinkTokenPending(
+  db: D1Database,
+  token: string,
+  pendingTimeoutSeconds: number = 300 // 5 minutes
+): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const cutoff = now - pendingTimeoutSeconds;
+
+  // Atomic conditional update: only succeeds if not already pending (or pending expired)
+  const result = await db
+    .prepare(
+      `UPDATE magic_link_tokens
+       SET pending_at = ?
+       WHERE token = ?
+         AND used_at IS NULL
+         AND (pending_at IS NULL OR pending_at <= ?)`
+    )
+    .bind(now, token, cutoff)
+    .run();
+
+  // If no rows updated, token is already pending, used, or doesn't exist
+  return result.meta.changes > 0;
 }
 
 export async function createPhoto(

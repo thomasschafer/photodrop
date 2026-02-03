@@ -8,6 +8,7 @@ interface AuthState {
   currentGroup: Group | null;
   groups: Group[];
   needsGroupSelection: boolean;
+  selectionToken: string | null;
 }
 
 interface AuthContextType {
@@ -21,7 +22,8 @@ interface AuthContextType {
     user: User,
     currentGroup: Group | null,
     groups: Group[],
-    needsGroupSelection: boolean
+    needsGroupSelection: boolean,
+    selectionToken?: string | null
   ) => void;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
@@ -39,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     currentGroup: null,
     groups: [],
     needsGroupSelection: false,
+    selectionToken: null,
   });
   const [loading, setLoading] = useState(true);
 
@@ -48,7 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user: User,
       currentGroup: Group | null,
       groups: Group[],
-      needsGroupSelection: boolean
+      needsGroupSelection: boolean,
+      selectionToken?: string | null
     ) => {
       if (accessToken) {
         localStorage.setItem('accessToken', accessToken);
@@ -58,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         currentGroup,
         groups,
         needsGroupSelection,
+        selectionToken: selectionToken ?? null,
       });
     },
     []
@@ -87,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         currentGroup: null,
         groups: [],
         needsGroupSelection: false,
+        selectionToken: null,
       });
       clearAllUserCaches();
     }
@@ -106,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         groups: data.groups,
         needsGroupSelection:
           data.needsGroupSelection || (!data.currentGroup && data.groups.length > 0),
+        selectionToken: data.selectionToken ?? null,
       });
     } catch (error) {
       console.error('Refresh error:', error);
@@ -115,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         currentGroup: null,
         groups: [],
         needsGroupSelection: false,
+        selectionToken: null,
       });
     }
   }, []);
@@ -131,6 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         currentGroup: data.currentGroup ?? null,
         groups: data.groups,
         needsGroupSelection: false,
+        selectionToken: null,
       });
       clearGroupCaches();
     } catch (error) {
@@ -141,12 +150,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const selectGroup = useCallback(
     async (groupId: string) => {
-      if (!authState.user) {
-        throw new Error('No user logged in');
+      if (!authState.selectionToken) {
+        throw new Error('No selection token available');
       }
 
       try {
-        const data = await api.auth.selectGroup(authState.user.id, groupId);
+        const data = await api.auth.selectGroup(authState.selectionToken, groupId);
         if (!data.accessToken) {
           throw new Error('No access token received from selectGroup');
         }
@@ -156,6 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           currentGroup: data.currentGroup ?? null,
           groups: data.groups,
           needsGroupSelection: false,
+          selectionToken: null,
         });
         clearGroupCaches();
       } catch (error) {
@@ -163,7 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [authState.user]
+    [authState.selectionToken]
   );
 
   const updateProfileColor = useCallback((color: ProfileColor) => {
@@ -182,6 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         currentGroup: null,
         groups: remainingGroups,
         needsGroupSelection: remainingGroups.length > 0,
+        selectionToken: null,
       });
     },
     [authState.groups, authState.user]
@@ -205,6 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             currentGroup: userData.currentGroup,
             groups: userData.groups,
             needsGroupSelection: !userData.currentGroup,
+            selectionToken: null,
           });
           setLoading(false);
           return;

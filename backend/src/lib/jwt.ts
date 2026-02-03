@@ -120,3 +120,82 @@ export function generateRefreshToken(
     30 * 24 * 60 * 60 // 30 days
   );
 }
+
+// Group selection token - short-lived token for selecting a group after multi-group login
+export interface GroupSelectionPayload {
+  sub: string; // user ID
+  type: 'group_selection';
+  exp: number;
+  iat: number;
+}
+
+export async function generateGroupSelectionToken(userId: string, secret: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const payload: GroupSelectionPayload = {
+    sub: userId,
+    type: 'group_selection',
+    iat: now,
+    exp: now + 5 * 60, // 5 minutes
+  };
+
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
+  const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
+
+  const data = `${headerB64}.${payloadB64}`;
+  const key = await importKey(secret);
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+  const signatureB64 = base64UrlEncode(signature);
+
+  return `${data}.${signatureB64}`;
+}
+
+export async function verifyGroupSelectionToken(
+  token: string,
+  secret: string
+): Promise<{ valid: true; userId: string } | { valid: false }> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return { valid: false };
+    }
+
+    const [headerB64, payloadB64, signatureB64] = parts;
+    const data = `${headerB64}.${payloadB64}`;
+
+    const key = await importKey(secret);
+    const signature = base64UrlDecode(signatureB64);
+    const isValid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
+
+    if (!isValid) {
+      return { valid: false };
+    }
+
+    const payloadStr = decoder.decode(base64UrlDecode(payloadB64));
+    const payload = JSON.parse(payloadStr);
+
+    // Verify it's a group selection token
+    if (payload.type !== 'group_selection') {
+      return { valid: false };
+    }
+
+    // Validate required fields
+    if (typeof payload.sub !== 'string' || !payload.sub) {
+      return { valid: false };
+    }
+
+    if (typeof payload.exp !== 'number') {
+      return { valid: false };
+    }
+
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp < now) {
+      return { valid: false };
+    }
+
+    return { valid: true, userId: payload.sub };
+  } catch {
+    return { valid: false };
+  }
+}

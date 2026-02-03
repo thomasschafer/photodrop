@@ -21,6 +21,20 @@ import {
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { configureVapid, sendPushNotifications } from '../lib/push';
+import {
+  validateImageMagicBytes,
+  MAX_PHOTO_SIZE,
+  MAX_THUMBNAIL_SIZE,
+  ALLOWED_MIME_TYPES,
+} from '../lib/fileValidation';
+import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
+
+// Rate limit for photo uploads: 20 per user per hour
+const uploadRateLimit = createRateLimitMiddleware({
+  maxRequests: 20,
+  windowSeconds: 60 * 60, // 1 hour
+  keyFn: rateLimitKeys.byUserId('upload'),
+});
 
 type Bindings = {
   DB: D1Database;
@@ -93,8 +107,9 @@ async function sendPhotoUploadNotifications(
 
 photos.get('/', requireAuth, async (c) => {
   try {
-    const limit = parseInt(c.req.query('limit') || '20');
-    const offset = parseInt(c.req.query('offset') || '0');
+    // Clamp limit to 1-100, offset to >= 0
+    const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '20', 10) || 20, 1), 100);
+    const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0);
     const user = c.get('user');
 
     // Fetch one extra to determine if there are more photos
@@ -129,7 +144,7 @@ photos.get('/', requireAuth, async (c) => {
   }
 });
 
-photos.post('/', requireAdmin, async (c) => {
+photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
   let photoR2Key: string | null = null;
   let thumbnailR2Key: string | null = null;
 
@@ -147,24 +162,71 @@ photos.post('/', requireAdmin, async (c) => {
       return c.json({ error: 'Thumbnail file is required' }, 400);
     }
 
+    // Validate file sizes before reading into memory
+    if (photo.size > MAX_PHOTO_SIZE) {
+      return c.json({ error: 'Photo exceeds maximum size of 20MB' }, 400);
+    }
+
+    if (thumbnail.size > MAX_THUMBNAIL_SIZE) {
+      return c.json({ error: 'Thumbnail exceeds maximum size of 1MB' }, 400);
+    }
+
+    // Validate MIME types
+    if (!ALLOWED_MIME_TYPES.includes(photo.type)) {
+      return c.json({ error: 'Invalid photo file type. Allowed: JPEG, PNG, WebP, HEIC' }, 400);
+    }
+
+    if (!ALLOWED_MIME_TYPES.includes(thumbnail.type)) {
+      return c.json({ error: 'Invalid thumbnail file type. Allowed: JPEG, PNG, WebP, HEIC' }, 400);
+    }
+
+    // Read files into memory
+    const photoBuffer = await photo.arrayBuffer();
+    const thumbnailBuffer = await thumbnail.arrayBuffer();
+
+    // Validate magic bytes to ensure file content matches claimed type
+    const photoMagicType = validateImageMagicBytes(photoBuffer);
+    if (!photoMagicType) {
+      return c.json({ error: 'Photo file content is not a valid image' }, 400);
+    }
+
+    const thumbnailMagicType = validateImageMagicBytes(thumbnailBuffer);
+    if (!thumbnailMagicType) {
+      return c.json({ error: 'Thumbnail file content is not a valid image' }, 400);
+    }
+
     const currentUser = c.get('user');
 
-    photoR2Key = `photos/${generateId()}-${Date.now()}.jpg`;
-    thumbnailR2Key = `thumbnails/${generateId()}-${Date.now()}.jpg`;
+    // Determine file extension from validated magic type
+    const getExtension = (mimeType: string): string => {
+      switch (mimeType) {
+        case 'image/png':
+          return 'png';
+        case 'image/webp':
+          return 'webp';
+        case 'image/heic':
+          return 'heic';
+        default:
+          return 'jpg';
+      }
+    };
+    const photoExt = getExtension(photoMagicType);
+    const thumbExt = getExtension(thumbnailMagicType);
+
+    photoR2Key = `photos/${generateId()}-${Date.now()}.${photoExt}`;
+    thumbnailR2Key = `thumbnails/${generateId()}-${Date.now()}.${thumbExt}`;
 
     // Upload photo to R2
-    const photoBuffer = await photo.arrayBuffer();
     await c.env.PHOTOS.put(photoR2Key, photoBuffer, {
       httpMetadata: {
-        contentType: photo.type || 'image/jpeg',
+        contentType: photoMagicType,
       },
     });
 
     // Upload thumbnail to R2
-    const thumbnailBuffer = await thumbnail.arrayBuffer();
     await c.env.PHOTOS.put(thumbnailR2Key, thumbnailBuffer, {
       httpMetadata: {
-        contentType: thumbnail.type || 'image/jpeg',
+        contentType: thumbnailMagicType,
       },
     });
 

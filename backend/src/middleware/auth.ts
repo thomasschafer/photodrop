@@ -14,15 +14,15 @@ export type AuthContext = {
 
 async function authenticateUser(c: Context): Promise<boolean> {
   const authHeader = c.req.header('Authorization');
-  const queryToken = c.req.query('token');
 
-  let token: string | null = null;
-
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7);
-  } else if (queryToken) {
-    token = queryToken;
+  // Only accept tokens via Authorization header to prevent token leakage via URLs
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    c.status(401);
+    c.res = c.json({ error: 'Unauthorized' });
+    return false;
   }
+
+  const token = authHeader.substring(7);
 
   if (!token) {
     c.status(401);
