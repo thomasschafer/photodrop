@@ -1123,11 +1123,19 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Collect feedback and fix critical issues
 - [ ] Full launch
 
+## Technical debt / TODO
+
+**Magic link `pending_at` flow (Feb 2026):** The current fix for the new user invite flow is pragmatic but implicit - it allows re-verification when a `name` param is present. A cleaner approach would be a separate `/complete-signup` endpoint that takes the token + name, keeping `/verify-magic-link` focused on verification only. Low priority since current fix works correctly.
+
 ## Future enhancements
 
 **Nice-to-haves:** Batch upload, albums, ownership transfer (allow owner to transfer ownership to another member)
 
 **Technical:** Progressive image loading, CDN optimization, accessibility improvements
+
+**Mobile app (Capacitor):** See `MOBILE_PLAN.md` on mobile branch for native app wrapper details
+
+**Security consideration:** Mobile CORS origins (`http://localhost`, `capacitor://localhost`) are currently always allowed. For tighter production control, consider adding `ENABLE_MOBILE_CORS` environment variable to gate these origins when no mobile app is deployed.
 
 **Local dev:** Notifications working locally
 

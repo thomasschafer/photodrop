@@ -80,6 +80,13 @@ export function createRateLimitMiddleware(config: RateLimitConfig) {
       return;
     }
 
+    // Only apply rate limiting in production
+    // ENVIRONMENT is set to "production" in wrangler.prod.toml
+    if (c.env.ENVIRONMENT !== 'production') {
+      await next();
+      return;
+    }
+
     // Extract the rate limit key
     const key = await keyFn(c);
 
