@@ -1123,6 +1123,10 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Collect feedback and fix critical issues
 - [ ] Full launch
 
+## Technical debt / TODO
+
+**Magic link `pending_at` flow (Feb 2026):** The current fix for the new user invite flow is pragmatic but implicit - it allows re-verification when a `name` param is present. A cleaner approach would be a separate `/complete-signup` endpoint that takes the token + name, keeping `/verify-magic-link` focused on verification only. Low priority since current fix works correctly.
+
 ## Future enhancements
 
 **Nice-to-haves:** Batch upload, albums, ownership transfer (allow owner to transfer ownership to another member)
