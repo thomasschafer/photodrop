@@ -170,37 +170,62 @@ The mobile app wraps the PWA for native iOS/Android with reliable push notificat
 
 See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 
-### Setup
+### One-time setup (Android signing + deep links)
 
-1. **Configure API URL** in `frontend/.env.production`:
-   ```
-   VITE_API_URL=https://api.your-domain.com
-   ```
+> **Different domain?** Update these files before building:
+> - `mobile/android/app/src/main/AndroidManifest.xml` (intent filter host)
+> - `mobile/capacitor.config.ts` (allowNavigation)
+> - `frontend/public/.well-known/assetlinks.json` (after generating keystore)
+> - `frontend/public/.well-known/apple-app-site-association` (with your Team ID)
 
-2. **Build and sync**:
-   ```bash
-   cd frontend && npm run build
-   cd ../mobile && npm install
-   cp -r ../frontend/dist ./dist
-   npx cap sync
-   ```
+**1. Generate release keystore** (run once, keep safe forever):
+```bash
+./scripts/generate-android-keystore.sh
+```
+
+**2. Add GitHub secrets** (Settings → Secrets → Actions):
+| Secret | Value |
+|--------|-------|
+| `ANDROID_KEYSTORE` | Base64-encoded keystore: `base64 -w 0 photodrop-release.keystore` |
+| `ANDROID_KEYSTORE_PASSWORD` | The password you chose |
+| `ANDROID_KEY_ALIAS` | `photodrop` |
+| `ANDROID_KEY_PASSWORD` | Same as keystore password |
+
+**3. Update deep linking config** with SHA256 from script output:
+```bash
+# Edit frontend/public/.well-known/assetlinks.json
+# Replace SHA256_FINGERPRINT_PLACEHOLDER with your fingerprint
+```
+
+**4. Deploy frontend** to publish the assetlinks.json file.
+
+**5. (iOS only)** When you have an Apple Developer account:
+- Get your Team ID from developer.apple.com
+- Edit `frontend/public/.well-known/apple-app-site-association`
+- Replace `TEAM_ID` with your actual Team ID
 
 ### Building
 
 **Android APK** (via GitHub Actions):
-- Push to `feat/mobile-capacitor` or `main` branch
+- Push to `main` branch (or `feat/mobile-capacitor`)
 - Download APK from Actions artifacts
+- With signing configured: release APK ready for Play Store
+- Without signing: debug APK for testing
 
 **Local Android build** (requires Java 21 + Android SDK):
 ```bash
-cd mobile && npm run build:android
+cd frontend && npm run build
+cd ../mobile && npm install
+cp -r ../frontend/dist ./dist
+npx cap sync android
+cd android && ./gradlew assembleDebug
 # APK at mobile/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-**iOS** (requires Mac + Xcode):
+**iOS** (requires Mac + Xcode + Apple Developer account):
 ```bash
 cd mobile && npx cap open ios
-# Build in Xcode
+# Build and sign in Xcode
 ```
 
 ## Architecture

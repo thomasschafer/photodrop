@@ -114,7 +114,8 @@ async function fetchWithAuth(
   }
 
   // Use native HTTP for Capacitor, regular fetch for web
-  if (isNative) {
+  // EXCEPT for FormData uploads - use regular fetch for those (CapacitorHttp handles it via plugin)
+  if (isNative && !(options.body instanceof FormData)) {
     const httpOptions: HttpOptions = {
       url: `${API_BASE_URL}${url}`,
       headers,

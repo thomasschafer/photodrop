@@ -58,22 +58,62 @@ jobs:
         working-directory: mobile
         run: npx cap sync android
 
+      # Check if signing secrets are configured
+      - name: Check for signing secrets
+        id: check-secrets
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE }}" ]; then
+            echo "has_signing=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_signing=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Release build with signing (if secrets are configured)
+      - name: Decode keystore
+        if: steps.check-secrets.outputs.has_signing == 'true'
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          echo "$ANDROID_KEYSTORE" | base64 -d > mobile/android/app/release.keystore
+
+      - name: Build release APK
+        if: steps.check-secrets.outputs.has_signing == 'true'
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease
+        env:
+          KEYSTORE_FILE: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Output release signing info
+        if: steps.check-secrets.outputs.has_signing == 'true'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "=== Release Keystore SHA256 Fingerprint ==="
+          echo "This should match frontend/public/.well-known/assetlinks.json"
+          keytool -list -v -keystore mobile/android/app/release.keystore -storepass "$KEYSTORE_PASSWORD" 2>/dev/null | grep SHA256
+          echo "=========================================="
+
+      - name: Upload release APK
+        if: steps.check-secrets.outputs.has_signing == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: photodrop-release-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      # Debug build (fallback if no signing secrets)
       - name: Build debug APK
+        if: steps.check-secrets.outputs.has_signing == 'false'
         working-directory: mobile/android
         run: ./gradlew assembleDebug
 
-      - name: Upload APK artifact
+      - name: Upload debug APK
+        if: steps.check-secrets.outputs.has_signing == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: photodrop-debug-apk
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
-
-      # Release build (only when signing is configured)
-      # - name: Build release APK
-      #   working-directory: mobile/android
-      #   run: ./gradlew assembleRelease
-      #   env:
-      #     KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      #     KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      #     KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
