@@ -5,10 +5,17 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  deploy:
-    name: Build, test and deploy
+  build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -16,25 +23,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v19
-
-      - name: Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+      - name: Setup
+        uses: ./.github/actions/setup
 
       - name: Build
         run: nix run .#build
 
       - name: Test
         run: nix run .#test
+
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
 
       - name: Deploy to production
         run: nix run .#deploy

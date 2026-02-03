@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-format:
     name: Lint and Format Check
@@ -16,19 +20,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v19
-
-      - name: Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+      - name: Setup
+        uses: ./.github/actions/setup
 
       - name: Run lint and format checks
         run: nix run .#check

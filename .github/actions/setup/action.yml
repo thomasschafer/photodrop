@@ -1,0 +1,34 @@
+name: Setup
+description: Common setup steps for Nix and npm caching
+
+inputs:
+  install-playwright:
+    description: Whether to cache Playwright browsers
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@v19
+
+    - name: Nix cache
+      uses: DeterminateSystems/magic-nix-cache-action@v13
+
+    - name: Cache npm
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: npm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          npm-${{ runner.os }}-
+
+    - name: Cache Playwright browsers
+      if: inputs.install-playwright == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          playwright-${{ runner.os }}-
