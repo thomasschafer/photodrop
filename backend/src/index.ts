@@ -25,6 +25,10 @@ app.use(
       // Allow localhost for development
       const devOrigins = ['http://localhost:5173', 'http://localhost:8787'];
       if (devOrigins.includes(origin)) return origin;
+      // Allow Capacitor mobile app origins
+      // Android WebView uses http://localhost (no port)
+      // iOS WebView uses capacitor://localhost
+      if (origin === 'http://localhost' || origin === 'capacitor://localhost') return origin;
       // Allow configured frontend URL in production
       const frontendUrl = c.env.FRONTEND_URL;
       if (frontendUrl && origin === frontendUrl) return origin;

@@ -1129,6 +1129,10 @@ The migration assigns random colors to all existing users so the column can be N
 
 **Technical:** Progressive image loading, CDN optimization, accessibility improvements
 
+**Mobile app (Capacitor):** See `MOBILE_PLAN.md` on mobile branch for native app wrapper details
+
+**Security consideration:** Mobile CORS origins (`http://localhost`, `capacitor://localhost`) are currently always allowed. For tighter production control, consider adding `ENABLE_MOBILE_CORS` environment variable to gate these origins when no mobile app is deployed.
+
 **Local dev:** Notifications working locally
 
 **Note:** Photo view tracking has backend API support but no frontend UI yet. This is planned for Phase 3. Reactions UI is planned for Phase 2.5.
