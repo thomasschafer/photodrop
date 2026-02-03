@@ -178,8 +178,11 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
 
     // Mark token as pending to prevent concurrent use (race condition protection).
     // This must happen early, before any business logic, for all paths.
+    // Note: If a name is being submitted, the token may already be pending from the
+    // initial needsName response - that's OK, we allow re-verification in that case.
+    const isNameSubmission = name && typeof name === 'string' && name.trim();
     const canProceed = await markMagicLinkTokenPending(c.env.DB, token);
-    if (!canProceed) {
+    if (!canProceed && !isNameSubmission) {
       return c.json({ error: 'This link is already being used. Please try again.' }, 400);
     }
 
