@@ -164,6 +164,45 @@ Email is required for magic link authentication. We use [Resend](https://resend.
 
 Emails are sent from `noreply@your-domain.com` (configured automatically from your `DOMAIN` setting).
 
+## Mobile app (Capacitor)
+
+The mobile app wraps the PWA for native iOS/Android with reliable push notifications and screenshot protection.
+
+See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
+
+### Setup
+
+1. **Configure API URL** in `frontend/.env.production`:
+   ```
+   VITE_API_URL=https://api.your-domain.com
+   ```
+
+2. **Build and sync**:
+   ```bash
+   cd frontend && npm run build
+   cd ../mobile && npm install
+   cp -r ../frontend/dist ./dist
+   npx cap sync
+   ```
+
+### Building
+
+**Android APK** (via GitHub Actions):
+- Push to `feat/mobile-capacitor` or `main` branch
+- Download APK from Actions artifacts
+
+**Local Android build** (requires Java 21 + Android SDK):
+```bash
+cd mobile && npm run build:android
+# APK at mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+**iOS** (requires Mac + Xcode):
+```bash
+cd mobile && npx cap open ios
+# Build in Xcode
+```
+
 ## Architecture
 
 - **Frontend**: React + Vite PWA
@@ -171,3 +210,4 @@ Emails are sent from `noreply@your-domain.com` (configured automatically from yo
 - **Database**: D1 (SQLite)
 - **Storage**: R2 (S3-compatible)
 - **Auth**: Passwordless magic links
+- **Mobile**: Capacitor (iOS/Android wrapper)

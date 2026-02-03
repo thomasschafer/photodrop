@@ -1112,9 +1112,35 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Photo view tracking UI for admins (backend API already exists)
 - [ ] Video upload
 - [ ] Add emails as an alternative to notifications
-- [ ] Make it harder for users to download or save images/videos
+- [ ] Make it harder for users to download or save images/videos (web)
 - [ ] Multi-device testing
 - [ ] Accessibility review (screen readers, ARIA improvements)
+
+### Phase 3.5: Native Mobile Apps
+
+**Goal:** Wrap the PWA in native iOS/Android shells for reliable push notifications and screenshot protection.
+
+**See [MOBILE_PLAN.md](MOBILE_PLAN.md) for full implementation details.**
+
+**Summary:**
+- Use Capacitor to wrap existing web app (minimal code changes)
+- Native push via FCM (Android) and APNs (iOS)
+- Screenshot blocking via `@capacitor-community/privacy-screen`
+- GitHub Actions CI/CD for automated builds
+
+**Key tasks:**
+- [x] Set up GitHub Actions workflows for Android and iOS builds
+- [ ] Set up Capacitor project structure
+- [ ] Configure push notifications (FCM/APNs)
+- [ ] Add backend endpoints for device token registration
+- [ ] Implement screenshot protection
+- [ ] Configure deep linking for magic links
+- [ ] Test on physical devices
+- [ ] Submit to App Store / Play Store
+
+**Prerequisites:**
+- [ ] Apple Developer account ($99/year) — set up when ready for iOS testing
+- [ ] Google Play Developer account ($25 one-time) — set up when ready for release
 
 ### Phase 4: Launch
 

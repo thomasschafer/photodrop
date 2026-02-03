@@ -1,5 +1,10 @@
+import { Capacitor } from '@capacitor/core';
+import { CapacitorHttp, type HttpOptions, type HttpResponse } from '@capacitor/core';
 import type { ProfileColor } from './profileColors';
 import type { MembershipRole } from './roles';
+
+// Check if we're in a Capacitor native environment
+const isNative = Capacitor.isNativePlatform();
 
 export interface User {
   id: string;
@@ -40,12 +45,15 @@ interface GetMeResponse extends User {
 function getApiBaseUrl(): string {
   const hostname = window.location.hostname;
 
-  // Local development
+  // Local development or Capacitor native
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    if (isNative && import.meta.env.VITE_API_URL) {
+      return import.meta.env.VITE_API_URL;
+    }
     return 'http://localhost:8787';
   }
 
-  // Production - API is at api.{domain}
+  // Production web - API is at api.{domain}
   return `https://api.${hostname}`;
 }
 
@@ -63,11 +71,30 @@ class ApiError extends Error {
   }
 }
 
+// Wrapper to normalize Capacitor HTTP response to look like fetch Response
+class NativeResponse {
+  status: number;
+  statusText: string;
+  ok: boolean;
+  private data: unknown;
+
+  constructor(response: HttpResponse) {
+    this.status = response.status;
+    this.statusText = response.status >= 200 && response.status < 300 ? 'OK' : 'Error';
+    this.ok = response.status >= 200 && response.status < 300;
+    this.data = response.data;
+  }
+
+  async json() {
+    return this.data;
+  }
+}
+
 async function fetchWithAuth(
   url: string,
   options: RequestInit = {},
   includeAuth: boolean = true
-): Promise<Response> {
+): Promise<Response | NativeResponse> {
   const headers: Record<string, string> = {};
 
   if (options.headers) {
@@ -86,6 +113,51 @@ async function fetchWithAuth(
     headers['Content-Type'] = 'application/json';
   }
 
+  // Use native HTTP for Capacitor, regular fetch for web
+  if (isNative) {
+    const httpOptions: HttpOptions = {
+      url: `${API_BASE_URL}${url}`,
+      headers,
+      webFetchExtra: { credentials: 'include' },
+    };
+
+    // Handle method and body
+    const method = (options.method || 'GET').toUpperCase();
+    if (options.body && typeof options.body === 'string') {
+      httpOptions.data = JSON.parse(options.body);
+    }
+
+    let response: HttpResponse;
+    switch (method) {
+      case 'POST':
+        response = await CapacitorHttp.post(httpOptions);
+        break;
+      case 'PUT':
+        response = await CapacitorHttp.put(httpOptions);
+        break;
+      case 'DELETE':
+        response = await CapacitorHttp.delete(httpOptions);
+        break;
+      case 'PATCH':
+        response = await CapacitorHttp.patch(httpOptions);
+        break;
+      default:
+        response = await CapacitorHttp.get(httpOptions);
+    }
+
+    const nativeResponse = new NativeResponse(response);
+    if (!nativeResponse.ok) {
+      const errorData = (await nativeResponse.json()) as { error?: string };
+      throw new ApiError(
+        nativeResponse.status,
+        nativeResponse.statusText,
+        errorData?.error || 'An error occurred'
+      );
+    }
+    return nativeResponse;
+  }
+
+  // Regular fetch for web
   const response = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers,
