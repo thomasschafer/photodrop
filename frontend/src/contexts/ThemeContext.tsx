@@ -56,13 +56,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       metaThemeColor.setAttribute('content', themeColor);
     }
 
-    // Update status bar style on native platforms
+    // Update status bar on native platforms
     // Style.Light = light icons (for dark backgrounds)
     // Style.Dark = dark icons (for light backgrounds)
     if (Capacitor.isNativePlatform()) {
+      const themeColor = resolvedTheme === 'dark' ? '#252320' : '#faf7f4';
+
       StatusBar.setStyle({
         style: resolvedTheme === 'dark' ? Style.Light : Style.Dark,
       });
+
+      // Set background color (Android only - iOS ignores this)
+      StatusBar.setBackgroundColor({ color: themeColor });
     }
   }, [resolvedTheme]);
 
