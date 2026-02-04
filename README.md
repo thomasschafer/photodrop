@@ -164,6 +164,70 @@ Email is required for magic link authentication. We use [Resend](https://resend.
 
 Emails are sent from `noreply@your-domain.com` (configured automatically from your `DOMAIN` setting).
 
+## Mobile app (Capacitor)
+
+The mobile app wraps the PWA for native iOS/Android with reliable push notifications and screenshot protection.
+
+See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
+
+### One-time setup (Android signing + deep links)
+
+> **Different domain?** Update these files before building:
+> - `mobile/android/app/src/main/AndroidManifest.xml` (intent filter host)
+> - `mobile/capacitor.config.ts` (allowNavigation)
+> - `frontend/public/.well-known/assetlinks.json` (after generating keystore)
+> - `frontend/public/.well-known/apple-app-site-association` (with your Team ID)
+
+**1. Generate release keystore** (run once, keep safe forever):
+```bash
+./scripts/generate-android-keystore.sh
+```
+
+**2. Add GitHub secrets** (Settings → Secrets → Actions):
+| Secret | Value |
+|--------|-------|
+| `ANDROID_KEYSTORE` | Base64-encoded keystore: `base64 -w 0 photodrop-release.keystore` |
+| `ANDROID_KEYSTORE_PASSWORD` | The password you chose |
+| `ANDROID_KEY_ALIAS` | `photodrop` |
+| `ANDROID_KEY_PASSWORD` | Same as keystore password |
+
+**3. Update deep linking config** with SHA256 from script output:
+```bash
+# Edit frontend/public/.well-known/assetlinks.json
+# Replace SHA256_FINGERPRINT_PLACEHOLDER with your fingerprint
+```
+
+**4. Deploy frontend** to publish the assetlinks.json file.
+
+**5. (iOS only)** When you have an Apple Developer account:
+- Get your Team ID from developer.apple.com
+- Edit `frontend/public/.well-known/apple-app-site-association`
+- Replace `TEAM_ID` with your actual Team ID
+
+### Building
+
+**Android APK** (via GitHub Actions):
+- Push to `main` branch (or `feat/mobile-capacitor`)
+- Download APK from Actions artifacts
+- With signing configured: release APK ready for Play Store
+- Without signing: debug APK for testing
+
+**Local Android build** (requires Java 21 + Android SDK):
+```bash
+cd frontend && npm run build
+cd ../mobile && npm install
+cp -r ../frontend/dist ./dist
+npx cap sync android
+cd android && ./gradlew assembleDebug
+# APK at mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+**iOS** (requires Mac + Xcode + Apple Developer account):
+```bash
+cd mobile && npx cap open ios
+# Build and sign in Xcode
+```
+
 ## Architecture
 
 - **Frontend**: React + Vite PWA
@@ -171,3 +235,4 @@ Emails are sent from `noreply@your-domain.com` (configured automatically from yo
 - **Database**: D1 (SQLite)
 - **Storage**: R2 (S3-compatible)
 - **Auth**: Passwordless magic links
+- **Mobile**: Capacitor (iOS/Android wrapper)

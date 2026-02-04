@@ -1112,9 +1112,35 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Photo view tracking UI for admins (backend API already exists)
 - [ ] Video upload
 - [ ] Add emails as an alternative to notifications
-- [ ] Make it harder for users to download or save images/videos
+- [ ] Make it harder for users to download or save images/videos (web)
 - [ ] Multi-device testing
 - [ ] Accessibility review (screen readers, ARIA improvements)
+
+### Phase 3.5: Native Mobile Apps
+
+**Goal:** Wrap the PWA in native iOS/Android shells for reliable push notifications and screenshot protection.
+
+**See [MOBILE_PLAN.md](MOBILE_PLAN.md) for full implementation details.**
+
+**Summary:**
+- Use Capacitor to wrap existing web app (minimal code changes)
+- Native push via FCM (Android) and APNs (iOS)
+- Screenshot blocking via `@capacitor-community/privacy-screen`
+- GitHub Actions CI/CD for automated builds
+
+**Key tasks:**
+- [x] Set up GitHub Actions workflows for Android and iOS builds
+- [ ] Set up Capacitor project structure
+- [ ] Configure push notifications (FCM/APNs)
+- [ ] Add backend endpoints for device token registration
+- [ ] Implement screenshot protection
+- [ ] Configure deep linking for magic links
+- [ ] Test on physical devices
+- [ ] Submit to App Store / Play Store
+
+**Prerequisites:**
+- [ ] Apple Developer account ($99/year) — set up when ready for iOS testing
+- [ ] Google Play Developer account ($25 one-time) — set up when ready for release
 
 ### Phase 4: Launch
 
@@ -1126,6 +1152,8 @@ The migration assigns random colors to all existing users so the column can be N
 ## Technical debt / TODO
 
 **Magic link `pending_at` flow (Feb 2026):** The current fix for the new user invite flow is pragmatic but implicit - it allows re-verification when a `name` param is present. A cleaner approach would be a separate `/complete-signup` endpoint that takes the token + name, keeping `/verify-magic-link` focused on verification only. Low priority since current fix works correctly.
+
+**Mobile app domain hardcoding (Feb 2026):** The domain is hardcoded in mobile config files. See README.md "Mobile app" section for files to update. A future enhancement could make this build-time configurable via environment variables.
 
 ## Future enhancements
 

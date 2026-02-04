@@ -1,0 +1,126 @@
+name: Build iOS IPA
+
+# TODO: Enable push triggers when mobile/ directory exists
+on:
+  # push:
+  #   branches:
+  #     - feat/mobile-capacitor
+  #     - main
+  #   paths:
+  #     - 'mobile/**'
+  #     - 'frontend/**'
+  #     - '.github/workflows/mobile-ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            mobile/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Copy frontend build to mobile
+        run: |
+          rm -rf mobile/dist
+          cp -r frontend/dist mobile/dist
+
+      - name: Sync Capacitor
+        working-directory: mobile
+        run: npx cap sync ios
+
+      # TODO: Configure iOS signing
+      # The following steps require:
+      # 1. Apple Developer account ($99/year)
+      # 2. Signing certificate exported as .p12
+      # 3. Provisioning profile for the app
+      # 4. GitHub secrets configured:
+      #    - IOS_CERTIFICATE_BASE64
+      #    - IOS_CERTIFICATE_PASSWORD
+      #    - IOS_PROVISIONING_PROFILE_BASE64
+      #    - IOS_KEYCHAIN_PASSWORD
+      
+      # - name: Install Apple certificate and provisioning profile
+      #   env:
+      #     CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+      #     CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      #     PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      #     KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      #   run: |
+      #     # Create variables
+      #     CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+      #     PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+      #     KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+      #
+      #     # Import certificate and provisioning profile from secrets
+      #     echo -n "$CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+      #     echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+      #
+      #     # Create temporary keychain
+      #     security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+      #     security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+      #     security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+      #
+      #     # Import certificate to keychain
+      #     security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+      #     security list-keychain -d user -s $KEYCHAIN_PATH
+      #
+      #     # Apply provisioning profile
+      #     mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+      #     cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+
+      # - name: Build iOS app
+      #   working-directory: mobile/ios/App
+      #   run: |
+      #     xcodebuild -workspace App.xcworkspace \
+      #       -scheme App \
+      #       -sdk iphoneos \
+      #       -configuration Release \
+      #       -archivePath $RUNNER_TEMP/App.xcarchive \
+      #       archive
+
+      # - name: Export IPA
+      #   run: |
+      #     xcodebuild -exportArchive \
+      #       -archivePath $RUNNER_TEMP/App.xcarchive \
+      #       -exportOptionsPlist mobile/ios/ExportOptions.plist \
+      #       -exportPath $RUNNER_TEMP/export
+
+      # - name: Upload IPA artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: photodrop-ios-ipa
+      #     path: ${{ runner.temp }}/export/*.ipa
+      #     retention-days: 14
+
+      # For now, just verify the iOS project builds (without signing)
+      - name: Verify iOS project compiles
+        working-directory: mobile/ios/App
+        run: |
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            build \
+            CODE_SIGNING_ALLOWED=NO
