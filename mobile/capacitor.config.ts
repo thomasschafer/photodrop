@@ -26,7 +26,7 @@ const config: CapacitorConfig = {
     },
     // Status bar - initial style before JS loads (matches light theme)
     StatusBar: {
-      style: 'DARK', // dark icons for light background
+      style: 'LIGHT', // dark content for light background
       backgroundColor: '#faf7f4',
     },
   },

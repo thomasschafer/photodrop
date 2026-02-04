@@ -57,17 +57,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
 
     // Update status bar on native platforms
-    // Style.Light = light icons (for dark backgrounds)
-    // Style.Dark = dark icons (for light backgrounds)
+    // Style.Dark = light content (for dark backgrounds)
+    // Style.Light = dark content (for light backgrounds)
     if (Capacitor.isNativePlatform()) {
-      const themeColor = resolvedTheme === 'dark' ? '#252320' : '#faf7f4';
-
       StatusBar.setStyle({
-        style: resolvedTheme === 'dark' ? Style.Light : Style.Dark,
+        style: resolvedTheme === 'dark' ? Style.Dark : Style.Light,
+      }).catch(() => {
+        // Ignore errors - status bar may not be available on all devices
       });
 
       // Set background color (Android only - iOS ignores this)
-      StatusBar.setBackgroundColor({ color: themeColor });
+      StatusBar.setBackgroundColor({ color: themeColor }).catch(() => {
+        // Ignore errors - not supported on iOS
+      });
     }
   }, [resolvedTheme]);
 
