@@ -160,14 +160,18 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
       return c.json({ error: 'Token is required' }, 400);
     }
 
-    // Verify token (don't consume yet - we may need to ask for name first)
-    const result = await verifyMagicLink(c.env.DB, token);
+    // Check if this is a name submission (user providing their name after needsName response)
+    const isNameSubmission = !!(name && typeof name === 'string' && name.trim());
+
+    // Verify token - allow pending state for name submissions since we set pending on first request
+    const result = await verifyMagicLink(c.env.DB, token, isNameSubmission);
 
     if (!result.valid || !result.token) {
-      const errorMessages = {
+      const errorMessages: Record<string, string> = {
         not_found: 'Invalid token',
         expired: 'Token has expired',
         already_used: 'Token has already been used',
+        pending: 'This link is already being processed. Please wait a moment and try again.',
         invalid: 'Invalid token',
       };
       const message = result.error ? errorMessages[result.error] : 'Invalid token';
@@ -177,10 +181,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
     const magicToken = result.token;
 
     // Mark token as pending to prevent concurrent use (race condition protection).
-    // This must happen early, before any business logic, for all paths.
-    // Note: If a name is being submitted, the token may already be pending from the
-    // initial needsName response - that's OK, we allow re-verification in that case.
-    const isNameSubmission = name && typeof name === 'string' && name.trim();
+    // For name submissions, the token is already pending from the initial request.
     const canProceed = await markMagicLinkTokenPending(c.env.DB, token);
     if (!canProceed && !isNameSubmission) {
       return c.json({ error: 'This link is already being used. Please try again.' }, 400);

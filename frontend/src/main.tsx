@@ -7,16 +7,16 @@ import './index.css';
 import App from './App.tsx';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { DEEP_LINK_EVENT } from './lib/deepLink';
 
 // Handle deep links when app is already running (warm start)
 if (Capacitor.isNativePlatform()) {
   CapApp.addListener('appUrlOpen', ({ url }) => {
-    // Extract path from URL and navigate
-    // e.g., https://example.com/auth/TOKEN -> /auth/TOKEN
     const urlObj = new URL(url);
     const path = urlObj.pathname + urlObj.search;
-    if (path && path !== window.location.pathname) {
-      window.location.href = path;
+    const currentFullPath = window.location.pathname + window.location.search;
+    if (path && path !== currentFullPath) {
+      window.dispatchEvent(new CustomEvent(DEEP_LINK_EVENT, { detail: { path } }));
     }
   });
 }

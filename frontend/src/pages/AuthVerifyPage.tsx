@@ -6,6 +6,8 @@ import { Logo } from '../components/Logo';
 
 type VerifyStatus = 'verifying' | 'needs_name' | 'submitting_name' | 'success' | 'error';
 
+const NAME_FORM_WARNING_MS = 4 * 60 * 1000; // Show warning after 4 minutes
+
 export function AuthVerifyPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
@@ -14,12 +16,16 @@ export function AuthVerifyPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
+  const [showExpiryWarning, setShowExpiryWarning] = useState(false);
   const verificationAttempted = useRef(false);
+  const nameFormShownAt = useRef<number | null>(null);
 
   const handleVerificationResult = useCallback(
     (data: Awaited<ReturnType<typeof api.auth.verifyMagicLink>>) => {
       if ('needsName' in data) {
         setStatus('needs_name');
+        setShowExpiryWarning(false);
+        nameFormShownAt.current = Date.now();
         return;
       }
 
@@ -36,7 +42,7 @@ export function AuthVerifyPage() {
 
       setTimeout(() => {
         navigate('/', { replace: true });
-      }, 1500);
+      }, 500);
     },
     [login, navigate]
   );
@@ -77,6 +83,22 @@ export function AuthVerifyPage() {
     verify(token);
   }, [token, handleVerificationResult, handleVerificationError]);
 
+  // Show expiry warning if user is on name form for too long
+  useEffect(() => {
+    if (status !== 'needs_name' || !nameFormShownAt.current) {
+      return;
+    }
+
+    const timeElapsed = Date.now() - nameFormShownAt.current;
+    const timeUntilWarning = Math.max(0, NAME_FORM_WARNING_MS - timeElapsed);
+
+    const timer = setTimeout(() => {
+      setShowExpiryWarning(true);
+    }, timeUntilWarning);
+
+    return () => clearTimeout(timer);
+  }, [status]);
+
   const handleNameSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
@@ -115,6 +137,7 @@ export function AuthVerifyPage() {
               nameError={nameError}
               onSubmit={handleNameSubmit}
               isSubmitting={status === 'submitting_name'}
+              showExpiryWarning={showExpiryWarning}
             />
           ) : status === 'success' ? (
             <SuccessContent />
@@ -144,6 +167,7 @@ interface NameInputContentProps {
   nameError: string;
   onSubmit: (e: FormEvent) => void;
   isSubmitting: boolean;
+  showExpiryWarning: boolean;
 }
 
 function NameInputContent({
@@ -152,11 +176,17 @@ function NameInputContent({
   nameError,
   onSubmit,
   isSubmitting,
+  showExpiryWarning,
 }: NameInputContentProps) {
   return (
     <>
       <h2 className="text-lg font-medium text-text-primary mb-2">Welcome!</h2>
       <p className="text-sm text-text-secondary mb-6">Please enter your name to complete sign-up</p>
+      {showExpiryWarning && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-sm">
+          This link will expire soon. Please complete sign-up now.
+        </div>
+      )}
       <form onSubmit={onSubmit} className="text-left">
         <div className="mb-4">
           <label htmlFor="signup-name" className="block text-sm font-medium text-text-primary mb-2">
