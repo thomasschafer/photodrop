@@ -1,10 +1,12 @@
-[{
-  "relation": ["delegate_permission/common.handle_all_urls"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "com.photodrop.app",
-    "sha256_cert_fingerprints": [
-      "SHA256_FINGERPRINT_PLACEHOLDER"
-    ]
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.photodrop.app",
+      "sha256_cert_fingerprints": [
+        "64:3A:56:09:5D:17:89:6A:AA:38:AB:B8:92:03:F6:E0:4B:03:D5:6B:F8:94:D3:43:9D:C5:86:95:F5:D4:40:E9"
+      ]
+    }
   }
-}]
+]
