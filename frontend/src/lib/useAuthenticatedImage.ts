@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CapacitorHttp } from '@capacitor/core';
 import { API_BASE_URL } from './api';
@@ -29,10 +29,10 @@ export function useAuthenticatedImage(
   });
   const [loading, setLoading] = useState(!src);
   const [error, setError] = useState<Error | null>(null);
-  const mountedRef = useRef(true);
 
   useEffect(() => {
-    mountedRef.current = true;
+    // Use local flag to handle race conditions when photoId/type changes
+    let isCurrent = true;
     const cacheKey = `${photoId}:${type}`;
 
     // Already cached
@@ -42,10 +42,15 @@ export function useAuthenticatedImage(
       return;
     }
 
+    // Reset state for new photo/type to avoid stale image flash
+    setSrc(null);
+    setError(null);
+    setLoading(true);
+
     async function loadImage() {
       const token = localStorage.getItem('accessToken');
       if (!token) {
-        if (mountedRef.current) {
+        if (isCurrent) {
           setError(new Error('No auth token'));
           setLoading(false);
         }
@@ -76,9 +81,10 @@ export function useAuthenticatedImage(
           for (let i = 0; i < binary.length; i++) {
             bytes[i] = binary.charCodeAt(i);
           }
-          blob = new Blob([bytes], {
-            type: response.headers['content-type'] || 'image/jpeg',
-          });
+          // Get content-type case-insensitively (headers may vary)
+          const contentType =
+            response.headers['content-type'] || response.headers['Content-Type'] || 'image/jpeg';
+          blob = new Blob([bytes], { type: contentType });
         } else {
           // Use fetch for web
           const response = await fetch(url, {
@@ -93,19 +99,19 @@ export function useAuthenticatedImage(
           blob = await response.blob();
         }
 
-        if (!mountedRef.current) return;
+        if (!isCurrent) return;
 
         const blobUrl = URL.createObjectURL(blob);
         imageCache.set(cacheKey, blobUrl);
         setSrc(blobUrl);
         setError(null);
       } catch (err) {
-        if (mountedRef.current) {
+        if (isCurrent) {
           setError(err as Error);
           console.error(`Failed to load image ${photoId}/${type}:`, err);
         }
       } finally {
-        if (mountedRef.current) {
+        if (isCurrent) {
           setLoading(false);
         }
       }
@@ -114,7 +120,7 @@ export function useAuthenticatedImage(
     loadImage();
 
     return () => {
-      mountedRef.current = false;
+      isCurrent = false;
     };
   }, [photoId, type]);
 
@@ -149,9 +155,10 @@ export async function preloadImage(photoId: string, type: 'thumbnail' | 'downloa
       for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);
       }
-      blob = new Blob([bytes], {
-        type: response.headers['content-type'] || 'image/jpeg',
-      });
+      // Get content-type case-insensitively
+      const contentType =
+        response.headers['content-type'] || response.headers['Content-Type'] || 'image/jpeg';
+      blob = new Blob([bytes], { type: contentType });
     } else {
       const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },

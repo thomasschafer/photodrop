@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useAuthenticatedImage, clearImageCache } from './useAuthenticatedImage';
 
+// Declare global for Node.js environment in tests
+declare const global: typeof globalThis;
+
 // Mock Capacitor
 vi.mock('@capacitor/core', () => ({
   Capacitor: {

@@ -90,6 +90,14 @@ export function PullToRefresh({ onRefresh, children, className }: PullToRefreshP
     }
   }, [pullDistance, onRefresh]);
 
+  // Handle touch cancel (e.g., incoming call, gesture interrupted)
+  const handleTouchCancel = useCallback(() => {
+    if (!isPulling.current) return;
+    isPulling.current = false;
+    setIsRefreshing(false);
+    setPullDistance(0);
+  }, []);
+
   // Attach touch listeners to document for better gesture capture
   useEffect(() => {
     if (!isNative) return;
@@ -97,13 +105,15 @@ export function PullToRefresh({ onRefresh, children, className }: PullToRefreshP
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
     document.addEventListener('touchmove', handleTouchMove, { passive: false });
     document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    document.addEventListener('touchcancel', handleTouchCancel, { passive: true });
 
     return () => {
       document.removeEventListener('touchstart', handleTouchStart);
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('touchcancel', handleTouchCancel);
     };
-  }, [isNative, handleTouchStart, handleTouchMove, handleTouchEnd]);
+  }, [isNative, handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel]);
 
   // Don't add any wrapper behavior on web
   if (!isNative) {

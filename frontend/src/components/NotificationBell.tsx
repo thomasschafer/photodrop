@@ -46,9 +46,11 @@ export function NotificationBell() {
   }, []);
 
   useEffect(() => {
+    // Skip web push subscription checks on native app
+    if (isNative) return;
     setState('loading');
     checkSubscriptionStatus();
-  }, [checkSubscriptionStatus, currentGroup?.id]);
+  }, [checkSubscriptionStatus, currentGroup?.id, isNative]);
 
   const subscribe = async () => {
     setIsProcessing(true);

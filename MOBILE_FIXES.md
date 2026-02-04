@@ -102,7 +102,7 @@
 - [ ] Handle both web push AND native push
 
 **Files to create/modify:**
-```
+```text
 NEW:
 - frontend/src/lib/nativePush.ts
 - backend/src/lib/fcm.ts
@@ -140,7 +140,7 @@ These are documented in `MOBILE_PLAN.md`:
 
 ## Files Changed in This PR
 
-```
+```text
 Modified:
 - .github/workflows/mobile-android.yml (PR builds)
 - frontend/index.html (viewport-fit)

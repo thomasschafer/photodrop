@@ -25,14 +25,7 @@ function GridThumbnail({ photoId, alt }: { photoId: string; alt: string }) {
     return <div className="w-full h-auto min-h-[200px] animate-pulse bg-bg-secondary" />;
   }
 
-  return (
-    <img
-      src={src}
-      alt={alt}
-      className="w-full h-auto block max-h-[400px] object-cover"
-      loading="lazy"
-    />
-  );
+  return <img src={src} alt={alt} className="w-full h-auto block max-h-[400px] object-cover" />;
 }
 
 interface ReactionSummary {
@@ -1023,9 +1016,7 @@ function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
         <img
           src={full.src}
           alt={alt}
-          className={`absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
-            full.src ? 'opacity-100' : 'opacity-0'
-          }`}
+          className="absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 opacity-100"
         />
       )}
       {/* Loading state */}
