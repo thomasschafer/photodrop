@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { StatusBar, Style } from '@capacitor/status-bar';
 
 type Theme = 'system' | 'light' | 'dark';
 type ResolvedTheme = 'light' | 'dark';
@@ -52,6 +54,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const metaThemeColor = document.querySelector('meta[name="theme-color"]');
     if (metaThemeColor) {
       metaThemeColor.setAttribute('content', themeColor);
+    }
+
+    // Update status bar on native platforms
+    // Style.Dark = light content (for dark backgrounds)
+    // Style.Light = dark content (for light backgrounds)
+    if (Capacitor.isNativePlatform()) {
+      StatusBar.setStyle({
+        style: resolvedTheme === 'dark' ? Style.Dark : Style.Light,
+      }).catch(() => {
+        // Ignore errors - status bar may not be available on all devices
+      });
+
+      // Set background color (Android only - iOS ignores this)
+      StatusBar.setBackgroundColor({ color: themeColor }).catch(() => {
+        // Ignore errors - not supported on iOS
+      });
     }
   }, [resolvedTheme]);
 

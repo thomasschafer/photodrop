@@ -24,6 +24,11 @@ const config: CapacitorConfig = {
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
+    // Status bar - initial style before JS loads (matches light theme)
+    StatusBar: {
+      style: 'LIGHT', // dark content for light background
+      backgroundColor: '#faf7f4',
+    },
   },
 };
 
