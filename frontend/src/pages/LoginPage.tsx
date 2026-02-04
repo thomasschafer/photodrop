@@ -39,7 +39,7 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col justify-center py-12 px-6">
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4-safe right-4">
         <ThemeToggle />
       </div>
 

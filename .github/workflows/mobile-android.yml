@@ -3,7 +3,13 @@ name: Build Android APK
 on:
   push:
     branches:
-      - feat/mobile-capacitor
+      - main
+    paths:
+      - 'mobile/**'
+      - 'frontend/**'
+      - '.github/workflows/mobile-android.yml'
+  pull_request:
+    branches:
       - main
     paths:
       - 'mobile/**'

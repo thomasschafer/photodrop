@@ -1120,7 +1120,7 @@ The migration assigns random colors to all existing users so the column can be N
 
 **Goal:** Wrap the PWA in native iOS/Android shells for reliable push notifications and screenshot protection.
 
-**See [MOBILE_PLAN.md](MOBILE_PLAN.md) for full implementation details.**
+**See [MOBILE_PLAN.md](MOBILE_PLAN.md) and [MOBILE_FIXES.md](MOBILE_FIXES.md) for implementation details.**
 
 **Summary:**
 - Use Capacitor to wrap existing web app (minimal code changes)
@@ -1128,19 +1128,38 @@ The migration assigns random colors to all existing users so the column can be N
 - Screenshot blocking via `@capacitor-community/privacy-screen`
 - GitHub Actions CI/CD for automated builds
 
-**Key tasks:**
-- [x] Set up GitHub Actions workflows for Android and iOS builds
-- [ ] Set up Capacitor project structure
-- [ ] Configure push notifications (FCM/APNs)
-- [ ] Add backend endpoints for device token registration
-- [ ] Implement screenshot protection
-- [ ] Configure deep linking for magic links
-- [ ] Test on physical devices
+**Phase 3.5.1: Capacitor Setup & Polish** ✅
+- [x] Set up GitHub Actions workflows for Android builds
+- [x] Set up Capacitor project structure
+- [x] Configure deep linking for magic links (Android App Links)
+- [x] Android release signing setup
+- [x] Fix safe area / status bar handling
+- [x] Fix image loading on native (authenticated fetch)
+- [x] Add pull-to-refresh for native
+- [x] Hide PWA install banner on native
+- [x] Add PR builds to workflow
+
+**Phase 3.5.2: Push Notifications** (next)
+- [ ] Firebase project setup (Tom)
+- [ ] Add `google-services.json` to project
+- [ ] Install `@capacitor/push-notifications` plugin
+- [ ] Frontend: request permission, register token
+- [ ] Backend: device_tokens table + endpoints
+- [ ] Backend: send to FCM on photo upload
+- [ ] Test end-to-end notification flow
+
+**Phase 3.5.3: iOS & Distribution** (later)
+- [ ] Apple Developer account ($99/year)
+- [ ] iOS signing setup
+- [ ] iOS push (APNs) configuration
+- [ ] Screenshot protection plugin
+- [ ] Test on physical iOS device
 - [ ] Submit to App Store / Play Store
 
 **Prerequisites:**
-- [ ] Apple Developer account ($99/year) — set up when ready for iOS testing
-- [ ] Google Play Developer account ($25 one-time) — set up when ready for release
+- [ ] Apple Developer account ($99/year) — needed for iOS
+- [ ] Google Play Developer account ($25 one-time) — needed for Play Store release
+- [ ] Firebase project — needed for Android push notifications
 
 ### Phase 4: Launch
 

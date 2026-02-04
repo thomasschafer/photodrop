@@ -1,3 +1,5 @@
+import { clearImageCache } from './useAuthenticatedImage';
+
 // Cache naming convention (defined in sw.ts):
 // - photodrop:group:* = group-scoped (cleared on group switch)
 // - photodrop:user:* = user-scoped (cleared on logout along with group caches)
@@ -16,8 +18,12 @@ async function deleteCachesMatching(prefix: string): Promise<void> {
 
 export async function clearGroupCaches(): Promise<void> {
   await deleteCachesMatching('photodrop:group:');
+  // Clear in-memory image cache (used for authenticated image loading)
+  clearImageCache();
 }
 
 export async function clearAllUserCaches(): Promise<void> {
   await deleteCachesMatching('photodrop:');
+  // Clear in-memory image cache
+  clearImageCache();
 }
