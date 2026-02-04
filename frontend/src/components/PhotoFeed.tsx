@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, API_BASE_URL } from '../lib/api';
+import { api } from '../lib/api';
 import { formatRelativeTime } from '../lib/dateFormat';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection, isHorizontalNavKey } from '../lib/keyboard';
@@ -8,15 +8,24 @@ import type { ProfileColor } from '../lib/profileColors';
 import { useDropdown } from '../lib/useDropdown';
 import { useIsPortrait } from '../lib/useIsPortrait';
 import { useVirtualCarousel } from '../lib/useVirtualCarousel';
+import { useAuthenticatedImage, preloadImage } from '../lib/useAuthenticatedImage';
 import { Avatar } from './Avatar';
+import { PullToRefresh } from './PullToRefresh';
 import { ConfirmModal } from './ConfirmModal';
 import { SelectDropdown } from './SelectDropdown';
 import { Modal } from './Modal';
 import { PhotoUpload } from './PhotoUpload';
 import { useAuth } from '../contexts/AuthContext';
 
-function getAuthToken(): string {
-  return localStorage.getItem('accessToken') || '';
+// Grid thumbnail component that uses authenticated image loading
+function GridThumbnail({ photoId, alt }: { photoId: string; alt: string }) {
+  const { src, loading } = useAuthenticatedImage(photoId, 'thumbnail');
+
+  if (loading || !src) {
+    return <div className="w-full h-auto min-h-[200px] animate-pulse bg-bg-secondary" />;
+  }
+
+  return <img src={src} alt={alt} className="w-full h-auto block max-h-[400px] object-cover" />;
 }
 
 interface ReactionSummary {
@@ -436,7 +445,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [feedReactionDetails, setFeedReactionDetails] = useState<Map<string, ReactionWithUser[]>>(
     new Map()
   );
-  const token = getAuthToken();
   const [uploadButtonRef, restoreUploadFocus] = useFocusRestore<HTMLButtonElement>();
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
@@ -804,7 +812,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
   return (
     <>
-      <div className="max-w-[540px] mx-auto">
+      <PullToRefresh onRefresh={loadPhotos} className="max-w-[540px] mx-auto">
         {isAdmin && (
           <div className="flex justify-end mb-4">
             <button
@@ -848,12 +856,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               className="cursor-pointer bg-surface rounded-xl border border-border shadow-card transition-shadow hover:shadow-elevated"
             >
               <div className="relative bg-bg-secondary overflow-hidden rounded-t-xl">
-                <img
-                  src={`${API_BASE_URL}/photos/${photo.id}/thumbnail?token=${token}`}
-                  alt={photo.caption || ''}
-                  className="w-full h-auto block max-h-[400px] object-cover"
-                  loading="lazy"
-                />
+                <GridThumbnail photoId={photo.id} alt={photo.caption || ''} />
               </div>
               <div className="p-4 px-5">
                 {photo.caption && (
@@ -937,13 +940,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             {loadingMore && 'Loading more photos...'}
           </div>
         )}
-      </div>
+      </PullToRefresh>
 
       {selectedPhoto && selectedPhotoIndex !== null && selectedPhotoIndex >= 0 && (
         <Lightbox
           photos={photos}
           initialIndex={selectedPhotoIndex}
-          token={token}
           onClose={handleLightboxClose}
           onIndexChange={(index) => {
             navigate(`/photo/${photos[index].id}`, { replace: true });
@@ -990,60 +992,36 @@ interface Comment {
   isDeleted: boolean;
 }
 
-function ProgressiveImage({
-  thumbnailSrc,
-  fullSrc,
-  alt,
-}: {
-  thumbnailSrc: string;
-  fullSrc: string;
-  alt: string;
-}) {
-  // Check if image is already in browser cache on mount/src change
-  const [fullLoaded, setFullLoaded] = useState(() => {
-    const img = new Image();
-    img.src = fullSrc;
-    return img.complete && img.naturalWidth > 0;
-  });
-  const [fullError, setFullError] = useState(false);
+// Progressive image that shows thumbnail first, then loads full image
+function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
+  const thumbnail = useAuthenticatedImage(photoId, 'thumbnail');
+  const full = useAuthenticatedImage(photoId, 'download');
 
-  // Handle src changes when component is reused (no key remount)
-  // Use RAF to avoid synchronous setState in effect (lint rule)
-  useEffect(() => {
-    const img = new Image();
-    img.src = fullSrc;
-
-    const rafId = requestAnimationFrame(() => {
-      setFullLoaded(img.complete && img.naturalWidth > 0);
-      setFullError(false);
-    });
-
-    return () => cancelAnimationFrame(rafId);
-  }, [fullSrc]);
-
-  const showThumbnail = !fullLoaded || fullError;
+  const showThumbnail = !full.src || full.loading;
 
   return (
     <div className="relative w-full h-full">
-      {/* Thumbnail - always renders, fades out when full loads (unless full errored) */}
-      <img
-        src={thumbnailSrc}
-        alt={alt}
-        className={`absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
-          showThumbnail ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
-      {/* Full image - fades in when loaded, hidden on error */}
-      {!fullError && (
+      {/* Thumbnail - always renders, fades out when full loads */}
+      {thumbnail.src && (
         <img
-          src={fullSrc}
+          src={thumbnail.src}
           alt={alt}
           className={`absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
-            fullLoaded ? 'opacity-100' : 'opacity-0'
+            showThumbnail ? 'opacity-100' : 'opacity-0'
           }`}
-          onLoad={() => setFullLoaded(true)}
-          onError={() => setFullError(true)}
         />
+      )}
+      {/* Full image - fades in when loaded */}
+      {full.src && (
+        <img
+          src={full.src}
+          alt={alt}
+          className="absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 opacity-100"
+        />
+      )}
+      {/* Loading state */}
+      {thumbnail.loading && !thumbnail.src && (
+        <div className="absolute inset-0 animate-pulse bg-bg-secondary rounded-lg" />
       )}
     </div>
   );
@@ -1289,7 +1267,6 @@ function CommentPanel({
 function Lightbox({
   photos,
   initialIndex,
-  token,
   onClose,
   onIndexChange,
   isAdmin,
@@ -1297,7 +1274,6 @@ function Lightbox({
 }: {
   photos: Photo[];
   initialIndex: number;
-  token: string;
   onClose: () => void;
   onIndexChange: (index: number) => void;
   isAdmin: boolean;
@@ -1396,17 +1372,17 @@ function Lightbox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
 
-  // Preload adjacent images
+  // Preload adjacent images using authenticated fetch
   useEffect(() => {
     if (nextPhoto) {
-      const img = new Image();
-      img.src = `${API_BASE_URL}/photos/${nextPhoto.id}/download?token=${token}`;
+      preloadImage(nextPhoto.id, 'download');
+      preloadImage(nextPhoto.id, 'thumbnail');
     }
     if (prevPhoto) {
-      const img = new Image();
-      img.src = `${API_BASE_URL}/photos/${prevPhoto.id}/download?token=${token}`;
+      preloadImage(prevPhoto.id, 'download');
+      preloadImage(prevPhoto.id, 'thumbnail');
     }
-  }, [photo.id, nextPhoto, prevPhoto, token]);
+  }, [photo.id, nextPhoto, prevPhoto]);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -1700,7 +1676,7 @@ function Lightbox({
             ref={closeButtonRef}
             onClick={onClose}
             aria-label="Close"
-            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer flex items-center justify-center text-white transition-colors hover:bg-white/20"
+            className="absolute top-2-safe right-4 z-10 w-10 h-10 rounded-full bg-white/10 border-none cursor-pointer flex items-center justify-center text-white transition-colors hover:bg-white/20"
           >
             <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -1780,8 +1756,7 @@ function Lightbox({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <ProgressiveImage
-                      thumbnailSrc={`${API_BASE_URL}/photos/${slidePhoto.id}/thumbnail?token=${token}`}
-                      fullSrc={`${API_BASE_URL}/photos/${slidePhoto.id}/download?token=${token}`}
+                      photoId={slidePhoto.id}
                       alt={slidePhoto.caption || `Photo ${photoIndex + 1}`}
                     />
                   </div>
@@ -1795,7 +1770,7 @@ function Lightbox({
         <div
           ref={commentsPanelRef}
           onClick={(e) => e.stopPropagation()}
-          className={`p-2 pt-0 landscape:pt-2 landscape:pl-0 flex-shrink-0 ${
+          className={`p-2 pt-0 pb-2-safe landscape:pt-2 landscape:pl-0 flex-shrink-0 ${
             commentsExpanded
               ? 'h-[45%] landscape:h-full landscape:w-[min(35%,28rem)]'
               : 'landscape:max-w-[280px]'

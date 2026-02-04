@@ -5,7 +5,7 @@ import { ThemeToggle } from '../components/ThemeToggle';
 export function LandingPage() {
   return (
     <div className="h-dvh overflow-hidden bg-bg-primary flex flex-col justify-center items-center px-6">
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4-safe right-4">
         <ThemeToggle />
       </div>
 

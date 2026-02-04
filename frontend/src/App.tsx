@@ -78,7 +78,7 @@ function MainApp() {
         Skip to main content
       </a>
 
-      <header className="sticky top-0 z-40 bg-surface border-b border-border">
+      <header className="sticky top-0 z-40 bg-surface border-b border-border pt-[env(safe-area-inset-top)]">
         <div className="max-w-[900px] mx-auto px-6">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-4">

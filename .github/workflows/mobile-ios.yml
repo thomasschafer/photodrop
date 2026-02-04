@@ -1,10 +1,16 @@
 name: Build iOS IPA
 
-# TODO: Enable push triggers when mobile/ directory exists
+# iOS builds require Apple Developer signing - uncomment when ready
 on:
   # push:
   #   branches:
-  #     - feat/mobile-capacitor
+  #     - main
+  #   paths:
+  #     - 'mobile/**'
+  #     - 'frontend/**'
+  #     - '.github/workflows/mobile-ios.yml'
+  # pull_request:
+  #   branches:
   #     - main
   #   paths:
   #     - 'mobile/**'

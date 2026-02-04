@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { api } from '../lib/api';
 import { urlBase64ToUint8Array } from '../lib/push';
 import { ConfirmModal } from './ConfirmModal';
@@ -8,6 +9,8 @@ type NotificationState = 'loading' | 'unsupported' | 'denied' | 'subscribed' | '
 
 export function NotificationBell() {
   const { currentGroup } = useAuth();
+  // Check if native - must be after hooks but used for early return
+  const isNative = Capacitor.isNativePlatform();
   const [state, setState] = useState<NotificationState>('loading');
   const [showConfirm, setShowConfirm] = useState(false);
   const [showBlockedHelp, setShowBlockedHelp] = useState(false);
@@ -43,9 +46,11 @@ export function NotificationBell() {
   }, []);
 
   useEffect(() => {
+    // Skip web push subscription checks on native app
+    if (isNative) return;
     setState('loading');
     checkSubscriptionStatus();
-  }, [checkSubscriptionStatus, currentGroup?.id]);
+  }, [checkSubscriptionStatus, currentGroup?.id, isNative]);
 
   const subscribe = async () => {
     setIsProcessing(true);
@@ -106,6 +111,12 @@ export function NotificationBell() {
       setShowUnsupportedHelp(true);
     }
   };
+
+  // Native apps use platform push notifications (FCM/APNs), not web push
+  // Hide the bell entirely on native - notifications are handled at app level
+  if (isNative) {
+    return null;
+  }
 
   if (state === 'loading') {
     return null;
