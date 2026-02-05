@@ -67,63 +67,107 @@
 
 ## Remaining Work
 
-### 6. Native Push Notifications (FCM/APNs) 📋
+### 6. Native Push Notifications (FCM) 📋
 
-**Status:** Planned for next PR
+**Status:** In progress on `feat/native-notifications`
 
-**Problem:** Native apps need platform-specific push notifications (FCM for Android, APNs for iOS), not web push.
+**Problem:** Native apps need platform-specific push notifications, not web push.
 
 **Current state:**
 - Web push works via service worker + VAPID
-- Notification bell hidden on native (implemented in this PR)
-- Native apps have no push notification support yet
+- Notification bell hidden on native
+- `@capacitor/push-notifications` plugin already installed ✅
+- Plugin configured in `capacitor.config.ts` ✅
+- No frontend integration or backend support yet
 
 #### Implementation Plan
 
-**External Setup Required:**
-- [ ] Firebase project created (Android)
-- [ ] `google-services.json` added to project
-- [ ] Apple Developer account ($99/year) for iOS
-- [ ] APNs push certificate/key created
+**Phase 1: External Setup (requires Tom)**
 
-**Frontend Changes:**
-- [ ] Install `@capacitor/push-notifications` plugin
-- [ ] Create `frontend/src/lib/nativePush.ts`
-- [ ] Request permission on app launch
-- [ ] Register device token with backend
-- [ ] Handle incoming notifications
-- [ ] Handle notification taps (navigate to photo)
+- [ ] Create Firebase project at https://console.firebase.google.com
+- [ ] Add Android app to Firebase (package: `com.photodrop.app`)
+- [ ] Download `google-services.json` → `mobile/android/app/`
+- [ ] Add iOS app to Firebase (bundle ID: `com.photodrop.app`)
+- [ ] Download `GoogleService-Info.plist` → `mobile/ios/App/App/`
+- [ ] For iOS: Upload APNs key to Firebase (requires Apple Developer account)
 
-**Backend Changes:**
-- [ ] Add `device_tokens` table (migration)
-- [ ] `POST /push/device-token` - register device token
-- [ ] `DELETE /push/device-token` - unregister device token
-- [ ] Integrate FCM sending in photo upload flow
-- [ ] Handle both web push AND native push
+**Phase 2: Frontend Integration**
 
-**Files to create/modify:**
+- [ ] Create `frontend/src/lib/nativePush.ts`:
+  - Check platform with `Capacitor.isNativePlatform()`
+  - Request notification permission
+  - Register with FCM and get device token
+  - Listen for `registration`, `pushNotificationReceived`, `pushNotificationActionPerformed`
+- [ ] Update `frontend/src/main.tsx`:
+  - Initialize native push on app start (after auth)
+  - Re-register token on group switch
+- [ ] Update `frontend/src/lib/api.ts`:
+  - Add `api.push.registerDevice(platform, token)`
+  - Add `api.push.unregisterDevice(token)`
+- [ ] Update `frontend/src/components/NotificationBell.tsx`:
+  - Show bell on native (currently hidden)
+  - Use native push flow instead of web push when on native
+- [ ] Handle notification taps → deep link to photo/group
+
+**Phase 3: Backend Changes**
+
+- [ ] Create migration `0010_device_tokens.sql`:
+  ```sql
+  CREATE TABLE device_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    platform TEXT NOT NULL CHECK (platform IN ('ios', 'android')),
+    token TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(user_id, group_id, token),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+  );
+  CREATE INDEX idx_device_tokens_group ON device_tokens(group_id);
+  ```
+- [ ] Add to `backend/src/lib/db.ts`:
+  - `createDeviceToken(db, userId, groupId, platform, token)`
+  - `deleteDeviceToken(db, userId, groupId, token)`
+  - `getDeviceTokensForGroup(db, groupId, excludeUserId)`
+- [ ] Update `backend/src/routes/push.ts`:
+  - `POST /push/device` - register device token (with auth)
+  - `DELETE /push/device` - unregister device token
+- [ ] Create `backend/src/lib/fcm.ts`:
+  - Send notifications via FCM HTTP v1 API
+  - Use service account credentials (env var: `FIREBASE_SERVICE_ACCOUNT`)
+- [ ] Update `backend/src/routes/photos.ts`:
+  - On photo upload, send to both web push AND FCM
+  - Query `push_subscriptions` for web, `device_tokens` for mobile
+
+**Phase 4: Testing**
+
+- [ ] Android: Permission prompt appears on first launch
+- [ ] Android: Token registered with backend after granting permission
+- [ ] Android: Push received when photo uploaded (app backgrounded)
+- [ ] Android: Notification tap opens app to correct group
+- [ ] Token cleaned up on logout
+- [ ] Token re-registered on group switch
+- [ ] iOS: Same tests (after Apple Developer setup)
+
+#### Files Summary
+
 ```text
 NEW:
 - frontend/src/lib/nativePush.ts
 - backend/src/lib/fcm.ts
-- backend/migrations/XXXX_device_tokens.sql
-- mobile/android/app/google-services.json
+- backend/migrations/0010_device_tokens.sql
+- mobile/android/app/google-services.json (from Firebase)
+- mobile/ios/App/App/GoogleService-Info.plist (from Firebase)
 
 MODIFY:
-- frontend/src/main.tsx (init native push)
-- frontend/src/lib/api.ts (device token endpoints)
-- backend/src/routes/push.ts (device token routes)
-- backend/src/routes/photos.ts (send native push on upload)
+- frontend/src/main.tsx
+- frontend/src/lib/api.ts
+- frontend/src/components/NotificationBell.tsx
+- backend/src/lib/db.ts
+- backend/src/routes/push.ts
+- backend/src/routes/photos.ts
 ```
-
-**Testing Checklist:**
-- [ ] Firebase project created
-- [ ] google-services.json added
-- [ ] Permission requested on app start
-- [ ] Token registered with backend
-- [ ] Push received when photo uploaded (app backgrounded)
-- [ ] Notification tap opens correct photo
-- [ ] Token cleaned up on logout/group switch
 
 ---
 
@@ -131,7 +175,7 @@ MODIFY:
 
 These are documented in `MOBILE_PLAN.md`:
 
-- [ ] **Screenshot protection** - `@capacitor-community/privacy-screen` plugin
+- [x] **Screenshot protection** - `@capacitor-community/privacy-screen` plugin (configured in `capacitor.config.ts`)
 - [ ] **iOS builds** - Requires Apple Developer account
 - [ ] **App Store submission** - After testing complete
 - [ ] **Play Store submission** - After testing complete

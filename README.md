@@ -204,6 +204,53 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 - Edit `frontend/public/.well-known/apple-app-site-association`
 - Replace `TEAM_ID` with your actual Team ID
 
+### Native push notifications (FCM)
+
+Native apps use Firebase Cloud Messaging for push notifications. Without this setup, the app works but users won't receive notifications when photos are shared.
+
+**1. Create Firebase project**:
+- Go to https://console.firebase.google.com → Create project (or use existing)
+- Project name can be anything (e.g., "photodrop")
+
+**2. Add Android app**:
+- In Firebase Console → Project settings → General → Add app → Android
+- Package name: `com.photodrop.app`
+- Download `google-services.json`
+- Copy to `mobile/android/app/google-services.json`
+
+**3. Add iOS app**:
+- In Firebase Console → Project settings → General → Add app → iOS
+- Bundle ID: `com.photodrop.app`
+- Download `GoogleService-Info.plist`
+- Copy to `mobile/ios/App/App/GoogleService-Info.plist`
+
+**4. iOS APNs setup** (required for iOS push — needs Apple Developer account):
+- Go to developer.apple.com → Certificates, Identifiers & Profiles → Keys
+- Create new key with "Apple Push Notifications service (APNs)" enabled
+- Download the `.p8` file and note the Key ID
+- In Firebase Console → Project settings → Cloud Messaging → Apple app configuration
+- Upload the APNs key, enter Key ID and Team ID
+
+**5. Backend configuration**:
+```bash
+# Generate service account key:
+# Firebase Console → Project settings → Service accounts → Generate new private key
+
+# Add to Cloudflare Workers (production):
+wrangler secret put FIREBASE_SERVICE_ACCOUNT --config backend/wrangler.prod.toml
+# Paste the entire JSON file contents when prompted
+
+# For local development, add to backend/.dev.vars:
+FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}'
+```
+
+**6. Rebuild mobile app** after adding config files:
+```bash
+cd mobile && npx cap sync
+```
+
+**Testing**: Upload a photo from one device — other group members with the app installed should receive a push notification.
+
 ### Building
 
 **Android APK** (via GitHub Actions):
