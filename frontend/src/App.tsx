@@ -1,5 +1,6 @@
-import { useRef, useCallback } from 'react';
-import { Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { useRef, useCallback, useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation, Link, useNavigate } from 'react-router-dom';
+import { DEEP_LINK_EVENT } from './lib/deepLink';
 import { useAuth } from './contexts/AuthContext';
 import { getNavDirection } from './lib/keyboard';
 import { PhotoFeed } from './components/PhotoFeed';
@@ -151,6 +152,19 @@ function MainApp() {
 
 function App() {
   const { user, currentGroup, loading } = useAuth();
+  const navigate = useNavigate();
+
+  // Handle deep link navigation without full page reload
+  useEffect(() => {
+    const handleDeepLink = (event: CustomEvent<{ path: string }>) => {
+      navigate(event.detail.path, { replace: true });
+    };
+
+    window.addEventListener(DEEP_LINK_EVENT, handleDeepLink as EventListener);
+    return () => {
+      window.removeEventListener(DEEP_LINK_EVENT, handleDeepLink as EventListener);
+    };
+  }, [navigate]);
 
   if (loading) {
     return (

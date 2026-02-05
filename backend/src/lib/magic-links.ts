@@ -1,55 +1,46 @@
-import { getMagicLinkToken, markMagicLinkTokenUsed, type MagicLinkToken } from './db';
+import { getMagicLinkToken, type MagicLinkToken } from './db';
 
 export interface MagicLinkVerificationResult {
   valid: boolean;
   token?: MagicLinkToken;
-  error?: 'not_found' | 'expired' | 'already_used' | 'invalid';
+  error?: 'not_found' | 'expired' | 'already_used' | 'pending' | 'invalid';
 }
+
+const PENDING_TIMEOUT_SECONDS = 300; // 5 minutes
 
 /**
  * Verifies a magic link token
- * Checks if token exists, is not expired, and has not been used
+ * Checks if token exists, is not expired, not already used, and not pending
+ * @param allowPending - If true, skip the pending check (used for name submission flow)
  */
 export async function verifyMagicLink(
   db: D1Database,
-  tokenString: string
+  tokenString: string,
+  allowPending: boolean = false
 ): Promise<MagicLinkVerificationResult> {
-  // Get token from database
   const token = await getMagicLinkToken(db, tokenString);
 
   if (!token) {
     return { valid: false, error: 'not_found' };
   }
 
-  // Check if already used
   if (token.used_at !== null) {
     return { valid: false, error: 'already_used', token };
   }
 
-  // Check if expired
   const now = Math.floor(Date.now() / 1000);
+
   if (token.expires_at < now) {
     return { valid: false, error: 'expired', token };
   }
 
-  // Token is valid
-  return { valid: true, token };
-}
-
-/**
- * Verifies and marks a magic link token as used
- * This should be called atomically after successful verification
- */
-export async function verifyAndConsumeToken(
-  db: D1Database,
-  tokenString: string
-): Promise<MagicLinkVerificationResult> {
-  const result = await verifyMagicLink(db, tokenString);
-
-  if (result.valid && result.token) {
-    // Mark token as used
-    await markMagicLinkTokenUsed(db, tokenString);
+  // Check if another request is currently processing this token
+  if (!allowPending && token.pending_at !== null) {
+    const pendingCutoff = now - PENDING_TIMEOUT_SECONDS;
+    if (token.pending_at > pendingCutoff) {
+      return { valid: false, error: 'pending', token };
+    }
   }
 
-  return result;
+  return { valid: true, token };
 }
