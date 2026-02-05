@@ -4,7 +4,11 @@ import {
   deletePushSubscriptionForGroup,
   deleteAllPushSubscriptionsForEndpointWithToken,
   getUserPushSubscriptionsForGroup,
+  createDeviceToken,
+  deleteDeviceToken,
+  getDeviceToken,
   type MembershipRole,
+  type DevicePlatform,
 } from '../lib/db';
 import { requireAuth } from '../middleware/auth';
 import type { Bindings } from '../types';
@@ -117,6 +121,70 @@ push.get('/status', requireAuth, async (c) => {
     return c.json({ subscribed: isSubscribed });
   } catch (error) {
     console.error('Error checking subscription status:', error);
+    return c.json({ error: 'Failed to check status' }, 500);
+  }
+});
+
+// Native push notification device token routes
+
+push.post('/device', requireAuth, async (c) => {
+  try {
+    const user = c.get('user');
+    const body = await c.req.json();
+
+    const { platform, token } = body;
+
+    if (!platform || !token) {
+      return c.json({ error: 'Platform and token are required' }, 400);
+    }
+
+    if (platform !== 'ios' && platform !== 'android') {
+      return c.json({ error: 'Platform must be ios or android' }, 400);
+    }
+
+    await createDeviceToken(c.env.DB, user.id, user.groupId, platform as DevicePlatform, token);
+
+    return c.json({ message: 'Device registered successfully' }, 201);
+  } catch (error) {
+    console.error('Error registering device token:', error);
+    return c.json({ error: 'Failed to register device' }, 500);
+  }
+});
+
+push.delete('/device', requireAuth, async (c) => {
+  try {
+    const user = c.get('user');
+    const body = await c.req.json();
+
+    const { token } = body;
+
+    if (!token) {
+      return c.json({ error: 'Token is required' }, 400);
+    }
+
+    await deleteDeviceToken(c.env.DB, user.id, user.groupId, token);
+
+    return c.json({ message: 'Device unregistered successfully' });
+  } catch (error) {
+    console.error('Error unregistering device token:', error);
+    return c.json({ error: 'Failed to unregister device' }, 500);
+  }
+});
+
+push.get('/device/status', requireAuth, async (c) => {
+  try {
+    const user = c.get('user');
+    const token = c.req.query('token');
+
+    if (!token) {
+      return c.json({ error: 'Token query parameter is required' }, 400);
+    }
+
+    const deviceToken = await getDeviceToken(c.env.DB, user.id, user.groupId, token);
+
+    return c.json({ registered: deviceToken !== null });
+  } catch (error) {
+    console.error('Error checking device token status:', error);
     return c.json({ error: 'Failed to check status' }, 500);
   }
 });

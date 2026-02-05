@@ -10,6 +10,7 @@ import {
   removePhotoReaction,
   getPhotoReactionsWithUsers,
   getGroupPushSubscriptions,
+  getGroupDeviceTokens,
   getGroup,
   getUserById,
   createComment,
@@ -21,6 +22,7 @@ import {
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { configureVapid, sendPushNotifications } from '../lib/push';
+import { configureFcm, isFcmConfigured, sendFcmNotifications } from '../lib/fcm';
 import {
   validateImageMagicBytes,
   MAX_PHOTO_SIZE,
@@ -43,6 +45,7 @@ type Bindings = {
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_KEY: string;
   FRONTEND_URL: string;
+  FIREBASE_SERVICE_ACCOUNT?: string;
 };
 
 type Variables = {
@@ -63,45 +66,75 @@ async function sendPhotoUploadNotifications(
   photoId: string,
   caption: string | null
 ): Promise<void> {
-  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
-    console.warn('VAPID keys not configured, skipping notifications');
-    return;
+  // Get group and uploader info (shared by both notification types)
+  const [group, uploader] = await Promise.all([
+    getGroup(env.DB, groupId),
+    getUserById(env.DB, uploaderId),
+  ]);
+
+  const groupName = group?.name || 'your group';
+  const uploaderName = uploader?.name || 'Someone';
+  const title = `New photo in ${groupName}`;
+  const body = caption || `${uploaderName} shared a new photo`;
+
+  // Send web push notifications
+  if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
+    try {
+      configureVapid(
+        env.VAPID_PUBLIC_KEY,
+        env.VAPID_PRIVATE_KEY,
+        `mailto:noreply@${new URL(env.FRONTEND_URL || 'http://localhost').hostname}`
+      );
+
+      const subscriptions = await getGroupPushSubscriptions(env.DB, groupId, uploaderId);
+
+      if (subscriptions.length > 0) {
+        await sendPushNotifications(
+          subscriptions,
+          {
+            title,
+            body,
+            data: {
+              url: `${env.FRONTEND_URL || ''}/photo/${photoId}`,
+              groupId,
+              photoId,
+            },
+          },
+          env.DB
+        );
+      }
+    } catch (pushError) {
+      console.error('Failed to send web push notifications:', pushError);
+    }
   }
 
-  try {
-    configureVapid(
-      env.VAPID_PUBLIC_KEY,
-      env.VAPID_PRIVATE_KEY,
-      `mailto:noreply@${new URL(env.FRONTEND_URL || 'http://localhost').hostname}`
-    );
+  // Send FCM notifications to native apps
+  if (env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      if (!isFcmConfigured()) {
+        configureFcm(env.FIREBASE_SERVICE_ACCOUNT);
+      }
 
-    const subscriptions = await getGroupPushSubscriptions(env.DB, groupId, uploaderId);
+      const deviceTokens = await getGroupDeviceTokens(env.DB, groupId, uploaderId);
 
-    if (subscriptions.length === 0) return;
-
-    const [group, uploader] = await Promise.all([
-      getGroup(env.DB, groupId),
-      getUserById(env.DB, uploaderId),
-    ]);
-
-    const groupName = group?.name || 'your group';
-    const uploaderName = uploader?.name || 'Someone';
-
-    await sendPushNotifications(
-      subscriptions,
-      {
-        title: `New photo in ${groupName}`,
-        body: caption || `${uploaderName} shared a new photo`,
-        data: {
-          url: `${env.FRONTEND_URL || ''}/photo/${photoId}`,
-          groupId,
-          photoId,
-        },
-      },
-      env.DB
-    );
-  } catch (pushError) {
-    console.error('Failed to send push notifications:', pushError);
+      if (deviceTokens.length > 0) {
+        await sendFcmNotifications(
+          deviceTokens,
+          {
+            title,
+            body,
+            data: {
+              url: `${env.FRONTEND_URL || ''}/photo/${photoId}`,
+              groupId,
+              photoId,
+            },
+          },
+          env.DB
+        );
+      }
+    } catch (fcmError) {
+      console.error('Failed to send FCM notifications:', fcmError);
+    }
   }
 }
 

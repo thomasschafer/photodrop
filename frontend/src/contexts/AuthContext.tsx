@@ -1,7 +1,21 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { api, type User, type Group } from '../lib/api';
 import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
 import type { ProfileColor } from '../lib/profileColors';
+import {
+  isNativePlatform,
+  initializeNativePush,
+  cleanupOnLogout as cleanupNativePush,
+  onGroupSwitch as nativePushGroupSwitch,
+} from '../lib/nativePush';
 
 interface AuthState {
   user: User | null;
@@ -70,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      // Clean up web push subscriptions
       if ('serviceWorker' in navigator && 'PushManager' in window) {
         try {
           const registration = await navigator.serviceWorker.ready;
@@ -79,6 +94,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         } catch (pushError) {
           console.error('Error cleaning up push subscription:', pushError);
+        }
+      }
+
+      // Clean up native push
+      if (isNativePlatform()) {
+        try {
+          await cleanupNativePush();
+        } catch (nativePushError) {
+          console.error('Error cleaning up native push:', nativePushError);
         }
       }
 
@@ -142,6 +166,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         selectionToken: null,
       });
       clearGroupCaches();
+
+      // Re-register native push for new group
+      if (isNativePlatform()) {
+        nativePushGroupSwitch().catch((error) => {
+          console.error('Error re-registering native push for new group:', error);
+        });
+      }
     } catch (error) {
       console.error('Switch group error:', error);
       throw error;
@@ -252,6 +283,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => clearInterval(interval);
   }, [authState.user, authState.currentGroup, refreshAuth]);
+
+  // Initialize native push notifications when authenticated with a group
+  const nativePushInitialized = useRef(false);
+  useEffect(() => {
+    if (!authState.user || !authState.currentGroup || !isNativePlatform()) return;
+    if (nativePushInitialized.current) return;
+
+    nativePushInitialized.current = true;
+    initializeNativePush().catch((error) => {
+      console.error('Error initializing native push:', error);
+      nativePushInitialized.current = false;
+    });
+  }, [authState.user, authState.currentGroup]);
 
   return (
     <AuthContext.Provider

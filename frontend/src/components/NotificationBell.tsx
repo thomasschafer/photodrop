@@ -1,7 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { api } from '../lib/api';
 import { urlBase64ToUint8Array } from '../lib/push';
+import {
+  isNativePlatform,
+  checkPermissions as checkNativePermissions,
+  requestPermissions as requestNativePermissions,
+  registerForPush,
+  registerDeviceWithBackend,
+  unregisterDeviceFromBackend,
+  isRegisteredWithBackend,
+  getCurrentToken,
+} from '../lib/nativePush';
 import { ConfirmModal } from './ConfirmModal';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -9,15 +18,15 @@ type NotificationState = 'loading' | 'unsupported' | 'denied' | 'subscribed' | '
 
 export function NotificationBell() {
   const { currentGroup } = useAuth();
-  // Check if native - must be after hooks but used for early return
-  const isNative = Capacitor.isNativePlatform();
+  const isNative = isNativePlatform();
   const [state, setState] = useState<NotificationState>('loading');
   const [showConfirm, setShowConfirm] = useState(false);
   const [showBlockedHelp, setShowBlockedHelp] = useState(false);
   const [showUnsupportedHelp, setShowUnsupportedHelp] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const checkSubscriptionStatus = useCallback(async () => {
+  // Check web push subscription status
+  const checkWebSubscriptionStatus = useCallback(async () => {
     if (!navigator.serviceWorker || !window.PushManager) {
       setState('unsupported');
       return;
@@ -45,14 +54,43 @@ export function NotificationBell() {
     }
   }, []);
 
-  useEffect(() => {
-    // Skip web push subscription checks on native app
-    if (isNative) return;
-    setState('loading');
-    checkSubscriptionStatus();
-  }, [checkSubscriptionStatus, currentGroup?.id, isNative]);
+  // Check native push subscription status
+  const checkNativeSubscriptionStatus = useCallback(async () => {
+    try {
+      const permission = await checkNativePermissions();
 
-  const subscribe = async () => {
+      if (permission === 'denied') {
+        setState('denied');
+        return;
+      }
+
+      // If we don't have a token yet, user hasn't subscribed
+      const token = getCurrentToken();
+      if (!token) {
+        setState('unsubscribed');
+        return;
+      }
+
+      // Check if registered with backend for this group
+      const registered = await isRegisteredWithBackend();
+      setState(registered ? 'subscribed' : 'unsubscribed');
+    } catch (error) {
+      console.error('Error checking native subscription status:', error);
+      setState('unsubscribed');
+    }
+  }, []);
+
+  useEffect(() => {
+    setState('loading');
+    if (isNative) {
+      checkNativeSubscriptionStatus();
+    } else {
+      checkWebSubscriptionStatus();
+    }
+  }, [checkWebSubscriptionStatus, checkNativeSubscriptionStatus, currentGroup?.id, isNative]);
+
+  // Subscribe to web push
+  const subscribeWeb = async () => {
     setIsProcessing(true);
     try {
       const permission = await Notification.requestPermission();
@@ -80,7 +118,33 @@ export function NotificationBell() {
     }
   };
 
-  const unsubscribe = async () => {
+  // Subscribe to native push
+  const subscribeNative = async () => {
+    setIsProcessing(true);
+    try {
+      const permission = await requestNativePermissions();
+      if (permission !== 'granted') {
+        setState('denied');
+        return;
+      }
+
+      const token = await registerForPush();
+      if (!token) {
+        console.error('Failed to get push token');
+        return;
+      }
+
+      await registerDeviceWithBackend();
+      setState('subscribed');
+    } catch (error) {
+      console.error('Error subscribing to native notifications:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Unsubscribe from web push
+  const unsubscribeWeb = async () => {
     setIsProcessing(true);
     try {
       const registration = await navigator.serviceWorker.ready;
@@ -100,6 +164,23 @@ export function NotificationBell() {
     }
   };
 
+  // Unsubscribe from native push
+  const unsubscribeNative = async () => {
+    setIsProcessing(true);
+    try {
+      await unregisterDeviceFromBackend();
+      setState('unsubscribed');
+    } catch (error) {
+      console.error('Error unsubscribing from native notifications:', error);
+    } finally {
+      setIsProcessing(false);
+      setShowConfirm(false);
+    }
+  };
+
+  const subscribe = isNative ? subscribeNative : subscribeWeb;
+  const unsubscribe = isNative ? unsubscribeNative : unsubscribeWeb;
+
   const handleClick = () => {
     if (state === 'subscribed') {
       setShowConfirm(true);
@@ -111,12 +192,6 @@ export function NotificationBell() {
       setShowUnsupportedHelp(true);
     }
   };
-
-  // Native apps use platform push notifications (FCM/APNs), not web push
-  // Hide the bell entirely on native - notifications are handled at app level
-  if (isNative) {
-    return null;
-  }
 
   if (state === 'loading') {
     return null;
@@ -201,7 +276,11 @@ export function NotificationBell() {
       {showBlockedHelp && (
         <ConfirmModal
           title="Notifications blocked"
-          message="You previously blocked notifications for this site. To enable them, you'll need to change your browser settings. Look for the lock or info icon in your browser's address bar, find 'Notifications', and change it from 'Block' to 'Allow'. Then refresh the page."
+          message={
+            isNative
+              ? 'You previously denied notification permissions. To enable them, go to your device Settings, find this app, and enable Notifications.'
+              : "You previously blocked notifications for this site. To enable them, you'll need to change your browser settings. Look for the lock or info icon in your browser's address bar, find 'Notifications', and change it from 'Block' to 'Allow'. Then refresh the page."
+          }
           confirmLabel="Got it"
           onConfirm={() => setShowBlockedHelp(false)}
           onCancel={() => setShowBlockedHelp(false)}

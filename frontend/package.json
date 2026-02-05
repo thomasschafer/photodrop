@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.0.0",
-    "@capacitor/core": "^8.0.2",
     "@capacitor/status-bar": "^8.0.0",
     "browser-image-compression": "^2.0.2",
     "react": "^19.2.0",
@@ -31,6 +30,8 @@
     "workbox-strategies": "^7.4.0"
   },
   "devDependencies": {
+    "@capacitor/core": "^8.0.2",
+    "@capacitor/push-notifications": "^8.0.0",
     "@eslint/js": "^9.39.1",
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/postcss": "^4.1.18",

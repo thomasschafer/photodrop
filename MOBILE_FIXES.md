@@ -9,7 +9,7 @@
 | 3 | Images not loading | ✅ Done |
 | 4 | Pull-to-refresh | ✅ Done |
 | 5 | GitHub workflow PR builds | ✅ Done |
-| 6 | Native push notifications | 📋 Planned (see below) |
+| 6 | Native push notifications | ✅ Code done (needs Firebase config) |
 
 ---
 
@@ -67,80 +67,61 @@
 
 ## Remaining Work
 
-### 6. Native Push Notifications (FCM) 📋
+### 6. Native Push Notifications (FCM) ✅
 
-**Status:** In progress on `feat/native-notifications`
+**Status:** Code complete — requires Firebase configuration
 
 **Problem:** Native apps need platform-specific push notifications, not web push.
 
-**Current state:**
-- Web push works via service worker + VAPID
-- Notification bell hidden on native
-- `@capacitor/push-notifications` plugin already installed ✅
-- Plugin configured in `capacitor.config.ts` ✅
-- No frontend integration or backend support yet
+**Solution implemented:**
+- FCM HTTP v1 API client for sending notifications
+- Device token storage and management in D1
+- NotificationBell works for both web push and native push
+- Automatic token cleanup when tokens become invalid
+- Deep linking from notification taps
 
-#### Implementation Plan
+#### What's Done
 
-**Phase 1: External Setup (requires Tom)**
+**Frontend:**
+- [x] `frontend/src/lib/nativePush.ts` - Full FCM registration and handling
+- [x] `frontend/src/lib/api.ts` - Device registration endpoints
+- [x] `frontend/src/components/NotificationBell.tsx` - Works on native and web
+- [x] Notification taps deep link to photo/group
+- [x] Unit tests for nativePush
 
-- [ ] Create Firebase project at https://console.firebase.google.com
-- [ ] Add Android app to Firebase (package: `com.photodrop.app`)
-- [ ] Download `google-services.json` → `mobile/android/app/`
-- [ ] Add iOS app to Firebase (bundle ID: `com.photodrop.app`)
-- [ ] Download `GoogleService-Info.plist` → `mobile/ios/App/App/`
-- [ ] For iOS: Upload APNs key to Firebase (requires Apple Developer account)
+**Backend:**
+- [x] `backend/migrations/0010_device_tokens.sql` - Device token table
+- [x] `backend/src/lib/db.ts` - Device token CRUD functions
+- [x] `backend/src/routes/push.ts` - Device registration endpoints
+- [x] `backend/src/lib/fcm.ts` - FCM HTTP v1 API client with token refresh
+- [x] `backend/src/routes/photos.ts` - Sends FCM on photo upload
+- [x] Invalid token cleanup (auto-removes unregistered tokens)
+- [x] Unit tests for device token functions
 
-**Phase 2: Frontend Integration**
+#### Remaining Setup (Manual)
 
-- [ ] Create `frontend/src/lib/nativePush.ts`:
-  - Check platform with `Capacitor.isNativePlatform()`
-  - Request notification permission
-  - Register with FCM and get device token
-  - Listen for `registration`, `pushNotificationReceived`, `pushNotificationActionPerformed`
-- [ ] Update `frontend/src/main.tsx`:
-  - Initialize native push on app start (after auth)
-  - Re-register token on group switch
-- [ ] Update `frontend/src/lib/api.ts`:
-  - Add `api.push.registerDevice(platform, token)`
-  - Add `api.push.unregisterDevice(token)`
-- [ ] Update `frontend/src/components/NotificationBell.tsx`:
-  - Show bell on native (currently hidden)
-  - Use native push flow instead of web push when on native
-- [ ] Handle notification taps → deep link to photo/group
+**Firebase Configuration:**
 
-**Phase 3: Backend Changes**
+1. [ ] Create Firebase project at https://console.firebase.google.com
+2. [ ] Add Android app (package: `com.photodrop.app`)
+3. [ ] Download `google-services.json` → `mobile/android/app/`
+4. [ ] Add iOS app (bundle ID: `com.photodrop.app`)
+5. [ ] Download `GoogleService-Info.plist` → `mobile/ios/App/App/`
+6. [ ] For iOS: Upload APNs key to Firebase (requires Apple Developer account)
 
-- [ ] Create migration `0010_device_tokens.sql`:
-  ```sql
-  CREATE TABLE device_tokens (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    group_id TEXT NOT NULL,
-    platform TEXT NOT NULL CHECK (platform IN ('ios', 'android')),
-    token TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    UNIQUE(user_id, group_id, token),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
-  );
-  CREATE INDEX idx_device_tokens_group ON device_tokens(group_id);
-  ```
-- [ ] Add to `backend/src/lib/db.ts`:
-  - `createDeviceToken(db, userId, groupId, platform, token)`
-  - `deleteDeviceToken(db, userId, groupId, token)`
-  - `getDeviceTokensForGroup(db, groupId, excludeUserId)`
-- [ ] Update `backend/src/routes/push.ts`:
-  - `POST /push/device` - register device token (with auth)
-  - `DELETE /push/device` - unregister device token
-- [ ] Create `backend/src/lib/fcm.ts`:
-  - Send notifications via FCM HTTP v1 API
-  - Use service account credentials (env var: `FIREBASE_SERVICE_ACCOUNT`)
-- [ ] Update `backend/src/routes/photos.ts`:
-  - On photo upload, send to both web push AND FCM
-  - Query `push_subscriptions` for web, `device_tokens` for mobile
+**Backend Secret:**
 
-**Phase 4: Testing**
+7. [ ] Generate Firebase service account key (Project settings → Service accounts)
+8. [ ] Set `FIREBASE_SERVICE_ACCOUNT` secret in Cloudflare Workers
+
+**Then rebuild:**
+```bash
+cd mobile && npx cap sync
+```
+
+#### Testing Checklist
+
+Once Firebase is configured:
 
 - [ ] Android: Permission prompt appears on first launch
 - [ ] Android: Token registered with backend after granting permission
@@ -149,25 +130,6 @@
 - [ ] Token cleaned up on logout
 - [ ] Token re-registered on group switch
 - [ ] iOS: Same tests (after Apple Developer setup)
-
-#### Files Summary
-
-```text
-NEW:
-- frontend/src/lib/nativePush.ts
-- backend/src/lib/fcm.ts
-- backend/migrations/0010_device_tokens.sql
-- mobile/android/app/google-services.json (from Firebase)
-- mobile/ios/App/App/GoogleService-Info.plist (from Firebase)
-
-MODIFY:
-- frontend/src/main.tsx
-- frontend/src/lib/api.ts
-- frontend/src/components/NotificationBell.tsx
-- backend/src/lib/db.ts
-- backend/src/routes/push.ts
-- backend/src/routes/photos.ts
-```
 
 ---
 
@@ -182,23 +144,25 @@ These are documented in `MOBILE_PLAN.md`:
 
 ---
 
-## Files Changed in This PR
+## Files Changed (feat/native-notifications)
 
 ```text
-Modified:
-- .github/workflows/mobile-android.yml (PR builds)
-- frontend/index.html (viewport-fit)
-- frontend/src/index.css (safe area utilities)
-- frontend/src/App.tsx (header safe area)
-- frontend/src/components/PhotoFeed.tsx (authenticated images, pull-to-refresh)
-- frontend/src/components/NotificationBell.tsx (hide on native)
-- frontend/src/lib/useInstallPrompt.ts (native check)
-- frontend/src/lib/cache.ts (clear image cache)
-- frontend/src/pages/LoginPage.tsx (safe area)
-- frontend/src/pages/LandingPage.tsx (safe area)
-
 New:
-- frontend/src/lib/useAuthenticatedImage.ts
-- frontend/src/components/PullToRefresh.tsx
+- backend/migrations/0010_device_tokens.sql (device token table)
+- backend/src/lib/fcm.ts (FCM HTTP v1 client)
+- frontend/src/lib/nativePush.ts (native push registration)
+- frontend/src/lib/nativePush.test.ts (tests)
+
+Modified:
+- .gitleaks.toml (allow fcm.ts patterns)
 - MOBILE_FIXES.md (this file)
+- README.md (FCM setup docs)
+- backend/src/lib/db.ts (device token functions)
+- backend/src/lib/db.test.ts (device token tests)
+- backend/src/routes/photos.ts (send FCM on upload)
+- backend/src/routes/push.ts (device registration endpoints)
+- frontend/package.json (dependency update)
+- frontend/src/components/NotificationBell.tsx (native push support)
+- frontend/src/contexts/AuthContext.tsx (native push init)
+- frontend/src/lib/api.ts (device registration methods)
 ```

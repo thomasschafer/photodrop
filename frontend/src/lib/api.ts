@@ -466,6 +466,30 @@ export const api = {
       });
       localStorage.removeItem(`push_deletion_token:${endpoint}`);
     },
+
+    // Native push (FCM) device token methods
+    registerDevice: async (platform: 'ios' | 'android', token: string) => {
+      const response = await fetchWithAuth('/push/device', {
+        method: 'POST',
+        body: JSON.stringify({ platform, token }),
+      });
+      return response.json();
+    },
+
+    unregisterDevice: async (token: string) => {
+      const response = await fetchWithAuth('/push/device', {
+        method: 'DELETE',
+        body: JSON.stringify({ token }),
+      });
+      return response.json();
+    },
+
+    getDeviceStatus: async (token: string): Promise<{ registered: boolean }> => {
+      const response = await fetchWithAuth(
+        `/push/device/status?token=${encodeURIComponent(token)}`
+      );
+      return response.json();
+    },
   },
 };
 

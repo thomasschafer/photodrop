@@ -732,6 +732,103 @@ export async function deleteAllUserPushSubscriptionsForGroup(
   return result.success;
 }
 
+// Device token types and functions (native push notifications)
+export type DevicePlatform = 'ios' | 'android';
+
+export interface DeviceToken {
+  id: string;
+  user_id: string;
+  group_id: string;
+  platform: DevicePlatform;
+  token: string;
+  created_at: number;
+}
+
+export async function createDeviceToken(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  platform: DevicePlatform,
+  token: string
+): Promise<string> {
+  const id = generateId();
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare(
+      `INSERT INTO device_tokens (id, user_id, group_id, platform, token, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (user_id, group_id, token) DO UPDATE SET
+         platform = excluded.platform,
+         created_at = excluded.created_at`
+    )
+    .bind(id, userId, groupId, platform, token, now)
+    .run();
+
+  return id;
+}
+
+export async function getDeviceToken(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  token: string
+): Promise<DeviceToken | null> {
+  const result = await db
+    .prepare('SELECT * FROM device_tokens WHERE user_id = ? AND group_id = ? AND token = ?')
+    .bind(userId, groupId, token)
+    .first<DeviceToken>();
+
+  return result;
+}
+
+export async function getGroupDeviceTokens(
+  db: D1Database,
+  groupId: string,
+  excludeUserId?: string
+): Promise<DeviceToken[]> {
+  if (excludeUserId) {
+    const result = await db
+      .prepare('SELECT * FROM device_tokens WHERE group_id = ? AND user_id != ?')
+      .bind(groupId, excludeUserId)
+      .all<DeviceToken>();
+    return result.results || [];
+  }
+
+  const result = await db
+    .prepare('SELECT * FROM device_tokens WHERE group_id = ?')
+    .bind(groupId)
+    .all<DeviceToken>();
+
+  return result.results || [];
+}
+
+export async function deleteDeviceToken(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  token: string
+): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND group_id = ? AND token = ?')
+    .bind(userId, groupId, token)
+    .run();
+
+  return result.success;
+}
+
+export async function deleteAllUserDeviceTokens(db: D1Database, userId: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM device_tokens WHERE user_id = ?').bind(userId).run();
+
+  return result.success;
+}
+
+export async function deleteDeviceTokenByToken(db: D1Database, token: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM device_tokens WHERE token = ?').bind(token).run();
+
+  return result.success;
+}
+
 // Comment functions
 export async function createComment(
   db: D1Database,
