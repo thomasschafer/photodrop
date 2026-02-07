@@ -127,20 +127,27 @@ async function setupListeners(): Promise<void> {
  * Returns the token on success, null on failure
  */
 export async function registerForPush(): Promise<string | null> {
+  console.log('[NativePush] registerForPush called, isNative:', isNativePlatform());
   if (!isNativePlatform()) return null;
 
   // If we already have a token, return it
-  if (currentToken) return currentToken;
+  if (currentToken) {
+    console.log('[NativePush] Already have token:', currentToken.substring(0, 20) + '...');
+    return currentToken;
+  }
 
   try {
     // Check/request permissions
     let permission = await checkPermissions();
+    console.log('[NativePush] Current permission:', permission);
     if (permission === 'prompt') {
+      console.log('[NativePush] Requesting permission...');
       permission = await requestPermissions();
+      console.log('[NativePush] Permission result:', permission);
     }
 
     if (permission !== 'granted') {
-      console.log('Push notification permission denied');
+      console.log('[NativePush] Push notification permission denied');
       return null;
     }
 
@@ -217,11 +224,17 @@ export async function isRegisteredWithBackend(): Promise<boolean> {
  * Call this on app startup after authentication
  */
 export async function initializeNativePush(): Promise<void> {
-  if (!isNativePlatform()) return;
+  console.log('[NativePush] initializeNativePush called');
+  if (!isNativePlatform()) {
+    console.log('[NativePush] Not native platform, skipping');
+    return;
+  }
 
   const token = await registerForPush();
+  console.log('[NativePush] Got token:', token ? token.substring(0, 20) + '...' : 'null');
   if (token) {
-    await registerDeviceWithBackend();
+    const registered = await registerDeviceWithBackend();
+    console.log('[NativePush] Backend registration:', registered ? 'success' : 'failed');
   }
 }
 
