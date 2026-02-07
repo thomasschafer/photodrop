@@ -190,7 +190,6 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 | `ANDROID_KEYSTORE_PASSWORD` | The password you chose |
 | `ANDROID_KEY_ALIAS` | `photodrop` |
 | `ANDROID_KEY_PASSWORD` | Same as keystore password |
-| `GOOGLE_SERVICES_JSON` | Contents of `google-services.json` (for push notifications) |
 
 **3. Update deep linking config** with SHA256 from script output:
 ```bash
@@ -213,11 +212,23 @@ Native apps use Firebase Cloud Messaging for reliable push notifications. Withou
 - Go to https://console.firebase.google.com → Create project (or use existing)
 - Add Android app: Project settings → General → Add app → Android → Package name: `com.photodrop.app`
 - Download `google-services.json` when prompted
+- Add iOS app: Project settings → General → Add app → iOS → Bundle ID: `com.photodrop.app`
+- Download `GoogleService-Info.plist` when prompted
 
-**2. Add GitHub secret** (Settings → Secrets → Actions):
-- `GOOGLE_SERVICES_JSON` — paste the contents of the downloaded `google-services.json`
+**2. Configure iOS APNs** (required for iOS push):
+- Go to developer.apple.com → Certificates, Identifiers & Profiles → Keys
+- Create new key with "Apple Push Notifications service (APNs)" enabled
+- Download the `.p8` file and note the Key ID
+- In Firebase Console → Project settings → Cloud Messaging → Apple app configuration
+- Upload the APNs key, enter Key ID and Team ID
 
-**3. Backend configuration**:
+**3. Add GitHub secrets** (Settings → Secrets → Actions):
+| Secret | Value |
+|--------|-------|
+| `GOOGLE_SERVICES_JSON` | Contents of `google-services.json` (Android) |
+| `GOOGLE_SERVICE_INFO_PLIST` | Contents of `GoogleService-Info.plist` (iOS) |
+
+**4. Backend configuration**:
 ```bash
 # Generate service account key:
 # Firebase Console → Project settings → Service accounts → Generate new private key
@@ -226,9 +237,9 @@ Native apps use Firebase Cloud Messaging for reliable push notifications. Withou
 cat ~/Downloads/your-firebase-key.json | wrangler secret put FIREBASE_SERVICE_ACCOUNT --name photodrop-api
 ```
 
-**4. Trigger a build** — push to the branch or use Actions → Run workflow
+**5. Trigger a build** — push to the branch or use Actions → Run workflow
 
-**Testing**: Install the APK, log in, and grant notification permission when prompted. Upload a photo from another device — you should receive a push notification.
+**Testing**: Install the app, log in, and grant notification permission when prompted. Upload a photo from another device — you should receive a push notification.
 
 <details>
 <summary><strong>Local development</strong> (building without CI)</summary>
@@ -236,11 +247,12 @@ cat ~/Downloads/your-firebase-key.json | wrangler secret put FIREBASE_SERVICE_AC
 If you need to build locally instead of using GitHub Actions:
 
 1. Copy `google-services.json` to `mobile/android/app/google-services.json`
-2. Add to `backend/.dev.vars`:
+2. Copy `GoogleService-Info.plist` to `mobile/ios/App/App/GoogleService-Info.plist`
+3. Add to `backend/.dev.vars`:
    ```
    FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}'
    ```
-3. Build:
+4. Build Android:
    ```bash
    cd frontend && npm run build
    cd ../mobile && npm install
@@ -248,6 +260,11 @@ If you need to build locally instead of using GitHub Actions:
    npx cap sync android
    cd android && ./gradlew assembleDebug
    # APK at mobile/android/app/build/outputs/apk/debug/app-debug.apk
+   ```
+5. Build iOS:
+   ```bash
+   cd mobile && npx cap open ios
+   # Build and sign in Xcode
    ```
 
 </details>
