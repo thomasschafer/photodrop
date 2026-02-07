@@ -231,32 +231,16 @@ cat ~/Downloads/your-firebase-key.json | wrangler secret put FIREBASE_SERVICE_AC
 **Testing**: Install the APK, log in, and grant notification permission when prompted. Upload a photo from another device — you should receive a push notification.
 
 <details>
-<summary><strong>iOS setup</strong> (requires Apple Developer account)</summary>
-
-1. Add iOS app in Firebase Console: Package name `com.photodrop.app`
-2. Download `GoogleService-Info.plist`
-3. Add `GOOGLE_SERVICE_INFO_PLIST` GitHub secret with the file contents
-4. Configure APNs:
-   - Go to developer.apple.com → Certificates, Identifiers & Profiles → Keys
-   - Create new key with "Apple Push Notifications service (APNs)" enabled
-   - Download the `.p8` file and note the Key ID
-   - In Firebase Console → Project settings → Cloud Messaging → Apple app configuration
-   - Upload the APNs key, enter Key ID and Team ID
-
-</details>
-
-<details>
 <summary><strong>Local development</strong> (building without CI)</summary>
 
 If you need to build locally instead of using GitHub Actions:
 
 1. Copy `google-services.json` to `mobile/android/app/google-services.json`
-2. For iOS, copy `GoogleService-Info.plist` to `mobile/ios/App/App/GoogleService-Info.plist`
-3. Add to `backend/.dev.vars`:
+2. Add to `backend/.dev.vars`:
    ```
    FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}'
    ```
-4. Build:
+3. Build:
    ```bash
    cd frontend && npm run build
    cd ../mobile && npm install
