@@ -247,11 +247,6 @@ cat ~/Downloads/your-firebase-key.json | wrangler secret put FIREBASE_SERVICE_AC
 FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}'
 ```
 
-**6. Rebuild mobile app** after adding config files:
-```bash
-cd mobile && npx cap sync
-```
-
 **Testing**: Upload a photo from one device — other group members with the app installed should receive a push notification.
 
 ### Building
