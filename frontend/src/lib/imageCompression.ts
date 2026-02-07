@@ -92,10 +92,8 @@ export function formatFileSize(bytes: number): string {
 }
 
 export function isImageFile(file: File): boolean {
-  if (file.type.startsWith('image/')) return true;
-  // HEIC files may have incorrect MIME type on some devices
-  const ext = file.name.toLowerCase().split('.').pop();
-  return ext === 'heic' || ext === 'heif';
+  // Standard image MIME types or HEIC (which may have incorrect MIME type)
+  return file.type.startsWith('image/') || isHeicFile(file);
 }
 
 export function validateImageFile(file: File): { valid: boolean; error?: string } {

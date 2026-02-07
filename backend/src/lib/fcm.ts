@@ -220,10 +220,11 @@ export async function sendFcmNotification(
       return { success: true };
     }
 
-    const errorData = (await response.json()) as {
+    // Parse error response (handle non-JSON responses gracefully)
+    const errorData = (await response.json().catch(() => ({}))) as {
       error?: { code?: number; status?: string; message?: string };
     };
-    const errorCode = errorData.error?.code;
+    const errorCode = errorData.error?.code ?? response.status;
     const errorStatus = errorData.error?.status;
 
     // Handle invalid/unregistered tokens

@@ -11,12 +11,13 @@ import {
   type MembershipRole,
   type DevicePlatform,
 } from '../lib/db';
+import { configureFcm, isFcmConfigured, sendFcmNotification } from '../lib/fcm';
+import { requireAuth } from '../middleware/auth';
+import type { Bindings } from '../types';
 
 // Rate limit: max new device token registrations per user per hour
 const DEVICE_REGISTRATION_LIMIT = 10;
 const DEVICE_REGISTRATION_WINDOW_SECONDS = 60 * 60; // 1 hour
-import { requireAuth } from '../middleware/auth';
-import type { Bindings } from '../types';
 
 type Variables = {
   user: {
@@ -219,9 +220,6 @@ push.post('/test', requireAuth, async (c) => {
       console.error('FCM not configured: FIREBASE_SERVICE_ACCOUNT secret not set');
       return c.json({ error: 'Push notifications not configured on server' }, 500);
     }
-
-    // Import and configure FCM
-    const { configureFcm, isFcmConfigured, sendFcmNotification } = await import('../lib/fcm');
 
     if (!isFcmConfigured()) {
       configureFcm(c.env.FIREBASE_SERVICE_ACCOUNT);

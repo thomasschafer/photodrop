@@ -9,8 +9,10 @@ paths = [
   '''\.gitignore$''',
   '''go\.sum$''',
   '''package-lock\.json$''',
-  '''backend/src/lib/fcm\.ts$''',
 ]
 
-# Add any false positives here
-regexes = []
+# False positives: PEM header patterns in code that parses (not stores) private keys
+regexes = [
+  '''-----BEGIN PRIVATE KEY-----''',
+  '''-----END PRIVATE KEY-----''',
+]
