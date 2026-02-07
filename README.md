@@ -190,6 +190,7 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 | `ANDROID_KEYSTORE_PASSWORD` | The password you chose |
 | `ANDROID_KEY_ALIAS` | `photodrop` |
 | `ANDROID_KEY_PASSWORD` | Same as keystore password |
+| `GOOGLE_SERVICES_JSON` | Contents of `google-services.json` (for push notifications) |
 
 **3. Update deep linking config** with SHA256 from script output:
 ```bash
