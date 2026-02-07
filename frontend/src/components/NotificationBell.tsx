@@ -146,6 +146,19 @@ export function NotificationBell() {
     }
   }, [checkWebSubscriptionStatus, checkNativeSubscriptionStatus, currentGroup?.id, isNative]);
 
+  // Listen for native push state changes (e.g., from auto-registration in AuthContext)
+  useEffect(() => {
+    if (!isNative) return;
+
+    const handleStateChange = () => {
+      console.log('[NotificationBell] Native push state changed, rechecking...');
+      checkNativeSubscriptionStatus();
+    };
+
+    window.addEventListener('nativePushStateChanged', handleStateChange);
+    return () => window.removeEventListener('nativePushStateChanged', handleStateChange);
+  }, [isNative, checkNativeSubscriptionStatus]);
+
   // Subscribe to web push
   const subscribeWeb = async () => {
     setIsProcessing(true);

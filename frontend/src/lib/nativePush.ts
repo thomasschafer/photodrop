@@ -252,6 +252,8 @@ export async function initializeNativePush(): Promise<void> {
   if (token) {
     const registered = await registerDeviceWithBackend();
     console.log('[NativePush] Backend registration:', registered ? 'success' : 'failed');
+    // Notify UI components that registration state changed
+    window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
   }
 }
 
