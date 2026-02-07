@@ -99,38 +99,46 @@
 - [x] Rate limiting on device registration (10 per user per hour)
 - [x] Unit tests for device token functions
 
-#### Remaining Setup (Manual)
+#### Remaining Setup: Android (In Progress)
 
 **Firebase Configuration:**
 
-1. [ ] Create Firebase project at https://console.firebase.google.com
+1. [x] Create Firebase project at https://console.firebase.google.com
 2. [ ] Add Android app (package: `com.photodrop.app`)
 3. [ ] Download `google-services.json` → `mobile/android/app/`
-4. [ ] Add iOS app (bundle ID: `com.photodrop.app`)
-5. [ ] Download `GoogleService-Info.plist` → `mobile/ios/App/App/`
-6. [ ] For iOS: Upload APNs key to Firebase (requires Apple Developer account)
 
 **Backend Secret:**
 
-7. [ ] Generate Firebase service account key (Project settings → Service accounts)
-8. [ ] Set `FIREBASE_SERVICE_ACCOUNT` secret in Cloudflare Workers
+4. [ ] Generate Firebase service account key (Project settings → Service accounts)
+5. [ ] Set `FIREBASE_SERVICE_ACCOUNT` secret in Cloudflare Workers
 
 **Then rebuild:**
 ```bash
 cd mobile && npx cap sync
 ```
 
-#### Testing Checklist
+#### Android Testing Checklist
 
-Once Firebase is configured:
-
-- [ ] Android: Permission prompt appears on first launch
-- [ ] Android: Token registered with backend after granting permission
-- [ ] Android: Push received when photo uploaded (app backgrounded)
-- [ ] Android: Notification tap opens app to correct group
+- [ ] Permission prompt appears on first launch
+- [ ] Token registered with backend after granting permission
+- [ ] Push received when photo uploaded (app backgrounded)
+- [ ] Notification tap opens app to correct group
 - [ ] Token cleaned up on logout
 - [ ] Token re-registered on group switch
-- [ ] iOS: Same tests (after Apple Developer setup)
+
+#### Remaining Setup: iOS (Later)
+
+Requires Apple Developer account ($99/year). Do this after Android is working.
+
+1. [ ] Set up Apple Developer account
+2. [ ] Add iOS app in Firebase (bundle ID: `com.photodrop.app`)
+3. [ ] Download `GoogleService-Info.plist` → `mobile/ios/App/App/`
+4. [ ] Create APNs key in Apple Developer portal
+5. [ ] Upload APNs key to Firebase (Project settings → Cloud Messaging)
+6. [ ] Run `cd mobile && npx cap sync`
+
+**iOS Testing Checklist:**
+- [ ] Same tests as Android
 
 #### Future Considerations
 

@@ -157,7 +157,7 @@ Email is required for magic link authentication. We use [Resend](https://resend.
    echo 'RESEND_API_KEY="re_xxxxx"' >> backend/.prod.vars
 
    # Deploy the secret to Cloudflare (persists across deploys)
-   echo "re_xxxxx" | wrangler secret put RESEND_API_KEY --config backend/wrangler.prod.toml
+   echo "re_xxxxx" | wrangler secret put RESEND_API_KEY --name photodrop-api
    ```
 
 5. **Test**: Create a group with your real email address and verify the invite email arrives.
@@ -235,10 +235,13 @@ Native apps use Firebase Cloud Messaging for push notifications. Without this se
 ```bash
 # Generate service account key:
 # Firebase Console → Project settings → Service accounts → Generate new private key
+#
+# Security: The default "Firebase Admin SDK" role is fine for a personal project.
+# For tighter security, create a custom service account in Google Cloud Console
+# (IAM & Admin → Service Accounts) with only the "Firebase Cloud Messaging API Admin" role.
 
-# Add to Cloudflare Workers (production):
-wrangler secret put FIREBASE_SERVICE_ACCOUNT --config backend/wrangler.prod.toml
-# Paste the entire JSON file contents when prompted
+# Add to Cloudflare Workers (production) - pipe from downloaded file:
+cat ~/Downloads/your-firebase-key.json | wrangler secret put FIREBASE_SERVICE_ACCOUNT --name photodrop-api
 
 # For local development, add to backend/.dev.vars:
 FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}'
