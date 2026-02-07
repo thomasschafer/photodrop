@@ -270,7 +270,7 @@ export function NotificationBell() {
   const sendTestNotification = async () => {
     const token = getCurrentToken();
     if (!token) {
-      setTestResult('❌ No device token - try subscribing first');
+      setTestResult('ERROR:No device token - try subscribing first');
       return;
     }
 
@@ -280,12 +280,12 @@ export function NotificationBell() {
     try {
       const result = await api.push.sendTestNotification(token);
       if (result.success) {
-        setTestResult(`✅ ${result.message}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
+        setTestResult(`SUCCESS:${result.message}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
       } else {
-        setTestResult(`❌ ${result.error}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
+        setTestResult(`ERROR:${result.error}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
       }
     } catch (error) {
-      setTestResult(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+      setTestResult(`ERROR:${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsSendingTest(false);
     }
@@ -413,7 +413,7 @@ export function NotificationBell() {
 
       {showDebug && (
         <ConfirmModal
-          title="🔧 Notification Debug Info"
+          title="Notification debug info"
           message={`
 State: ${debugInfo.state}
 Platform: ${debugInfo.isNative ? 'Native (Capacitor)' : 'Web'}
@@ -423,7 +423,7 @@ Has Token: ${debugInfo.hasToken ? 'yes' : 'no'}
 Token: ${debugInfo.tokenPreview || 'none'}
 Error: ${debugInfo.error || 'none'}
           `.trim()}
-          confirmLabel="Try Subscribe"
+          confirmLabel="Try subscribe"
           cancelLabel="Close"
           onConfirm={async () => {
             setShowDebug(false);
@@ -438,7 +438,7 @@ Error: ${debugInfo.error || 'none'}
       )}
 
       {showTestModal && (
-        <Modal title="🧪 Test Notifications" onClose={() => setShowTestModal(false)}>
+        <Modal title="Test notifications" onClose={() => setShowTestModal(false)}>
           <div className="space-y-4">
             <div className="text-sm text-text-secondary">
               <p className="mb-2">
@@ -454,12 +454,20 @@ Error: ${debugInfo.error || 'none'}
               disabled={isSendingTest || !getCurrentToken()}
               className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium disabled:opacity-50"
             >
-              {isSendingTest ? 'Sending...' : '📤 Send Test Notification'}
+              {isSendingTest ? 'Sending...' : 'Send test notification'}
             </button>
 
             {testResult && (
-              <pre className="text-sm bg-surface-elevated p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
-                {testResult}
+              <pre
+                className={`text-sm p-3 rounded-lg overflow-x-auto whitespace-pre-wrap ${
+                  testResult.startsWith('ERROR:')
+                    ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+                    : testResult.startsWith('SUCCESS:')
+                      ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                      : 'bg-surface-elevated'
+                }`}
+              >
+                {testResult.replace(/^(ERROR:|SUCCESS:)/, '')}
               </pre>
             )}
 
