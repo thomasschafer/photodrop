@@ -9,7 +9,7 @@
 | 3 | Images not loading | ✅ Done |
 | 4 | Pull-to-refresh | ✅ Done |
 | 5 | GitHub workflow PR builds | ✅ Done |
-| 6 | Native push notifications | ✅ Code done (needs Firebase config) |
+| 6 | Native push notifications | ✅ Done (testing in progress) |
 
 ---
 
@@ -99,27 +99,22 @@
 - [x] Rate limiting on device registration (10 per user per hour)
 - [x] Unit tests for device token functions
 
-#### Remaining Setup: Android (In Progress)
+#### Setup: Android ✅
 
 **Firebase Configuration:**
 
 1. [x] Create Firebase project at https://console.firebase.google.com
-2. [ ] Add Android app (package: `com.photodrop.app`)
-3. [ ] Download `google-services.json` → `mobile/android/app/`
+2. [x] Add Android app (package: `com.photodrop.app`)
+3. [x] Add `GOOGLE_SERVICES_JSON` GitHub secret (CI injects it during build)
 
 **Backend Secret:**
 
-4. [ ] Generate Firebase service account key (Project settings → Service accounts)
-5. [ ] Set `FIREBASE_SERVICE_ACCOUNT` secret in Cloudflare Workers
+4. [x] Generate Firebase service account key (Project settings → Service accounts)
+5. [x] Set `FIREBASE_SERVICE_ACCOUNT` secret in Cloudflare Workers
 
-**Then rebuild:**
-```bash
-cd mobile && npx cap sync
-```
+#### Android Testing Checklist (In Progress)
 
-#### Android Testing Checklist
-
-- [ ] Permission prompt appears on first launch
+- [ ] Permission prompt appears on first login
 - [ ] Token registered with backend after granting permission
 - [ ] Push received when photo uploaded (app backgrounded)
 - [ ] Notification tap opens app to correct group
