@@ -203,8 +203,6 @@ push.get('/device/status', requireAuth, async (c) => {
   }
 });
 
-export default push;
-
 // Test notification endpoint - sends a test push to the requesting device
 push.post('/test', requireAuth, async (c) => {
   try {
@@ -218,27 +216,33 @@ push.post('/test', requireAuth, async (c) => {
 
     // Check if FCM is configured
     if (!c.env.FIREBASE_SERVICE_ACCOUNT) {
-      return c.json({ 
-        error: 'FCM not configured', 
-        debug: 'FIREBASE_SERVICE_ACCOUNT secret not set in Workers' 
-      }, 500);
+      return c.json(
+        {
+          error: 'FCM not configured',
+          debug: 'FIREBASE_SERVICE_ACCOUNT secret not set in Workers',
+        },
+        500
+      );
     }
 
     // Import and configure FCM
     const { configureFcm, isFcmConfigured, sendFcmNotification } = await import('../lib/fcm');
-    
+
     if (!isFcmConfigured()) {
       configureFcm(c.env.FIREBASE_SERVICE_ACCOUNT);
     }
 
     // Get device token from DB
     const deviceToken = await getDeviceToken(c.env.DB, user.id, user.groupId, token);
-    
+
     if (!deviceToken) {
-      return c.json({ 
-        error: 'Device not registered',
-        debug: `No device token found for user ${user.id} in group ${user.groupId}`
-      }, 404);
+      return c.json(
+        {
+          error: 'Device not registered',
+          debug: `No device token found for user ${user.id} in group ${user.groupId}`,
+        },
+        404
+      );
     }
 
     // Send test notification
@@ -247,33 +251,44 @@ push.post('/test', requireAuth, async (c) => {
       {
         title: '🔔 Test Notification',
         body: 'If you see this, push notifications are working!',
-        data: { test: 'true' }
+        data: { test: 'true' },
       },
       c.env.DB
     );
 
     if (result.success) {
-      return c.json({ 
-        success: true, 
+      return c.json({
+        success: true,
         message: 'Test notification sent!',
-        debug: { deviceToken: token.substring(0, 20) + '...' }
+        debug: { deviceToken: token.substring(0, 20) + '...' },
       });
     } else if (result.removed) {
-      return c.json({ 
-        error: 'Invalid token - removed from database',
-        debug: 'FCM reported token as invalid/unregistered'
-      }, 400);
+      return c.json(
+        {
+          error: 'Invalid token - removed from database',
+          debug: 'FCM reported token as invalid/unregistered',
+        },
+        400
+      );
     } else {
-      return c.json({ 
-        error: 'Failed to send notification',
-        debug: 'FCM rejected the notification'
-      }, 500);
+      return c.json(
+        {
+          error: 'Failed to send notification',
+          debug: 'FCM rejected the notification',
+        },
+        500
+      );
     }
   } catch (error) {
     console.error('Error sending test notification:', error);
-    return c.json({ 
-      error: 'Failed to send test notification',
-      debug: error instanceof Error ? error.message : String(error)
-    }, 500);
+    return c.json(
+      {
+        error: 'Failed to send test notification',
+        debug: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
   }
 });
+
+export default push;

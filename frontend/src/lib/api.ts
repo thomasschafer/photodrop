@@ -494,11 +494,26 @@ export const api = {
     sendTestNotification: async (
       token: string
     ): Promise<{ success?: boolean; error?: string; message?: string; debug?: unknown }> => {
-      const response = await fetchWithAuth('/push/test', {
-        method: 'POST',
-        body: JSON.stringify({ token }),
-      });
-      return response.json();
+      try {
+        const response = await fetchWithAuth('/push/test', {
+          method: 'POST',
+          body: JSON.stringify({ token }),
+        });
+        return response.json();
+      } catch (error) {
+        // Return error info instead of throwing
+        if (error instanceof ApiError) {
+          return {
+            success: false,
+            error: error.message,
+            debug: { status: error.status, statusText: error.statusText },
+          };
+        }
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     },
   },
 };
