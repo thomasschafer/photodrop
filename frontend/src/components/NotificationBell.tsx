@@ -10,6 +10,7 @@ import {
   unregisterDeviceFromBackend,
   isRegisteredWithBackend,
   getCurrentToken,
+  waitForNativePushInit,
 } from '../lib/nativePush';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
@@ -95,12 +96,11 @@ export function NotificationBell() {
     };
 
     try {
-      // Add timeout to prevent hanging on cold start
-      const permissionPromise = checkNativePermissions();
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Permission check timed out')), 5000)
-      );
-      const permission = await Promise.race([permissionPromise, timeoutPromise]);
+      // Wait for initialization to complete before checking status
+      // This prevents racing with the permission dialog on cold start
+      await waitForNativePushInit();
+
+      const permission = await checkNativePermissions();
       console.log('[NotificationBell] Native permission:', permission);
       debug.permission = permission;
 
@@ -146,11 +146,7 @@ export function NotificationBell() {
     setDebugInfo((prev) => ({ ...prev, isNative, groupId: currentGroup?.id || null }));
 
     if (isNative) {
-      // Small delay on native to ensure Capacitor plugins are ready after cold start
-      const timer = setTimeout(() => {
-        checkNativeSubscriptionStatus();
-      }, 100);
-      return () => clearTimeout(timer);
+      checkNativeSubscriptionStatus();
     } else {
       checkWebSubscriptionStatus();
     }

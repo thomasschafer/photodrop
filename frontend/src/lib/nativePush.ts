@@ -20,6 +20,10 @@ let initializationAborted = false;
 let pendingRegistrationPromise: Promise<string | null> | null = null;
 let pendingResolve: ((token: string | null) => void) | null = null;
 
+// Shared initialization promise so UI components can await initialization
+let initializationPromise: Promise<void> | null = null;
+let initializationComplete = false;
+
 /**
  * Check if we're running on a native platform
  */
@@ -231,6 +235,36 @@ export async function isRegisteredWithBackend(): Promise<boolean> {
 }
 
 /**
+ * Check if native push initialization has completed
+ */
+export function isNativePushInitialized(): boolean {
+  return initializationComplete;
+}
+
+/**
+ * Wait for native push initialization to complete.
+ * Returns immediately if not native or already initialized.
+ * UI components should call this instead of independently checking status.
+ */
+export function waitForNativePushInit(): Promise<void> {
+  if (!isNativePlatform() || initializationComplete) return Promise.resolve();
+  if (initializationPromise) return initializationPromise;
+  // Init hasn't started yet — return a promise that resolves when it does
+  return new Promise<void>((resolve) => {
+    const handler = () => {
+      window.removeEventListener('nativePushStateChanged', handler);
+      resolve();
+    };
+    window.addEventListener('nativePushStateChanged', handler);
+    // Safety timeout — don't wait forever
+    setTimeout(() => {
+      window.removeEventListener('nativePushStateChanged', handler);
+      resolve();
+    }, 15000);
+  });
+}
+
+/**
  * Initialize native push notifications
  * Call this on app startup after authentication
  */
@@ -241,22 +275,31 @@ export async function initializeNativePush(): Promise<void> {
     return;
   }
 
+  // Return existing promise if already in progress
+  if (initializationPromise) return initializationPromise;
+
   initializationAborted = false;
 
-  const token = await registerForPush();
-  if (initializationAborted) {
-    console.log('[NativePush] Initialization aborted by logout, skipping backend registration');
-    return;
-  }
-  console.log('[NativePush] Got token:', token ? token.substring(0, 20) + '...' : 'null');
-  if (token) {
-    const registered = await registerDeviceWithBackend();
-    console.log('[NativePush] Backend registration:', registered ? 'success' : 'failed');
-    if (registered) {
-      // Notify UI components that registration state changed
+  initializationPromise = (async () => {
+    try {
+      const token = await registerForPush();
+      if (initializationAborted) {
+        console.log('[NativePush] Initialization aborted by logout, skipping backend registration');
+        return;
+      }
+      console.log('[NativePush] Got token:', token ? token.substring(0, 20) + '...' : 'null');
+      if (token) {
+        const registered = await registerDeviceWithBackend();
+        console.log('[NativePush] Backend registration:', registered ? 'success' : 'failed');
+      }
+    } finally {
+      initializationComplete = true;
+      // Always dispatch state change so UI can update, even on failure
       window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
     }
-  }
+  })();
+
+  return initializationPromise;
 }
 
 /**
@@ -269,6 +312,9 @@ export async function cleanupOnLogout(): Promise<void> {
   if (currentToken) {
     await unregisterDeviceFromBackend();
   }
+  // Reset initialization state so next login re-initializes
+  initializationPromise = null;
+  initializationComplete = false;
 }
 
 /**
