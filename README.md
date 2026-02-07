@@ -157,7 +157,7 @@ Email is required for magic link authentication. We use [Resend](https://resend.
    echo 'RESEND_API_KEY="re_xxxxx"' >> backend/.prod.vars
 
    # Deploy the secret to Cloudflare (persists across deploys)
-   echo "re_xxxxx" | wrangler secret put RESEND_API_KEY --config backend/wrangler.prod.toml
+   echo "re_xxxxx" | wrangler secret put RESEND_API_KEY --name photodrop-api
    ```
 
 5. **Test**: Create a group with your real email address and verify the invite email arrives.
@@ -204,29 +204,77 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 - Edit `frontend/public/.well-known/apple-app-site-association`
 - Replace `TEAM_ID` with your actual Team ID
 
+### Native push notifications (FCM)
+
+Native apps use Firebase Cloud Messaging for reliable push notifications. Without this setup, the app works but users won't receive notifications when photos are shared.
+
+**1. Create Firebase project and add apps**:
+- Go to https://console.firebase.google.com → Create project (or use existing)
+- Add Android app: Project settings → General → Add app → Android → Package name: `com.photodrop.app`
+- Download `google-services.json` when prompted
+- Add iOS app: Project settings → General → Add app → iOS → Bundle ID: `com.photodrop.app`
+- Download `GoogleService-Info.plist` when prompted
+
+**2. Configure iOS APNs** (required for iOS push):
+- Go to developer.apple.com → Certificates, Identifiers & Profiles → Keys
+- Create new key with "Apple Push Notifications service (APNs)" enabled
+- Download the `.p8` file and note the Key ID
+- In Firebase Console → Project settings → Cloud Messaging → Apple app configuration
+- Upload the APNs key, enter Key ID and Team ID
+
+**3. Add GitHub secrets** (Settings → Secrets → Actions):
+| Secret | Value |
+|--------|-------|
+| `GOOGLE_SERVICES_JSON` | Contents of `google-services.json` (Android) |
+| `GOOGLE_SERVICE_INFO_PLIST` | Contents of `GoogleService-Info.plist` (iOS) |
+
+**4. Backend configuration**:
+```bash
+# Generate service account key:
+# Firebase Console → Project settings → Service accounts → Generate new private key
+
+# Add to Cloudflare Workers (production):
+cat ~/Downloads/your-firebase-key.json | wrangler secret put FIREBASE_SERVICE_ACCOUNT --name photodrop-api
+```
+
+**5. Trigger a build** — push to the branch or use Actions → Run workflow
+
+**Testing**: Install the app, log in, and grant notification permission when prompted. Upload a photo from another device — you should receive a push notification.
+
+<details>
+<summary><strong>Local development</strong> (building without CI)</summary>
+
+If you need to build locally instead of using GitHub Actions:
+
+1. Copy `google-services.json` to `mobile/android/app/google-services.json`
+2. Copy `GoogleService-Info.plist` to `mobile/ios/App/App/GoogleService-Info.plist`
+3. Add to `backend/.dev.vars`:
+   ```
+   FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}'
+   ```
+4. Build Android:
+   ```bash
+   cd frontend && npm run build
+   cd ../mobile && npm install
+   cp -r ../frontend/dist ./dist
+   npx cap sync android
+   cd android && ./gradlew assembleDebug
+   # APK at mobile/android/app/build/outputs/apk/debug/app-debug.apk
+   ```
+5. Build iOS:
+   ```bash
+   cd mobile && npx cap open ios
+   # Build and sign in Xcode
+   ```
+
+</details>
+
 ### Building
 
-**Android APK** (via GitHub Actions):
-- Push to `main` branch (or `feat/mobile-capacitor`)
-- Download APK from Actions artifacts
-- With signing configured: release APK ready for Play Store
-- Without signing: debug APK for testing
+Push to `main` or `feat/mobile-capacitor` to trigger a CI build. Download the APK from **Actions → workflow run → Artifacts**.
 
-**Local Android build** (requires Java 21 + Android SDK):
-```bash
-cd frontend && npm run build
-cd ../mobile && npm install
-cp -r ../frontend/dist ./dist
-npx cap sync android
-cd android && ./gradlew assembleDebug
-# APK at mobile/android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-**iOS** (requires Mac + Xcode + Apple Developer account):
-```bash
-cd mobile && npx cap open ios
-# Build and sign in Xcode
-```
+- With signing secrets configured: signed release APK (ready for Play Store)
+- Without signing secrets: debug APK (for testing)
 
 ## Architecture
 

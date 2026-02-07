@@ -1139,14 +1139,25 @@ The migration assigns random colors to all existing users so the column can be N
 - [x] Hide PWA install banner on native
 - [x] Add PR builds to workflow
 
-**Phase 3.5.2: Push Notifications** (next)
-- [ ] Firebase project setup (Tom)
-- [ ] Add `google-services.json` to project
-- [ ] Install `@capacitor/push-notifications` plugin
-- [ ] Frontend: request permission, register token
-- [ ] Backend: device_tokens table + endpoints
-- [ ] Backend: send to FCM on photo upload
-- [ ] Test end-to-end notification flow
+**Phase 3.5.2: Push Notifications** (in progress)
+- [x] Firebase project setup
+- [x] Add `google-services.json` via GitHub secret (CI) or local copy
+- [x] Install `@capacitor/push-notifications` plugin
+- [x] Frontend: request permission, register token (auto on login)
+- [x] Backend: device_tokens table + endpoints
+- [x] Backend: send to FCM on photo upload
+- [x] Test notification button (long-press bell)
+- [x] Debug info modal (tap bell when loading/error)
+- [ ] Test end-to-end notification flow (blocked on backend deploy)
+
+**Known issues (see MOBILE_FIXES.md for details):**
+- Push notifications not received yet (backend not deployed)
+- Auto-registration may not work if permission granted via settings (needs testing)
+
+**Also fixed in this branch:**
+- [x] HEIC image uploads on web (heic2any conversion)
+- [x] Native uploads failing (CapacitorHttp global patching)
+- [x] Notification bell hidden during loading
 
 **Phase 3.5.3: iOS & Distribution** (later)
 - [ ] Apple Developer account ($99/year)
@@ -1159,7 +1170,7 @@ The migration assigns random colors to all existing users so the column can be N
 **Prerequisites:**
 - [ ] Apple Developer account ($99/year) — needed for iOS
 - [ ] Google Play Developer account ($25 one-time) — needed for Play Store release
-- [ ] Firebase project — needed for Android push notifications
+- [x] Firebase project — needed for Android push notifications
 
 ### Phase 4: Launch
 

@@ -15,6 +15,10 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
+    // Enable native HTTP for all fetch/XHR requests (fixes CORS/upload issues on native)
+    CapacitorHttp: {
+      enabled: true,
+    },
     // Privacy screen - prevents screenshots
     PrivacyScreen: {
       enable: true,

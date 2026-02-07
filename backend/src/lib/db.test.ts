@@ -15,6 +15,13 @@ import {
   deletePushSubscription,
   deletePushSubscriptionForGroup,
   deleteAllUserPushSubscriptionsForGroup,
+  createDeviceToken,
+  getDeviceToken,
+  getGroupDeviceTokens,
+  deleteDeviceToken,
+  deleteAllUserDeviceTokens,
+  deleteDeviceTokenByToken,
+  countUserDeviceTokensSince,
   createComment,
   getCommentsByPhotoId,
   getComment,
@@ -718,6 +725,208 @@ describe('Push subscription functions', () => {
       );
       expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+});
+
+describe('Device token functions (native push)', () => {
+  describe('createDeviceToken', () => {
+    it('creates new device token', async () => {
+      const db = createMockDb([]);
+
+      const result = await createDeviceToken(db, 'user-1', 'group-1', 'android', 'fcm-token-123');
+
+      expect(result).toBeTruthy();
+      expect(db._mocks.mockPrepare).toHaveBeenCalled();
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        expect.any(String), // id
+        'user-1',
+        'group-1',
+        'android',
+        'fcm-token-123',
+        expect.any(Number) // created_at
+      );
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+
+    it('upserts on duplicate user+group+token', async () => {
+      const db = createMockDb([]);
+
+      await createDeviceToken(db, 'user-1', 'group-1', 'ios', 'fcm-token-123');
+
+      const prepareCall = db._mocks.mockPrepare.mock.calls[0][0];
+      expect(prepareCall).toContain('ON CONFLICT');
+      expect(prepareCall).toContain('DO UPDATE');
+    });
+
+    it('accepts ios platform', async () => {
+      const db = createMockDb([]);
+
+      await createDeviceToken(db, 'user-1', 'group-1', 'ios', 'apns-token-456');
+
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        expect.any(String),
+        'user-1',
+        'group-1',
+        'ios',
+        'apns-token-456',
+        expect.any(Number)
+      );
+    });
+  });
+
+  describe('getDeviceToken', () => {
+    it('returns device token for user+group+token', async () => {
+      const deviceToken = {
+        id: 'dt-1',
+        user_id: 'user-1',
+        group_id: 'group-1',
+        platform: 'android',
+        token: 'fcm-token-123',
+        created_at: 1000,
+      };
+      const db = createMockDb([deviceToken]);
+
+      const result = await getDeviceToken(db, 'user-1', 'group-1', 'fcm-token-123');
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('dt-1');
+      expect(result?.platform).toBe('android');
+      expect(result?.token).toBe('fcm-token-123');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1', 'fcm-token-123');
+    });
+
+    it('returns null for non-existent token', async () => {
+      const db = createMockDb([]);
+
+      const result = await getDeviceToken(db, 'user-1', 'group-1', 'nonexistent-token');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getGroupDeviceTokens', () => {
+    it('returns all device tokens for group', async () => {
+      const deviceTokens = [
+        {
+          id: 'dt-1',
+          user_id: 'user-1',
+          group_id: 'group-1',
+          platform: 'android',
+          token: 'token-1',
+          created_at: 1000,
+        },
+        {
+          id: 'dt-2',
+          user_id: 'user-2',
+          group_id: 'group-1',
+          platform: 'ios',
+          token: 'token-2',
+          created_at: 2000,
+        },
+      ];
+      const db = createMockDb(deviceTokens);
+
+      const result = await getGroupDeviceTokens(db, 'group-1');
+
+      expect(result).toHaveLength(2);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1');
+    });
+
+    it('excludes specified user when excludeUserId provided', async () => {
+      const deviceTokens = [
+        {
+          id: 'dt-2',
+          user_id: 'user-2',
+          group_id: 'group-1',
+          platform: 'ios',
+          token: 'token-2',
+          created_at: 2000,
+        },
+      ];
+      const db = createMockDb(deviceTokens);
+
+      const result = await getGroupDeviceTokens(db, 'group-1', 'user-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].user_id).toBe('user-2');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1', 'user-1');
+    });
+
+    it('returns empty array for group with no tokens', async () => {
+      const db = createMockDb([]);
+
+      const result = await getGroupDeviceTokens(db, 'group-empty');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('deleteDeviceToken', () => {
+    it('removes token for specific user+group+token', async () => {
+      const db = createMockDb([]);
+
+      const result = await deleteDeviceToken(db, 'user-1', 'group-1', 'fcm-token-123');
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM device_tokens WHERE user_id = ? AND group_id = ? AND token = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1', 'fcm-token-123');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteAllUserDeviceTokens', () => {
+    it('removes all tokens for a user', async () => {
+      const db = createMockDb([]);
+
+      const result = await deleteAllUserDeviceTokens(db, 'user-1');
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM device_tokens WHERE user_id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteDeviceTokenByToken', () => {
+    it('removes token by token value only', async () => {
+      const db = createMockDb([]);
+
+      const result = await deleteDeviceTokenByToken(db, 'fcm-token-123');
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM device_tokens WHERE token = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('fcm-token-123');
+      expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+
+  describe('countUserDeviceTokensSince', () => {
+    it('counts tokens created since given timestamp', async () => {
+      const db = createMockDb([{ count: 5 }]);
+      const sinceTimestamp = 1700000000;
+
+      const result = await countUserDeviceTokensSince(db, 'user-1', sinceTimestamp);
+
+      expect(result).toBe(5);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'SELECT COUNT(*) as count FROM device_tokens WHERE user_id = ? AND created_at >= ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', sinceTimestamp);
+    });
+
+    it('returns 0 when no tokens found', async () => {
+      const db = createMockDb([null]);
+
+      const result = await countUserDeviceTokensSince(db, 'user-1', 1700000000);
+
+      expect(result).toBe(0);
     });
   });
 });

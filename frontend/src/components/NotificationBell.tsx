@@ -1,23 +1,64 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Capacitor } from '@capacitor/core';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { urlBase64ToUint8Array } from '../lib/push';
+import {
+  isNativePlatform,
+  checkPermissions as checkNativePermissions,
+  requestPermissions as requestNativePermissions,
+  registerForPush,
+  registerDeviceWithBackend,
+  unregisterDeviceFromBackend,
+  isRegisteredWithBackend,
+  getCurrentToken,
+} from '../lib/nativePush';
 import { ConfirmModal } from './ConfirmModal';
+import { Modal } from './Modal';
 import { useAuth } from '../contexts/AuthContext';
 
-type NotificationState = 'loading' | 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
+type NotificationState =
+  | 'loading'
+  | 'unsupported'
+  | 'denied'
+  | 'subscribed'
+  | 'unsubscribed'
+  | 'error';
+
+interface DebugInfo {
+  isNative: boolean;
+  state: NotificationState;
+  permission: string | null;
+  hasToken: boolean;
+  tokenPreview: string | null;
+  error: string | null;
+  groupId: string | null;
+}
 
 export function NotificationBell() {
   const { currentGroup } = useAuth();
-  // Check if native - must be after hooks but used for early return
-  const isNative = Capacitor.isNativePlatform();
+  const isNative = isNativePlatform();
   const [state, setState] = useState<NotificationState>('loading');
   const [showConfirm, setShowConfirm] = useState(false);
   const [showBlockedHelp, setShowBlockedHelp] = useState(false);
   const [showUnsupportedHelp, setShowUnsupportedHelp] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [showTestModal, setShowTestModal] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didLongPress = useRef(false);
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({
+    isNative: false,
+    state: 'loading',
+    permission: null,
+    hasToken: false,
+    tokenPreview: null,
+    error: null,
+    groupId: null,
+  });
 
-  const checkSubscriptionStatus = useCallback(async () => {
+  // Check web push subscription status
+  const checkWebSubscriptionStatus = useCallback(async () => {
     if (!navigator.serviceWorker || !window.PushManager) {
       setState('unsupported');
       return;
@@ -45,14 +86,68 @@ export function NotificationBell() {
     }
   }, []);
 
-  useEffect(() => {
-    // Skip web push subscription checks on native app
-    if (isNative) return;
-    setState('loading');
-    checkSubscriptionStatus();
-  }, [checkSubscriptionStatus, currentGroup?.id, isNative]);
+  // Check native push subscription status
+  const checkNativeSubscriptionStatus = useCallback(async () => {
+    console.log('[NotificationBell] Checking native subscription status...');
+    const debug: Partial<DebugInfo> = {
+      isNative: true,
+      groupId: currentGroup?.id || null,
+    };
 
-  const subscribe = async () => {
+    try {
+      const permission = await checkNativePermissions();
+      console.log('[NotificationBell] Native permission:', permission);
+      debug.permission = permission;
+
+      if (permission === 'denied') {
+        debug.state = 'denied';
+        setDebugInfo((prev) => ({ ...prev, ...debug, state: 'denied' }));
+        setState('denied');
+        return;
+      }
+
+      // If we don't have a token yet, user hasn't subscribed
+      const token = getCurrentToken();
+      console.log('[NotificationBell] Current token:', token ? 'exists' : 'null');
+      debug.hasToken = !!token;
+      debug.tokenPreview = token ? token.substring(0, 20) + '...' : null;
+
+      if (!token) {
+        debug.state = 'unsubscribed';
+        setDebugInfo((prev) => ({ ...prev, ...debug, state: 'unsubscribed' }));
+        setState('unsubscribed');
+        return;
+      }
+
+      // Check if registered with backend for this group
+      const registered = await isRegisteredWithBackend();
+      console.log('[NotificationBell] Registered with backend:', registered);
+      const finalState = registered ? 'subscribed' : 'unsubscribed';
+      debug.state = finalState;
+      setDebugInfo((prev) => ({ ...prev, ...debug, state: finalState }));
+      setState(finalState);
+    } catch (error) {
+      console.error('[NotificationBell] Error checking native subscription status:', error);
+      debug.error = error instanceof Error ? error.message : String(error);
+      debug.state = 'error';
+      setDebugInfo((prev) => ({ ...prev, ...debug, state: 'error', error: debug.error || null }));
+      setState('error');
+    }
+  }, [currentGroup?.id]);
+
+  useEffect(() => {
+    console.log('[NotificationBell] useEffect triggered, isNative:', isNative);
+    setState('loading');
+    setDebugInfo((prev) => ({ ...prev, isNative, groupId: currentGroup?.id || null }));
+    if (isNative) {
+      checkNativeSubscriptionStatus();
+    } else {
+      checkWebSubscriptionStatus();
+    }
+  }, [checkWebSubscriptionStatus, checkNativeSubscriptionStatus, currentGroup?.id, isNative]);
+
+  // Subscribe to web push
+  const subscribeWeb = async () => {
     setIsProcessing(true);
     try {
       const permission = await Notification.requestPermission();
@@ -80,7 +175,41 @@ export function NotificationBell() {
     }
   };
 
-  const unsubscribe = async () => {
+  // Subscribe to native push
+  const subscribeNative = async () => {
+    setIsProcessing(true);
+    try {
+      const permission = await requestNativePermissions();
+      if (permission !== 'granted') {
+        setState('denied');
+        return;
+      }
+
+      const token = await registerForPush();
+      if (!token) {
+        console.error('Failed to get push token');
+        setState('error');
+        return;
+      }
+
+      const registered = await registerDeviceWithBackend();
+      if (!registered) {
+        console.error('Failed to register device with backend');
+        setState('error');
+        return;
+      }
+
+      setState('subscribed');
+    } catch (error) {
+      console.error('Error subscribing to native notifications:', error);
+      setState('error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Unsubscribe from web push
+  const unsubscribeWeb = async () => {
     setIsProcessing(true);
     try {
       const registration = await navigator.serviceWorker.ready;
@@ -100,8 +229,35 @@ export function NotificationBell() {
     }
   };
 
+  // Unsubscribe from native push
+  const unsubscribeNative = async () => {
+    setIsProcessing(true);
+    try {
+      await unregisterDeviceFromBackend();
+      setState('unsubscribed');
+    } catch (error) {
+      console.error('Error unsubscribing from native notifications:', error);
+      setState('error');
+    } finally {
+      setIsProcessing(false);
+      setShowConfirm(false);
+    }
+  };
+
+  const subscribe = isNative ? subscribeNative : subscribeWeb;
+  const unsubscribe = isNative ? unsubscribeNative : unsubscribeWeb;
+
   const handleClick = () => {
-    if (state === 'subscribed') {
+    // Suppress click if long-press just fired (prevents dual action on touch devices)
+    if (didLongPress.current) {
+      didLongPress.current = false;
+      return;
+    }
+
+    if (state === 'loading' || state === 'error') {
+      // Show debug info for loading/error states
+      setShowDebug(true);
+    } else if (state === 'subscribed') {
       setShowConfirm(true);
     } else if (state === 'unsubscribed') {
       subscribe();
@@ -112,53 +268,110 @@ export function NotificationBell() {
     }
   };
 
-  // Native apps use platform push notifications (FCM/APNs), not web push
-  // Hide the bell entirely on native - notifications are handled at app level
-  if (isNative) {
-    return null;
-  }
+  // Long-press handlers for test modal
+  const handlePressStart = () => {
+    // Clear any existing timer first (prevents orphaned timers)
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+    didLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      didLongPress.current = true;
+      setShowTestModal(true);
+      setTestResult(null);
+    }, 800); // 800ms long-press
+  };
 
-  if (state === 'loading') {
-    return null;
-  }
+  const handlePressEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
+  const sendTestNotification = async () => {
+    const token = getCurrentToken();
+    if (!token) {
+      setTestResult('ERROR:No device token - try subscribing first');
+      return;
+    }
+
+    setIsSendingTest(true);
+    setTestResult('Sending...');
+
+    try {
+      const result = await api.push.sendTestNotification(token);
+      if (result.success) {
+        setTestResult(
+          `SUCCESS:${result.message}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`
+        );
+      } else {
+        setTestResult(`ERROR:${result.error}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
+      }
+    } catch (error) {
+      setTestResult(`ERROR:${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
+  const isLoading = state === 'loading';
+  const isError = state === 'error';
   const isSubscribed = state === 'subscribed';
   const isDenied = state === 'denied';
   const isUnsupported = state === 'unsupported';
   const isDisabled = isDenied || isUnsupported;
+  const showSpinner = isLoading || isProcessing;
 
   return (
     <>
       <button
         onClick={handleClick}
+        onMouseDown={handlePressStart}
+        onMouseUp={handlePressEnd}
+        onMouseLeave={handlePressEnd}
+        onTouchStart={handlePressStart}
+        onTouchEnd={handlePressEnd}
         disabled={isProcessing}
         aria-label={
-          isUnsupported
-            ? 'Notifications not supported - click for help'
-            : isDenied
-              ? 'Notifications blocked - click for help'
-              : isSubscribed
-                ? 'Disable notifications'
-                : 'Enable notifications'
+          isLoading
+            ? 'Loading notification status...'
+            : isError
+              ? 'Error checking notifications - tap for details'
+              : isUnsupported
+                ? 'Notifications not supported - click for help'
+                : isDenied
+                  ? 'Notifications blocked - click for help'
+                  : isSubscribed
+                    ? 'Disable notifications'
+                    : 'Enable notifications'
         }
         title={
-          isUnsupported
-            ? 'Notifications are not supported. Click for help.'
-            : isDenied
-              ? 'Notifications are blocked. Click for help enabling them.'
-              : isSubscribed
-                ? 'Notifications enabled for this group'
-                : 'Enable notifications for this group'
+          isLoading
+            ? 'Checking notification status...'
+            : isError
+              ? 'Error - tap for debug info'
+              : isUnsupported
+                ? 'Notifications are not supported. Click for help.'
+                : isDenied
+                  ? 'Notifications are blocked. Click for help enabling them.'
+                  : isSubscribed
+                    ? 'Notifications enabled for this group'
+                    : 'Enable notifications for this group'
         }
         className={`flex items-center justify-center w-9 h-9 rounded-lg border cursor-pointer transition-colors ${
-          isDisabled
-            ? 'border-border bg-surface text-text-tertiary hover:border-border-strong hover:text-text-secondary'
-            : isSubscribed
-              ? 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
-              : 'border-border bg-surface text-text-secondary hover:border-border-strong'
+          isError
+            ? 'border-red-500 bg-red-500/10 text-red-500'
+            : isLoading
+              ? 'border-border bg-surface text-text-tertiary'
+              : isDisabled
+                ? 'border-border bg-surface text-text-tertiary hover:border-border-strong hover:text-text-secondary'
+                : isSubscribed
+                  ? 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
+                  : 'border-border bg-surface text-text-secondary hover:border-border-strong'
         }`}
       >
-        {isProcessing ? (
+        {showSpinner ? (
           <div className="spinner spinner-sm" />
         ) : isSubscribed ? (
           <svg
@@ -201,7 +414,11 @@ export function NotificationBell() {
       {showBlockedHelp && (
         <ConfirmModal
           title="Notifications blocked"
-          message="You previously blocked notifications for this site. To enable them, you'll need to change your browser settings. Look for the lock or info icon in your browser's address bar, find 'Notifications', and change it from 'Block' to 'Allow'. Then refresh the page."
+          message={
+            isNative
+              ? 'You previously denied notification permissions. To enable them, go to your device Settings, find this app, and enable Notifications.'
+              : "You previously blocked notifications for this site. To enable them, you'll need to change your browser settings. Look for the lock or info icon in your browser's address bar, find 'Notifications', and change it from 'Block' to 'Allow'. Then refresh the page."
+          }
           confirmLabel="Got it"
           onConfirm={() => setShowBlockedHelp(false)}
           onCancel={() => setShowBlockedHelp(false)}
@@ -216,6 +433,76 @@ export function NotificationBell() {
           onConfirm={() => setShowUnsupportedHelp(false)}
           onCancel={() => setShowUnsupportedHelp(false)}
         />
+      )}
+
+      {showDebug && (
+        <ConfirmModal
+          title="Notification debug info"
+          message={`
+State: ${debugInfo.state}
+Platform: ${debugInfo.isNative ? 'Native (Capacitor)' : 'Web'}
+Group ID: ${debugInfo.groupId || 'none'}
+Permission: ${debugInfo.permission || 'not checked'}
+Has Token: ${debugInfo.hasToken ? 'yes' : 'no'}
+Token: ${debugInfo.tokenPreview || 'none'}
+Error: ${debugInfo.error || 'none'}
+          `.trim()}
+          confirmLabel="Try subscribe"
+          cancelLabel="Close"
+          onConfirm={async () => {
+            setShowDebug(false);
+            if (isNative) {
+              await subscribeNative();
+            } else {
+              await subscribeWeb();
+            }
+          }}
+          onCancel={() => setShowDebug(false)}
+        />
+      )}
+
+      {showTestModal && (
+        <Modal title="Test notifications" onClose={() => setShowTestModal(false)}>
+          <div className="space-y-4">
+            <div className="text-sm text-text-secondary">
+              <p className="mb-2">
+                <strong>State:</strong> {state}
+              </p>
+              <p className="mb-2">
+                <strong>Token:</strong> {getCurrentToken() ? 'Ready' : 'Not registered'}
+              </p>
+            </div>
+
+            <button
+              onClick={sendTestNotification}
+              disabled={isSendingTest || !getCurrentToken()}
+              className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium disabled:opacity-50"
+            >
+              {isSendingTest ? 'Sending...' : 'Send test notification'}
+            </button>
+
+            {testResult && (
+              <pre
+                className={`text-sm p-3 rounded-lg overflow-x-auto whitespace-pre-wrap ${
+                  testResult.startsWith('ERROR:')
+                    ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
+                    : testResult.startsWith('SUCCESS:')
+                      ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                      : 'bg-surface-elevated'
+                }`}
+              >
+                {testResult.replace(/^(ERROR:|SUCCESS:)/, '')}
+              </pre>
+            )}
+
+            <button
+              onClick={() => setShowTestModal(false)}
+              className="w-full py-2 px-4 border border-border rounded-lg"
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
       )}
     </>
   );
