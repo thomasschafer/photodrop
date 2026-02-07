@@ -21,6 +21,7 @@ import {
   deleteDeviceToken,
   deleteAllUserDeviceTokens,
   deleteDeviceTokenByToken,
+  countUserDeviceTokensSince,
   createComment,
   getCommentsByPhotoId,
   getComment,
@@ -903,6 +904,29 @@ describe('Device token functions (native push)', () => {
       );
       expect(db._mocks.mockBind).toHaveBeenCalledWith('fcm-token-123');
       expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+  });
+
+  describe('countUserDeviceTokensSince', () => {
+    it('counts tokens created since given timestamp', async () => {
+      const db = createMockDb([{ count: 5 }]);
+      const sinceTimestamp = 1700000000;
+
+      const result = await countUserDeviceTokensSince(db, 'user-1', sinceTimestamp);
+
+      expect(result).toBe(5);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'SELECT COUNT(*) as count FROM device_tokens WHERE user_id = ? AND created_at >= ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', sinceTimestamp);
+    });
+
+    it('returns 0 when no tokens found', async () => {
+      const db = createMockDb([null]);
+
+      const result = await countUserDeviceTokensSince(db, 'user-1', 1700000000);
+
+      expect(result).toBe(0);
     });
   });
 });

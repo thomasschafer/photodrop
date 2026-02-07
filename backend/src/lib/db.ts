@@ -754,18 +754,36 @@ export async function createDeviceToken(
   const id = generateId();
   const now = Math.floor(Date.now() / 1000);
 
+  // Note: created_at is NOT updated on conflict - it reflects first registration
+  // This allows rate limiting based on new token creation time
   await db
     .prepare(
       `INSERT INTO device_tokens (id, user_id, group_id, platform, token, created_at)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id, group_id, token) DO UPDATE SET
-         platform = excluded.platform,
-         created_at = excluded.created_at`
+         platform = excluded.platform`
     )
     .bind(id, userId, groupId, platform, token, now)
     .run();
 
   return id;
+}
+
+/**
+ * Count device tokens created by a user since a given timestamp.
+ * Used for rate limiting new device registrations.
+ */
+export async function countUserDeviceTokensSince(
+  db: D1Database,
+  userId: string,
+  sinceTimestamp: number
+): Promise<number> {
+  const result = await db
+    .prepare('SELECT COUNT(*) as count FROM device_tokens WHERE user_id = ? AND created_at >= ?')
+    .bind(userId, sinceTimestamp)
+    .first<{ count: number }>();
+
+  return result?.count ?? 0;
 }
 
 export async function getDeviceToken(

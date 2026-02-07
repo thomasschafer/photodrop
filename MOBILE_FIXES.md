@@ -96,6 +96,7 @@
 - [x] `backend/src/lib/fcm.ts` - FCM HTTP v1 API client with token refresh
 - [x] `backend/src/routes/photos.ts` - Sends FCM on photo upload
 - [x] Invalid token cleanup (auto-removes unregistered tokens)
+- [x] Rate limiting on device registration (10 per user per hour)
 - [x] Unit tests for device token functions
 
 #### Remaining Setup (Manual)
@@ -130,6 +131,11 @@ Once Firebase is configured:
 - [ ] Token cleaned up on logout
 - [ ] Token re-registered on group switch
 - [ ] iOS: Same tests (after Apple Developer setup)
+
+#### Future Considerations
+
+- [ ] **Global rate limiting** - Add a global backstop (e.g., 1000 registrations/hour across all users) to protect against distributed attacks. Low priority for a family photo app, but good defense-in-depth.
+- [ ] **Service account key rotation** - Set up periodic rotation of Firebase service account credentials.
 
 ---
 

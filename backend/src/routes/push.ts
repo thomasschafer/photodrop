@@ -7,9 +7,14 @@ import {
   createDeviceToken,
   deleteDeviceToken,
   getDeviceToken,
+  countUserDeviceTokensSince,
   type MembershipRole,
   type DevicePlatform,
 } from '../lib/db';
+
+// Rate limit: max new device token registrations per user per hour
+const DEVICE_REGISTRATION_LIMIT = 10;
+const DEVICE_REGISTRATION_WINDOW_SECONDS = 60 * 60; // 1 hour
 import { requireAuth } from '../middleware/auth';
 import type { Bindings } from '../types';
 
@@ -140,6 +145,15 @@ push.post('/device', requireAuth, async (c) => {
 
     if (platform !== 'ios' && platform !== 'android') {
       return c.json({ error: 'Platform must be ios or android' }, 400);
+    }
+
+    // Rate limit: check how many new tokens this user has registered recently
+    const now = Math.floor(Date.now() / 1000);
+    const windowStart = now - DEVICE_REGISTRATION_WINDOW_SECONDS;
+    const recentCount = await countUserDeviceTokensSince(c.env.DB, user.id, windowStart);
+
+    if (recentCount >= DEVICE_REGISTRATION_LIMIT) {
+      return c.json({ error: 'Too many device registrations. Please try again later.' }, 429);
     }
 
     await createDeviceToken(c.env.DB, user.id, user.groupId, platform as DevicePlatform, token);
