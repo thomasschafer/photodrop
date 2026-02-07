@@ -438,41 +438,37 @@ Error: ${debugInfo.error || 'none'}
       )}
 
       {showTestModal && (
-        <Modal onClose={() => setShowTestModal(false)}>
-          <div className="p-6 max-w-md">
-            <h2 className="text-xl font-bold mb-4">🧪 Test Notifications</h2>
-
-            <div className="space-y-4">
-              <div className="text-sm text-text-secondary">
-                <p className="mb-2">
-                  <strong>State:</strong> {state}
-                </p>
-                <p className="mb-2">
-                  <strong>Token:</strong> {getCurrentToken() ? 'Ready' : 'Not registered'}
-                </p>
-              </div>
-
-              <button
-                onClick={sendTestNotification}
-                disabled={isSendingTest || !getCurrentToken()}
-                className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium disabled:opacity-50"
-              >
-                {isSendingTest ? 'Sending...' : '📤 Send Test Notification'}
-              </button>
-
-              {testResult && (
-                <pre className="text-sm bg-surface-elevated p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
-                  {testResult}
-                </pre>
-              )}
-
-              <button
-                onClick={() => setShowTestModal(false)}
-                className="w-full py-2 px-4 border border-border rounded-lg"
-              >
-                Close
-              </button>
+        <Modal title="🧪 Test Notifications" onClose={() => setShowTestModal(false)}>
+          <div className="space-y-4">
+            <div className="text-sm text-text-secondary">
+              <p className="mb-2">
+                <strong>State:</strong> {state}
+              </p>
+              <p className="mb-2">
+                <strong>Token:</strong> {getCurrentToken() ? 'Ready' : 'Not registered'}
+              </p>
             </div>
+
+            <button
+              onClick={sendTestNotification}
+              disabled={isSendingTest || !getCurrentToken()}
+              className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium disabled:opacity-50"
+            >
+              {isSendingTest ? 'Sending...' : '📤 Send Test Notification'}
+            </button>
+
+            {testResult && (
+              <pre className="text-sm bg-surface-elevated p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                {testResult}
+              </pre>
+            )}
+
+            <button
+              onClick={() => setShowTestModal(false)}
+              className="w-full py-2 px-4 border border-border rounded-lg"
+            >
+              Close
+            </button>
           </div>
         </Modal>
       )}
