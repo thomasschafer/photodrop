@@ -46,6 +46,7 @@ export function NotificationBell() {
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isSendingTest, setIsSendingTest] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didLongPress = useRef(false);
   const [debugInfo, setDebugInfo] = useState<DebugInfo>({
     isNative: false,
     state: 'loading',
@@ -236,6 +237,7 @@ export function NotificationBell() {
       setState('unsubscribed');
     } catch (error) {
       console.error('Error unsubscribing from native notifications:', error);
+      setState('error');
     } finally {
       setIsProcessing(false);
       setShowConfirm(false);
@@ -246,6 +248,12 @@ export function NotificationBell() {
   const unsubscribe = isNative ? unsubscribeNative : unsubscribeWeb;
 
   const handleClick = () => {
+    // Suppress click if long-press just fired (prevents dual action on touch devices)
+    if (didLongPress.current) {
+      didLongPress.current = false;
+      return;
+    }
+
     if (state === 'loading' || state === 'error') {
       // Show debug info for loading/error states
       setShowDebug(true);
@@ -266,7 +274,9 @@ export function NotificationBell() {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
     }
+    didLongPress.current = false;
     longPressTimer.current = setTimeout(() => {
+      didLongPress.current = true;
       setShowTestModal(true);
       setTestResult(null);
     }, 800); // 800ms long-press
