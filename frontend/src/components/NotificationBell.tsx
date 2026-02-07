@@ -56,8 +56,10 @@ export function NotificationBell() {
 
   // Check native push subscription status
   const checkNativeSubscriptionStatus = useCallback(async () => {
+    console.log('[NotificationBell] Checking native subscription status...');
     try {
       const permission = await checkNativePermissions();
+      console.log('[NotificationBell] Native permission:', permission);
 
       if (permission === 'denied') {
         setState('denied');
@@ -66,6 +68,7 @@ export function NotificationBell() {
 
       // If we don't have a token yet, user hasn't subscribed
       const token = getCurrentToken();
+      console.log('[NotificationBell] Current token:', token ? 'exists' : 'null');
       if (!token) {
         setState('unsubscribed');
         return;
@@ -73,14 +76,16 @@ export function NotificationBell() {
 
       // Check if registered with backend for this group
       const registered = await isRegisteredWithBackend();
+      console.log('[NotificationBell] Registered with backend:', registered);
       setState(registered ? 'subscribed' : 'unsubscribed');
     } catch (error) {
-      console.error('Error checking native subscription status:', error);
+      console.error('[NotificationBell] Error checking native subscription status:', error);
       setState('unsubscribed');
     }
   }, []);
 
   useEffect(() => {
+    console.log('[NotificationBell] useEffect triggered, isNative:', isNative);
     setState('loading');
     if (isNative) {
       checkNativeSubscriptionStatus();
