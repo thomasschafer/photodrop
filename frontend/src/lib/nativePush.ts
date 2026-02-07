@@ -13,11 +13,9 @@ let currentToken: string | null = null;
 // Track if listeners have been set up
 let listenersInitialized = false;
 
-// Pending registration promise resolver
-let pendingRegistration: {
-  resolve: (token: string | null) => void;
-  timeout: ReturnType<typeof setTimeout>;
-} | null = null;
+// Pending registration state (shared across concurrent calls)
+let pendingRegistrationPromise: Promise<string | null> | null = null;
+let pendingResolve: ((token: string | null) => void) | null = null;
 
 /**
  * Check if we're running on a native platform
@@ -76,20 +74,18 @@ async function setupListeners(): Promise<void> {
   // Handle registration success
   await PushNotifications.addListener('registration', (result) => {
     currentToken = result.value;
-    if (pendingRegistration) {
-      clearTimeout(pendingRegistration.timeout);
-      pendingRegistration.resolve(result.value);
-      pendingRegistration = null;
+    if (pendingResolve) {
+      pendingResolve(result.value);
+      pendingResolve = null;
     }
   });
 
   // Handle registration error
   await PushNotifications.addListener('registrationError', (error) => {
     console.error('Push registration error:', error);
-    if (pendingRegistration) {
-      clearTimeout(pendingRegistration.timeout);
-      pendingRegistration.resolve(null);
-      pendingRegistration = null;
+    if (pendingResolve) {
+      pendingResolve(null);
+      pendingResolve = null;
     }
   });
 
@@ -154,20 +150,32 @@ export async function registerForPush(): Promise<string | null> {
     // Set up listeners before registering
     await setupListeners();
 
+    // If registration is already in progress, return the existing promise
+    if (pendingRegistrationPromise) {
+      console.log('[NativePush] Registration already in progress, waiting...');
+      return pendingRegistrationPromise;
+    }
+
     // Register with FCM and wait for result
-    const token = await new Promise<string | null>((resolve) => {
+    pendingRegistrationPromise = new Promise<string | null>((resolve) => {
       const timeout = setTimeout(() => {
         console.warn('Push registration timed out');
-        pendingRegistration = null;
+        pendingResolve = null;
+        pendingRegistrationPromise = null;
         resolve(null);
       }, 10000);
 
-      pendingRegistration = { resolve, timeout };
+      // Store resolve function for the listener to call
+      pendingResolve = (token) => {
+        clearTimeout(timeout);
+        pendingRegistrationPromise = null;
+        resolve(token);
+      };
 
       PushNotifications.register();
     });
 
-    return token;
+    return pendingRegistrationPromise;
   } catch (error) {
     console.error('Error registering for push:', error);
     return null;

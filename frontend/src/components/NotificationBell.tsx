@@ -187,13 +187,21 @@ export function NotificationBell() {
       const token = await registerForPush();
       if (!token) {
         console.error('Failed to get push token');
+        setState('error');
         return;
       }
 
-      await registerDeviceWithBackend();
+      const registered = await registerDeviceWithBackend();
+      if (!registered) {
+        console.error('Failed to register device with backend');
+        setState('error');
+        return;
+      }
+
       setState('subscribed');
     } catch (error) {
       console.error('Error subscribing to native notifications:', error);
+      setState('error');
     } finally {
       setIsProcessing(false);
     }
