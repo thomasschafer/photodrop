@@ -107,10 +107,10 @@ async function setupListeners(): Promise<void> {
 
     // Navigate to the relevant content
     if (data?.url) {
-      // Extract path from URL and navigate
+      // Extract path from URL and navigate (preserve query and hash)
       try {
         const url = new URL(data.url);
-        window.location.href = url.pathname;
+        window.location.href = url.pathname + url.search + url.hash;
       } catch {
         // If it's already a path, use directly
         window.location.href = data.url;

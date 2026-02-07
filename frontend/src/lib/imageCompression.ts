@@ -30,7 +30,7 @@ async function convertHeicToJpeg(file: File): Promise<File> {
   // heic2any can return a single blob or array
   const resultBlob = Array.isArray(blob) ? blob[0] : blob;
 
-  return new File([resultBlob], file.name.replace(/\.heic$/i, '.jpg'), {
+  return new File([resultBlob], file.name.replace(/\.(heic|heif)$/i, '.jpg'), {
     type: 'image/jpeg',
   });
 }

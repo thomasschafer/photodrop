@@ -59,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [loading, setLoading] = useState(true);
 
+  // Track if native push has been initialized (to avoid double init)
+  const nativePushInitialized = useRef(false);
+
   const login = useCallback(
     (
       accessToken: string | null,
@@ -119,6 +122,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         selectionToken: null,
       });
       clearAllUserCaches();
+      // Reset native push init flag so it re-initializes on next login
+      nativePushInitialized.current = false;
     }
   }, []);
 
@@ -285,7 +290,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [authState.user, authState.currentGroup, refreshAuth]);
 
   // Initialize native push notifications when authenticated with a group
-  const nativePushInitialized = useRef(false);
   useEffect(() => {
     if (!authState.user || !authState.currentGroup || !isNativePlatform()) return;
     if (nativePushInitialized.current) return;

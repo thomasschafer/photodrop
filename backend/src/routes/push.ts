@@ -216,13 +216,8 @@ push.post('/test', requireAuth, async (c) => {
 
     // Check if FCM is configured
     if (!c.env.FIREBASE_SERVICE_ACCOUNT) {
-      return c.json(
-        {
-          error: 'FCM not configured',
-          debug: 'FIREBASE_SERVICE_ACCOUNT secret not set in Workers',
-        },
-        500
-      );
+      console.error('FCM not configured: FIREBASE_SERVICE_ACCOUNT secret not set');
+      return c.json({ error: 'Push notifications not configured on server' }, 500);
     }
 
     // Import and configure FCM
@@ -236,13 +231,7 @@ push.post('/test', requireAuth, async (c) => {
     const deviceToken = await getDeviceToken(c.env.DB, user.id, user.groupId, token);
 
     if (!deviceToken) {
-      return c.json(
-        {
-          error: 'Device not registered',
-          debug: `No device token found for user ${user.id} in group ${user.groupId}`,
-        },
-        404
-      );
+      return c.json({ error: 'Device not registered' }, 404);
     }
 
     // Send test notification
@@ -257,37 +246,15 @@ push.post('/test', requireAuth, async (c) => {
     );
 
     if (result.success) {
-      return c.json({
-        success: true,
-        message: 'Test notification sent!',
-        debug: { deviceToken: token.substring(0, 20) + '...' },
-      });
+      return c.json({ success: true, message: 'Test notification sent!' });
     } else if (result.removed) {
-      return c.json(
-        {
-          error: 'Invalid token - removed from database',
-          debug: 'FCM reported token as invalid/unregistered',
-        },
-        400
-      );
+      return c.json({ error: 'Invalid token - device has been unregistered' }, 400);
     } else {
-      return c.json(
-        {
-          error: 'Failed to send notification',
-          debug: 'FCM rejected the notification',
-        },
-        500
-      );
+      return c.json({ error: 'Failed to send notification' }, 500);
     }
   } catch (error) {
     console.error('Error sending test notification:', error);
-    return c.json(
-      {
-        error: 'Failed to send test notification',
-        debug: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
+    return c.json({ error: 'Failed to send test notification' }, 500);
   }
 });
 

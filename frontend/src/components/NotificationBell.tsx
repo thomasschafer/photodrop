@@ -254,6 +254,10 @@ export function NotificationBell() {
 
   // Long-press handlers for test modal
   const handlePressStart = () => {
+    // Clear any existing timer first (prevents orphaned timers)
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
     longPressTimer.current = setTimeout(() => {
       setShowTestModal(true);
       setTestResult(null);
