@@ -490,6 +490,16 @@ export const api = {
       );
       return response.json();
     },
+
+    sendTestNotification: async (
+      token: string
+    ): Promise<{ success?: boolean; error?: string; message?: string; debug?: unknown }> => {
+      const response = await fetchWithAuth('/push/test', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+      return response.json();
+    },
   },
 };
 

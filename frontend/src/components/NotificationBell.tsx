@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { urlBase64ToUint8Array } from '../lib/push';
 import {
@@ -12,6 +12,7 @@ import {
   getCurrentToken,
 } from '../lib/nativePush';
 import { ConfirmModal } from './ConfirmModal';
+import { Modal } from './Modal';
 import { useAuth } from '../contexts/AuthContext';
 
 type NotificationState =
@@ -41,6 +42,10 @@ export function NotificationBell() {
   const [showUnsupportedHelp, setShowUnsupportedHelp] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [showTestModal, setShowTestModal] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [debugInfo, setDebugInfo] = useState<DebugInfo>({
     isNative: false,
     state: 'loading',
@@ -247,6 +252,45 @@ export function NotificationBell() {
     }
   };
 
+  // Long-press handlers for test modal
+  const handlePressStart = () => {
+    longPressTimer.current = setTimeout(() => {
+      setShowTestModal(true);
+      setTestResult(null);
+    }, 800); // 800ms long-press
+  };
+
+  const handlePressEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const sendTestNotification = async () => {
+    const token = getCurrentToken();
+    if (!token) {
+      setTestResult('❌ No device token - try subscribing first');
+      return;
+    }
+
+    setIsSendingTest(true);
+    setTestResult('Sending...');
+
+    try {
+      const result = await api.push.sendTestNotification(token);
+      if (result.success) {
+        setTestResult(`✅ ${result.message}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
+      } else {
+        setTestResult(`❌ ${result.error}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
+      }
+    } catch (error) {
+      setTestResult(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
   const isLoading = state === 'loading';
   const isError = state === 'error';
   const isSubscribed = state === 'subscribed';
@@ -259,6 +303,11 @@ export function NotificationBell() {
     <>
       <button
         onClick={handleClick}
+        onMouseDown={handlePressStart}
+        onMouseUp={handlePressEnd}
+        onMouseLeave={handlePressEnd}
+        onTouchStart={handlePressStart}
+        onTouchEnd={handlePressEnd}
         disabled={isProcessing}
         aria-label={
           isLoading
@@ -386,6 +435,46 @@ Error: ${debugInfo.error || 'none'}
           }}
           onCancel={() => setShowDebug(false)}
         />
+      )}
+
+      {showTestModal && (
+        <Modal onClose={() => setShowTestModal(false)}>
+          <div className="p-6 max-w-md">
+            <h2 className="text-xl font-bold mb-4">🧪 Test Notifications</h2>
+
+            <div className="space-y-4">
+              <div className="text-sm text-text-secondary">
+                <p className="mb-2">
+                  <strong>State:</strong> {state}
+                </p>
+                <p className="mb-2">
+                  <strong>Token:</strong> {getCurrentToken() ? 'Ready' : 'Not registered'}
+                </p>
+              </div>
+
+              <button
+                onClick={sendTestNotification}
+                disabled={isSendingTest || !getCurrentToken()}
+                className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium disabled:opacity-50"
+              >
+                {isSendingTest ? 'Sending...' : '📤 Send Test Notification'}
+              </button>
+
+              {testResult && (
+                <pre className="text-sm bg-surface-elevated p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                  {testResult}
+                </pre>
+              )}
+
+              <button
+                onClick={() => setShowTestModal(false)}
+                className="w-full py-2 px-4 border border-border rounded-lg"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );

@@ -1,11 +1,48 @@
 import imageCompression from 'browser-image-compression';
+import heic2any from 'heic2any';
 
 export interface CompressionResult {
   fullSize: File;
   thumbnail: File;
 }
 
+/**
+ * Check if file is HEIC format
+ */
+function isHeicFile(file: File): boolean {
+  const heicTypes = ['image/heic', 'image/heif'];
+  if (heicTypes.includes(file.type.toLowerCase())) return true;
+  // Also check extension for files with incorrect MIME type
+  const ext = file.name.toLowerCase().split('.').pop();
+  return ext === 'heic' || ext === 'heif';
+}
+
+/**
+ * Convert HEIC file to JPEG
+ */
+async function convertHeicToJpeg(file: File): Promise<File> {
+  const blob = await heic2any({
+    blob: file,
+    toType: 'image/jpeg',
+    quality: 0.92,
+  });
+
+  // heic2any can return a single blob or array
+  const resultBlob = Array.isArray(blob) ? blob[0] : blob;
+
+  return new File([resultBlob], file.name.replace(/\.heic$/i, '.jpg'), {
+    type: 'image/jpeg',
+  });
+}
+
 export async function compressImage(file: File): Promise<CompressionResult> {
+  // Convert HEIC to JPEG first (browsers can't process HEIC natively)
+  let processableFile = file;
+  if (isHeicFile(file)) {
+    console.log('[ImageCompression] Converting HEIC to JPEG...');
+    processableFile = await convertHeicToJpeg(file);
+    console.log('[ImageCompression] HEIC converted successfully');
+  }
   const fullSizeOptions = {
     maxSizeMB: 2,
     maxWidthOrHeight: 1920,
@@ -22,8 +59,8 @@ export async function compressImage(file: File): Promise<CompressionResult> {
   };
 
   const [fullSize, thumbnail] = await Promise.all([
-    imageCompression(file, fullSizeOptions),
-    imageCompression(file, thumbnailOptions),
+    imageCompression(processableFile, fullSizeOptions),
+    imageCompression(processableFile, thumbnailOptions),
   ]);
 
   const fullSizeFile = new File([fullSize], `photo-${Date.now()}.jpg`, {
@@ -51,7 +88,10 @@ export function formatFileSize(bytes: number): string {
 }
 
 export function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/');
+  if (file.type.startsWith('image/')) return true;
+  // HEIC files may have incorrect MIME type on some devices
+  const ext = file.name.toLowerCase().split('.').pop();
+  return ext === 'heic' || ext === 'heif';
 }
 
 export function validateImageFile(file: File): { valid: boolean; error?: string } {
