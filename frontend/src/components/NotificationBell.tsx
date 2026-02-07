@@ -95,7 +95,12 @@ export function NotificationBell() {
     };
 
     try {
-      const permission = await checkNativePermissions();
+      // Add timeout to prevent hanging on cold start
+      const permissionPromise = checkNativePermissions();
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Permission check timed out')), 5000)
+      );
+      const permission = await Promise.race([permissionPromise, timeoutPromise]);
       console.log('[NotificationBell] Native permission:', permission);
       debug.permission = permission;
 
@@ -139,8 +144,13 @@ export function NotificationBell() {
     console.log('[NotificationBell] useEffect triggered, isNative:', isNative);
     setState('loading');
     setDebugInfo((prev) => ({ ...prev, isNative, groupId: currentGroup?.id || null }));
+
     if (isNative) {
-      checkNativeSubscriptionStatus();
+      // Small delay on native to ensure Capacitor plugins are ready after cold start
+      const timer = setTimeout(() => {
+        checkNativeSubscriptionStatus();
+      }, 100);
+      return () => clearTimeout(timer);
     } else {
       checkWebSubscriptionStatus();
     }
