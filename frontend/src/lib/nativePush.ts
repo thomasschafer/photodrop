@@ -24,6 +24,22 @@ let pendingResolve: ((token: string | null) => void) | null = null;
 let initializationPromise: Promise<void> | null = null;
 let initializationComplete = false;
 
+// Debug timeline for diagnosing cold-start issues
+const debugTimeline: Array<{ ts: number; event: string }> = [];
+
+function logDebug(event: string) {
+  const ts = Date.now();
+  debugTimeline.push({ ts, event });
+  console.log(`[NativePush ${ts}] ${event}`);
+}
+
+/**
+ * Get the debug timeline for diagnostics
+ */
+export function getDebugTimeline(): Array<{ ts: number; event: string }> {
+  return [...debugTimeline];
+}
+
 /**
  * Check if we're running on a native platform
  */
@@ -80,6 +96,7 @@ async function setupListeners(): Promise<void> {
 
   // Handle registration success
   await PushNotifications.addListener('registration', (result) => {
+    logDebug(`registration event received, token: ${result.value?.substring(0, 20)}...`);
     currentToken = result.value;
     if (pendingResolve) {
       pendingResolve(result.value);
@@ -89,7 +106,7 @@ async function setupListeners(): Promise<void> {
 
   // Handle registration error
   await PushNotifications.addListener('registrationError', (error) => {
-    console.error('Push registration error:', error);
+    logDebug(`registrationError event: ${JSON.stringify(error)}`);
     if (pendingResolve) {
       pendingResolve(null);
       pendingResolve = null;
@@ -130,43 +147,45 @@ async function setupListeners(): Promise<void> {
  * Returns the token on success, null on failure
  */
 export async function registerForPush(): Promise<string | null> {
-  console.log('[NativePush] registerForPush called, isNative:', isNativePlatform());
+  logDebug('registerForPush called');
   if (!isNativePlatform()) return null;
 
   // If we already have a token, return it
   if (currentToken) {
-    console.log('[NativePush] Already have token:', currentToken.substring(0, 20) + '...');
+    logDebug('already have token');
     return currentToken;
   }
 
   try {
     // Check/request permissions
     let permission = await checkPermissions();
-    console.log('[NativePush] Current permission:', permission);
+    logDebug(`checkPermissions: ${permission}`);
     if (permission === 'prompt') {
-      console.log('[NativePush] Requesting permission...');
+      logDebug('requesting permission...');
       permission = await requestPermissions();
-      console.log('[NativePush] Permission result:', permission);
+      logDebug(`requestPermissions result: ${permission}`);
     }
 
     if (permission !== 'granted') {
-      console.log('[NativePush] Push notification permission denied');
+      logDebug('permission denied');
       return null;
     }
 
     // Set up listeners before registering
     await setupListeners();
+    logDebug('listeners set up');
 
     // If registration is already in progress, return the existing promise
     if (pendingRegistrationPromise) {
-      console.log('[NativePush] Registration already in progress, waiting...');
+      logDebug('registration already in progress, waiting...');
       return pendingRegistrationPromise;
     }
 
     // Register with FCM and wait for result
+    logDebug('calling PushNotifications.register()');
     pendingRegistrationPromise = new Promise<string | null>((resolve) => {
       const timeout = setTimeout(() => {
-        console.warn('Push registration timed out');
+        logDebug('FCM registration timed out (10s)');
         pendingResolve = null;
         pendingRegistrationPromise = null;
         resolve(null);
@@ -269,32 +288,37 @@ export function waitForNativePushInit(): Promise<void> {
  * Call this on app startup after authentication
  */
 export async function initializeNativePush(): Promise<void> {
-  console.log('[NativePush] initializeNativePush called');
+  logDebug('initializeNativePush called');
   if (!isNativePlatform()) {
-    console.log('[NativePush] Not native platform, skipping');
+    logDebug('not native platform, skipping');
     return;
   }
 
   // Return existing promise if already in progress
-  if (initializationPromise) return initializationPromise;
+  if (initializationPromise) {
+    logDebug('init already in progress, returning existing promise');
+    return initializationPromise;
+  }
 
   initializationAborted = false;
 
   initializationPromise = (async () => {
     try {
       const token = await registerForPush();
+      logDebug(`registerForPush returned: ${token ? 'token' : 'null'}`);
       if (initializationAborted) {
-        console.log('[NativePush] Initialization aborted by logout, skipping backend registration');
+        logDebug('Initialization aborted by logout, skipping backend registration');
         return;
       }
-      console.log('[NativePush] Got token:', token ? token.substring(0, 20) + '...' : 'null');
       if (token) {
         const registered = await registerDeviceWithBackend();
-        console.log('[NativePush] Backend registration:', registered ? 'success' : 'failed');
+        logDebug(`backend registration: ${registered ? 'success' : 'failed'}`);
       }
+    } catch (error) {
+      logDebug(`init error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       initializationComplete = true;
-      // Always dispatch state change so UI can update, even on failure
+      logDebug('init complete, dispatching nativePushStateChanged');
       window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
     }
   })();

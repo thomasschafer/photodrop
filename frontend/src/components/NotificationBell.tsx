@@ -11,6 +11,7 @@ import {
   isRegisteredWithBackend,
   getCurrentToken,
   waitForNativePushInit,
+  getDebugTimeline,
 } from '../lib/nativePush';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
@@ -98,7 +99,9 @@ export function NotificationBell() {
     try {
       // Wait for initialization to complete before checking status
       // This prevents racing with the permission dialog on cold start
+      console.log('[NotificationBell] Waiting for native push init...');
       await waitForNativePushInit();
+      console.log('[NotificationBell] Native push init complete, checking status...');
 
       const permission = await checkNativePermissions();
       console.log('[NotificationBell] Native permission:', permission);
@@ -455,29 +458,48 @@ export function NotificationBell() {
       )}
 
       {showDebug && (
-        <ConfirmModal
-          title="Notification debug info"
-          message={`
-State: ${debugInfo.state}
+        <Modal title="Notification debug info" onClose={() => setShowDebug(false)}>
+          <div className="space-y-3">
+            <pre className="text-xs p-3 bg-surface-elevated rounded-lg overflow-x-auto whitespace-pre-wrap">
+              {`State: ${debugInfo.state}
 Platform: ${debugInfo.isNative ? 'Native (Capacitor)' : 'Web'}
 Group ID: ${debugInfo.groupId || 'none'}
 Permission: ${debugInfo.permission || 'not checked'}
 Has Token: ${debugInfo.hasToken ? 'yes' : 'no'}
 Token: ${debugInfo.tokenPreview || 'none'}
 Error: ${debugInfo.error || 'none'}
-          `.trim()}
-          confirmLabel="Try subscribe"
-          cancelLabel="Close"
-          onConfirm={async () => {
-            setShowDebug(false);
-            if (isNative) {
-              await subscribeNative();
-            } else {
-              await subscribeWeb();
-            }
-          }}
-          onCancel={() => setShowDebug(false)}
-        />
+
+Timeline:
+${
+  getDebugTimeline()
+    .map((e) => {
+      const t = new Date(e.ts);
+      return `${t.toLocaleTimeString()}.${String(t.getMilliseconds()).padStart(3, '0')} ${e.event}`;
+    })
+    .join('\n') || '(empty)'
+}`}
+            </pre>
+            <button
+              onClick={async () => {
+                setShowDebug(false);
+                if (isNative) {
+                  await subscribeNative();
+                } else {
+                  await subscribeWeb();
+                }
+              }}
+              className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium"
+            >
+              Try subscribe
+            </button>
+            <button
+              onClick={() => setShowDebug(false)}
+              className="w-full py-2 px-4 border border-border rounded-lg"
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
       )}
 
       {showTestModal && (
