@@ -207,72 +207,73 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 
 ### Native push notifications (FCM)
 
-Native apps use Firebase Cloud Messaging for push notifications. Without this setup, the app works but users won't receive notifications when photos are shared.
+Native apps use Firebase Cloud Messaging for reliable push notifications. Without this setup, the app works but users won't receive notifications when photos are shared.
 
-**1. Create Firebase project**:
+**1. Create Firebase project and add apps**:
 - Go to https://console.firebase.google.com → Create project (or use existing)
-- Project name can be anything (e.g., "photodrop")
+- Add Android app: Project settings → General → Add app → Android → Package name: `com.photodrop.app`
+- Download `google-services.json` when prompted
 
-**2. Add Android app**:
-- In Firebase Console → Project settings → General → Add app → Android
-- Package name: `com.photodrop.app`
-- Download `google-services.json`
-- Copy to `mobile/android/app/google-services.json`
+**2. Add GitHub secret** (Settings → Secrets → Actions):
+- `GOOGLE_SERVICES_JSON` — paste the contents of the downloaded `google-services.json`
 
-**3. Add iOS app**:
-- In Firebase Console → Project settings → General → Add app → iOS
-- Bundle ID: `com.photodrop.app`
-- Download `GoogleService-Info.plist`
-- Copy to `mobile/ios/App/App/GoogleService-Info.plist`
-
-**4. iOS APNs setup** (required for iOS push — needs Apple Developer account):
-- Go to developer.apple.com → Certificates, Identifiers & Profiles → Keys
-- Create new key with "Apple Push Notifications service (APNs)" enabled
-- Download the `.p8` file and note the Key ID
-- In Firebase Console → Project settings → Cloud Messaging → Apple app configuration
-- Upload the APNs key, enter Key ID and Team ID
-
-**5. Backend configuration**:
+**3. Backend configuration**:
 ```bash
 # Generate service account key:
 # Firebase Console → Project settings → Service accounts → Generate new private key
-#
-# Security: The default "Firebase Admin SDK" role is fine for a personal project.
-# For tighter security, create a custom service account in Google Cloud Console
-# (IAM & Admin → Service Accounts) with only the "Firebase Cloud Messaging API Admin" role.
 
-# Add to Cloudflare Workers (production) - pipe from downloaded file:
+# Add to Cloudflare Workers (production):
 cat ~/Downloads/your-firebase-key.json | wrangler secret put FIREBASE_SERVICE_ACCOUNT --name photodrop-api
-
-# For local development, add to backend/.dev.vars:
-FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}'
 ```
 
-**Testing**: Upload a photo from one device — other group members with the app installed should receive a push notification.
+**4. Trigger a build** — push to the branch or use Actions → Run workflow
+
+**Testing**: Install the APK, log in, and grant notification permission when prompted. Upload a photo from another device — you should receive a push notification.
+
+<details>
+<summary><strong>iOS setup</strong> (requires Apple Developer account)</summary>
+
+1. Add iOS app in Firebase Console: Package name `com.photodrop.app`
+2. Download `GoogleService-Info.plist`
+3. Add `GOOGLE_SERVICE_INFO_PLIST` GitHub secret with the file contents
+4. Configure APNs:
+   - Go to developer.apple.com → Certificates, Identifiers & Profiles → Keys
+   - Create new key with "Apple Push Notifications service (APNs)" enabled
+   - Download the `.p8` file and note the Key ID
+   - In Firebase Console → Project settings → Cloud Messaging → Apple app configuration
+   - Upload the APNs key, enter Key ID and Team ID
+
+</details>
+
+<details>
+<summary><strong>Local development</strong> (building without CI)</summary>
+
+If you need to build locally instead of using GitHub Actions:
+
+1. Copy `google-services.json` to `mobile/android/app/google-services.json`
+2. For iOS, copy `GoogleService-Info.plist` to `mobile/ios/App/App/GoogleService-Info.plist`
+3. Add to `backend/.dev.vars`:
+   ```
+   FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}'
+   ```
+4. Build:
+   ```bash
+   cd frontend && npm run build
+   cd ../mobile && npm install
+   cp -r ../frontend/dist ./dist
+   npx cap sync android
+   cd android && ./gradlew assembleDebug
+   # APK at mobile/android/app/build/outputs/apk/debug/app-debug.apk
+   ```
+
+</details>
 
 ### Building
 
-**Android APK** (via GitHub Actions):
-- Push to `main` branch (or `feat/mobile-capacitor`)
-- Download APK from Actions artifacts
-- With signing configured: release APK ready for Play Store
-- Without signing: debug APK for testing
+Push to `main` or `feat/mobile-capacitor` to trigger a CI build. Download the APK from **Actions → workflow run → Artifacts**.
 
-**Local Android build** (requires Java 21 + Android SDK):
-```bash
-cd frontend && npm run build
-cd ../mobile && npm install
-cp -r ../frontend/dist ./dist
-npx cap sync android
-cd android && ./gradlew assembleDebug
-# APK at mobile/android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-**iOS** (requires Mac + Xcode + Apple Developer account):
-```bash
-cd mobile && npx cap open ios
-# Build and sign in Xcode
-```
+- With signing secrets configured: signed release APK (ready for Play Store)
+- Without signing secrets: debug APK (for testing)
 
 ## Architecture
 
