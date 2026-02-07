@@ -14,7 +14,23 @@ import {
 import { ConfirmModal } from './ConfirmModal';
 import { useAuth } from '../contexts/AuthContext';
 
-type NotificationState = 'loading' | 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
+type NotificationState =
+  | 'loading'
+  | 'unsupported'
+  | 'denied'
+  | 'subscribed'
+  | 'unsubscribed'
+  | 'error';
+
+interface DebugInfo {
+  isNative: boolean;
+  state: NotificationState;
+  permission: string | null;
+  hasToken: boolean;
+  tokenPreview: string | null;
+  error: string | null;
+  groupId: string | null;
+}
 
 export function NotificationBell() {
   const { currentGroup } = useAuth();
@@ -24,6 +40,16 @@ export function NotificationBell() {
   const [showBlockedHelp, setShowBlockedHelp] = useState(false);
   const [showUnsupportedHelp, setShowUnsupportedHelp] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({
+    isNative: false,
+    state: 'loading',
+    permission: null,
+    hasToken: false,
+    tokenPreview: null,
+    error: null,
+    groupId: null,
+  });
 
   // Check web push subscription status
   const checkWebSubscriptionStatus = useCallback(async () => {
@@ -57,11 +83,19 @@ export function NotificationBell() {
   // Check native push subscription status
   const checkNativeSubscriptionStatus = useCallback(async () => {
     console.log('[NotificationBell] Checking native subscription status...');
+    const debug: Partial<DebugInfo> = {
+      isNative: true,
+      groupId: currentGroup?.id || null,
+    };
+
     try {
       const permission = await checkNativePermissions();
       console.log('[NotificationBell] Native permission:', permission);
+      debug.permission = permission;
 
       if (permission === 'denied') {
+        debug.state = 'denied';
+        setDebugInfo((prev) => ({ ...prev, ...debug, state: 'denied' }));
         setState('denied');
         return;
       }
@@ -69,7 +103,12 @@ export function NotificationBell() {
       // If we don't have a token yet, user hasn't subscribed
       const token = getCurrentToken();
       console.log('[NotificationBell] Current token:', token ? 'exists' : 'null');
+      debug.hasToken = !!token;
+      debug.tokenPreview = token ? token.substring(0, 20) + '...' : null;
+
       if (!token) {
+        debug.state = 'unsubscribed';
+        setDebugInfo((prev) => ({ ...prev, ...debug, state: 'unsubscribed' }));
         setState('unsubscribed');
         return;
       }
@@ -77,16 +116,23 @@ export function NotificationBell() {
       // Check if registered with backend for this group
       const registered = await isRegisteredWithBackend();
       console.log('[NotificationBell] Registered with backend:', registered);
-      setState(registered ? 'subscribed' : 'unsubscribed');
+      const finalState = registered ? 'subscribed' : 'unsubscribed';
+      debug.state = finalState;
+      setDebugInfo((prev) => ({ ...prev, ...debug, state: finalState }));
+      setState(finalState);
     } catch (error) {
       console.error('[NotificationBell] Error checking native subscription status:', error);
-      setState('unsubscribed');
+      debug.error = error instanceof Error ? error.message : String(error);
+      debug.state = 'error';
+      setDebugInfo((prev) => ({ ...prev, ...debug, state: 'error', error: debug.error || null }));
+      setState('error');
     }
-  }, []);
+  }, [currentGroup?.id]);
 
   useEffect(() => {
     console.log('[NotificationBell] useEffect triggered, isNative:', isNative);
     setState('loading');
+    setDebugInfo((prev) => ({ ...prev, isNative, groupId: currentGroup?.id || null }));
     if (isNative) {
       checkNativeSubscriptionStatus();
     } else {
@@ -187,7 +233,10 @@ export function NotificationBell() {
   const unsubscribe = isNative ? unsubscribeNative : unsubscribeWeb;
 
   const handleClick = () => {
-    if (state === 'subscribed') {
+    if (state === 'loading' || state === 'error') {
+      // Show debug info for loading/error states
+      setShowDebug(true);
+    } else if (state === 'subscribed') {
       setShowConfirm(true);
     } else if (state === 'unsubscribed') {
       subscribe();
@@ -198,14 +247,13 @@ export function NotificationBell() {
     }
   };
 
-  if (state === 'loading') {
-    return null;
-  }
-
+  const isLoading = state === 'loading';
+  const isError = state === 'error';
   const isSubscribed = state === 'subscribed';
   const isDenied = state === 'denied';
   const isUnsupported = state === 'unsupported';
   const isDisabled = isDenied || isUnsupported;
+  const showSpinner = isLoading || isProcessing;
 
   return (
     <>
@@ -213,32 +261,44 @@ export function NotificationBell() {
         onClick={handleClick}
         disabled={isProcessing}
         aria-label={
-          isUnsupported
-            ? 'Notifications not supported - click for help'
-            : isDenied
-              ? 'Notifications blocked - click for help'
-              : isSubscribed
-                ? 'Disable notifications'
-                : 'Enable notifications'
+          isLoading
+            ? 'Loading notification status...'
+            : isError
+              ? 'Error checking notifications - tap for details'
+              : isUnsupported
+                ? 'Notifications not supported - click for help'
+                : isDenied
+                  ? 'Notifications blocked - click for help'
+                  : isSubscribed
+                    ? 'Disable notifications'
+                    : 'Enable notifications'
         }
         title={
-          isUnsupported
-            ? 'Notifications are not supported. Click for help.'
-            : isDenied
-              ? 'Notifications are blocked. Click for help enabling them.'
-              : isSubscribed
-                ? 'Notifications enabled for this group'
-                : 'Enable notifications for this group'
+          isLoading
+            ? 'Checking notification status...'
+            : isError
+              ? 'Error - tap for debug info'
+              : isUnsupported
+                ? 'Notifications are not supported. Click for help.'
+                : isDenied
+                  ? 'Notifications are blocked. Click for help enabling them.'
+                  : isSubscribed
+                    ? 'Notifications enabled for this group'
+                    : 'Enable notifications for this group'
         }
         className={`flex items-center justify-center w-9 h-9 rounded-lg border cursor-pointer transition-colors ${
-          isDisabled
-            ? 'border-border bg-surface text-text-tertiary hover:border-border-strong hover:text-text-secondary'
-            : isSubscribed
-              ? 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
-              : 'border-border bg-surface text-text-secondary hover:border-border-strong'
+          isError
+            ? 'border-red-500 bg-red-500/10 text-red-500'
+            : isLoading
+              ? 'border-border bg-surface text-text-tertiary'
+              : isDisabled
+                ? 'border-border bg-surface text-text-tertiary hover:border-border-strong hover:text-text-secondary'
+                : isSubscribed
+                  ? 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
+                  : 'border-border bg-surface text-text-secondary hover:border-border-strong'
         }`}
       >
-        {isProcessing ? (
+        {showSpinner ? (
           <div className="spinner spinner-sm" />
         ) : isSubscribed ? (
           <svg
@@ -299,6 +359,32 @@ export function NotificationBell() {
           confirmLabel="Got it"
           onConfirm={() => setShowUnsupportedHelp(false)}
           onCancel={() => setShowUnsupportedHelp(false)}
+        />
+      )}
+
+      {showDebug && (
+        <ConfirmModal
+          title="🔧 Notification Debug Info"
+          message={`
+State: ${debugInfo.state}
+Platform: ${debugInfo.isNative ? 'Native (Capacitor)' : 'Web'}
+Group ID: ${debugInfo.groupId || 'none'}
+Permission: ${debugInfo.permission || 'not checked'}
+Has Token: ${debugInfo.hasToken ? 'yes' : 'no'}
+Token: ${debugInfo.tokenPreview || 'none'}
+Error: ${debugInfo.error || 'none'}
+          `.trim()}
+          confirmLabel="Try Subscribe"
+          cancelLabel="Close"
+          onConfirm={async () => {
+            setShowDebug(false);
+            if (isNative) {
+              await subscribeNative();
+            } else {
+              await subscribeWeb();
+            }
+          }}
+          onCancel={() => setShowDebug(false)}
         />
       )}
     </>
