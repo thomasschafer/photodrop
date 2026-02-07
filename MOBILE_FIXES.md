@@ -114,12 +114,73 @@
 
 #### Android Testing Checklist (In Progress)
 
-- [ ] Permission prompt appears on first login
-- [ ] Token registered with backend after granting permission
-- [ ] Push received when photo uploaded (app backgrounded)
+- [x] Permission prompt appears on first login (confirmed - user granted permission)
+- [x] Token obtained from FCM (confirmed - "Token: Ready" in debug modal)
+- [x] Token registered with backend (confirmed - state changed to "subscribed" after bell tap)
+- [ ] Push received when photo uploaded (app backgrounded) - **NOT WORKING YET**
 - [ ] Notification tap opens app to correct group
 - [ ] Token cleaned up on logout
 - [ ] Token re-registered on group switch
+
+---
+
+## Known Bugs & Unverified Fixes
+
+These issues were discovered during testing. Fixes have been implemented but not yet verified (pending backend deployment).
+
+### 1. Push notifications not being received
+
+**Symptom:** User grants permission, token is registered, but no push notifications arrive when photos are uploaded.
+
+**Root cause:** Backend changes (FCM sending, test endpoint) not deployed yet - only the APK (frontend) was updated.
+
+**Fix:** Merge branch and deploy backend to Cloudflare Workers.
+
+**To verify:** After deployment, use the test notification button (long-press bell) to confirm FCM is working end-to-end.
+
+### 2. HEIC uploads failing on web
+
+**Symptom:** HEIC images from iPhone fail to upload on web. Preview doesn't work either.
+
+**Root cause:** Browsers don't support HEIC natively - `browser-image-compression` can't process it, `<img>` can't display it.
+
+**Fix implemented:** Added `heic2any` library to convert HEIC → JPEG before compression.
+
+**To verify:** Upload a HEIC image from iPhone on web browser.
+
+### 3. Native uploads were failing
+
+**Symptom:** "Failed to fetch" error when uploading photos from native app.
+
+**Root cause:** Regular `fetch` doesn't work well for cross-origin multipart uploads on native Android.
+
+**Fix implemented:** Enabled `CapacitorHttp.enabled: true` in capacitor.config.ts to patch fetch globally.
+
+**Verified:** PNG uploads work. HEIC not tested yet.
+
+### 4. Notification bell was hidden
+
+**Symptom:** Bell icon not visible in header on native app.
+
+**Root cause:** Component returned `null` during loading state, and the status check was failing/hanging.
+
+**Fix implemented:** 
+- Bell now always renders (shows spinner during loading)
+- Added error state handling
+- Tap bell in loading/error state shows debug info
+- Long-press bell opens test notification modal
+
+**Verified:** Bell now visible.
+
+### 5. Auto-registration not working on first login
+
+**Symptom:** User had to manually tap bell to register for notifications after granting permission.
+
+**Root cause:** `initializeNativePush()` runs when user logs in, but if permission wasn't granted yet, it doesn't retry after permission is granted in settings.
+
+**Current behavior:** User must tap bell to register after enabling notifications in Android settings.
+
+**To investigate:** Check if auto-init works when permission is granted via the native prompt (not retroactively via settings).
 
 #### Remaining Setup: iOS (Later)
 
@@ -164,14 +225,18 @@ New:
 
 Modified:
 - .gitleaks.toml (allow fcm.ts patterns)
+- .github/workflows/mobile-android.yml (GOOGLE_SERVICES_JSON secret)
 - MOBILE_FIXES.md (this file)
-- README.md (FCM setup docs)
+- PLAN.md (updated phase status)
+- README.md (FCM setup docs, CI-first workflow)
 - backend/src/lib/db.ts (device token functions)
 - backend/src/lib/db.test.ts (device token tests)
 - backend/src/routes/photos.ts (send FCM on upload)
-- backend/src/routes/push.ts (device registration endpoints)
-- frontend/package.json (dependency update)
-- frontend/src/components/NotificationBell.tsx (native push support)
+- backend/src/routes/push.ts (device registration + test endpoint)
+- frontend/package.json (heic2any dependency)
+- frontend/src/components/NotificationBell.tsx (native push, debug modal, test button)
 - frontend/src/contexts/AuthContext.tsx (native push init)
-- frontend/src/lib/api.ts (device registration methods)
+- frontend/src/lib/api.ts (device registration + test methods)
+- frontend/src/lib/imageCompression.ts (HEIC conversion)
+- mobile/capacitor.config.ts (CapacitorHttp global patching)
 ```

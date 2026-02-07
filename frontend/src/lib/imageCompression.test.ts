@@ -1,4 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Mock heic2any before importing the module (it uses Web Workers which aren't available in tests)
+vi.mock('heic2any', () => ({
+  default: vi.fn(),
+}));
+
 import { formatFileSize, isImageFile, validateImageFile } from './imageCompression';
 
 describe('Image compression utilities', () => {

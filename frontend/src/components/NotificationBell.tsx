@@ -280,7 +280,9 @@ export function NotificationBell() {
     try {
       const result = await api.push.sendTestNotification(token);
       if (result.success) {
-        setTestResult(`SUCCESS:${result.message}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
+        setTestResult(
+          `SUCCESS:${result.message}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`
+        );
       } else {
         setTestResult(`ERROR:${result.error}\n\nDebug: ${JSON.stringify(result.debug, null, 2)}`);
       }

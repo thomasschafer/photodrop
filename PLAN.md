@@ -1146,7 +1146,18 @@ The migration assigns random colors to all existing users so the column can be N
 - [x] Frontend: request permission, register token (auto on login)
 - [x] Backend: device_tokens table + endpoints
 - [x] Backend: send to FCM on photo upload
-- [ ] Test end-to-end notification flow
+- [x] Test notification button (long-press bell)
+- [x] Debug info modal (tap bell when loading/error)
+- [ ] Test end-to-end notification flow (blocked on backend deploy)
+
+**Known issues (see MOBILE_FIXES.md for details):**
+- Push notifications not received yet (backend not deployed)
+- Auto-registration may not work if permission granted via settings (needs testing)
+
+**Also fixed in this branch:**
+- [x] HEIC image uploads on web (heic2any conversion)
+- [x] Native uploads failing (CapacitorHttp global patching)
+- [x] Notification bell hidden during loading
 
 **Phase 3.5.3: iOS & Distribution** (later)
 - [ ] Apple Developer account ($99/year)
