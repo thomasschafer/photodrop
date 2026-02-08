@@ -1,0 +1,1 @@
+ALTER TABLE memberships ADD COLUMN image_protection INTEGER NOT NULL DEFAULT 1;

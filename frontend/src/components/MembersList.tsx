@@ -4,6 +4,7 @@ import { api, ApiError } from '../lib/api';
 import { useFocusRestore } from '../lib/hooks';
 import type { ProfileColor } from '../lib/profileColors';
 import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
+import { setNativeScreenshotProtection } from '../lib/privacyScreen';
 import { Avatar } from './Avatar';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
@@ -16,6 +17,7 @@ interface Member {
   profileColor: ProfileColor;
   role: MembershipRole;
   joinedAt: number;
+  imageProtection: boolean;
 }
 
 export function MembersList() {
@@ -89,6 +91,46 @@ export function MembersList() {
     }
     setSuccessMessage(message);
     successTimeoutRef.current = setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const handleImageProtectionToggle = async (
+    memberId: string,
+    memberName: string,
+    enabled: boolean
+  ) => {
+    if (!currentGroup) return;
+
+    setActionLoading(memberId);
+    setError(null);
+
+    // Optimistic update
+    const previousMembers = members;
+    setMembers((prev) =>
+      prev.map((m) => (m.userId === memberId ? { ...m, imageProtection: enabled } : m))
+    );
+
+    try {
+      await api.groups.updateMemberImageProtection(currentGroup.id, memberId, enabled);
+      // If toggling own protection, update the privacy screen and notify AuthContext
+      if (memberId === user?.id) {
+        await setNativeScreenshotProtection(enabled);
+        window.dispatchEvent(
+          new CustomEvent('imageProtectionChanged', { detail: { enabled } })
+        );
+      }
+      showSuccess(`Image protection ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);
+    } catch (err) {
+      // Revert optimistic update
+      setMembers(previousMembers);
+      console.error('Failed to update image protection:', err);
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Failed to update image protection');
+      }
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleRoleChangeRequest = (
@@ -463,6 +505,61 @@ export function MembersList() {
                       <option value="member">{ROLE_DISPLAY_NAMES.member}</option>
                     </select>
                   )}
+
+                  <button
+                    onClick={() =>
+                      handleImageProtectionToggle(
+                        member.userId,
+                        member.name,
+                        !member.imageProtection
+                      )
+                    }
+                    disabled={isLoading}
+                    className={`p-2 transition-colors disabled:opacity-50 cursor-pointer ${
+                      member.imageProtection
+                        ? 'text-text-tertiary hover:text-accent'
+                        : 'text-accent hover:text-accent/70'
+                    }`}
+                    title={
+                      member.imageProtection
+                        ? `Allow ${member.name} to save images`
+                        : `Block ${member.name} from saving images`
+                    }
+                    aria-label={
+                      member.imageProtection
+                        ? `Allow ${member.name} to save images`
+                        : `Block ${member.name} from saving images`
+                    }
+                  >
+                    {member.imageProtection ? (
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <path d="M21 15l-5-5L5 21" />
+                        <path d="M1 1l22 22" />
+                      </svg>
+                    ) : (
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <path d="M21 15l-5-5L5 21" />
+                      </svg>
+                    )}
+                  </button>
 
                   <button
                     ref={(el) => {

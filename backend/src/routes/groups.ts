@@ -10,6 +10,7 @@ import {
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
+  updateMemberImageProtection,
   type MembershipRole,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
@@ -73,6 +74,7 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
         profileColor: m.user_profile_color,
         role: m.role,
         joinedAt: m.joined_at,
+        imageProtection: m.image_protection === 1,
       })),
     });
   } catch (error) {
@@ -174,6 +176,41 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
   } catch (error) {
     console.error('Error removing member:', error);
     return c.json({ error: 'Failed to remove member' }, 500);
+  }
+});
+
+// Update a member's image protection (admin only)
+groups.patch('/:groupId/members/:userId/image-protection', requireAdmin, async (c) => {
+  try {
+    const groupId = c.req.param('groupId');
+    const userId = c.req.param('userId');
+    const user = c.get('user');
+
+    if (groupId !== user.groupId) {
+      return c.json({ error: 'Cannot modify members of a different group' }, 403);
+    }
+
+    const membership = await getMembership(c.env.DB, userId, groupId);
+    if (!membership) {
+      return c.json({ error: 'User is not a member of this group' }, 404);
+    }
+
+    const body = await c.req.json();
+    const { enabled } = body;
+
+    if (typeof enabled !== 'boolean') {
+      return c.json({ error: 'enabled must be a boolean' }, 400);
+    }
+
+    const success = await updateMemberImageProtection(c.env.DB, userId, groupId, enabled);
+    if (!success) {
+      return c.json({ error: 'Failed to update image protection' }, 500);
+    }
+
+    return c.json({ message: 'Image protection updated' });
+  } catch (error) {
+    console.error('Error updating image protection:', error);
+    return c.json({ error: 'Failed to update image protection' }, 500);
   }
 });
 

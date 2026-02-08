@@ -18,6 +18,7 @@ export interface Group {
   name: string;
   role: MembershipRole;
   ownerId: string;
+  imageProtection: boolean;
 }
 
 export interface AuthResponse {
@@ -287,6 +288,17 @@ export const api = {
 
     getPhotoCount: async (groupId: string): Promise<{ count: number }> => {
       const response = await fetchWithAuth(`/groups/${groupId}/photo-count`);
+      return response.json();
+    },
+
+    updateMemberImageProtection: async (groupId: string, userId: string, enabled: boolean) => {
+      const response = await fetchWithAuth(
+        `/groups/${groupId}/members/${userId}/image-protection`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ enabled }),
+        }
+      );
       return response.json();
     },
   },

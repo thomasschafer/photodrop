@@ -57,6 +57,7 @@ export interface Membership {
   group_id: string;
   role: MembershipRole;
   joined_at: number;
+  image_protection: number;
 }
 
 export interface MembershipWithGroup extends Membership {
@@ -154,6 +155,19 @@ export async function getGroup(db: D1Database, groupId: string): Promise<Group |
   return result;
 }
 
+export async function updateMemberImageProtection(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  enabled: boolean
+): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE memberships SET image_protection = ? WHERE user_id = ? AND group_id = ?')
+    .bind(enabled ? 1 : 0, userId, groupId)
+    .run();
+  return result.success;
+}
+
 // User functions
 export async function createUser(db: D1Database, name: string, email: string): Promise<string> {
   const userId = generateId();
@@ -208,7 +222,7 @@ export async function getUserMemberships(
 ): Promise<MembershipWithGroup[]> {
   const result = await db
     .prepare(
-      `SELECT m.user_id, m.group_id, m.role, m.joined_at, g.name as group_name, g.owner_id as group_owner_id
+      `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, g.name as group_name, g.owner_id as group_owner_id
        FROM memberships m
        JOIN groups g ON m.group_id = g.id
        WHERE m.user_id = ?
@@ -227,7 +241,7 @@ export async function getGroupMembers(
   const [membersResult, group] = await Promise.all([
     db
       .prepare(
-        `SELECT m.user_id, m.group_id, m.role, m.joined_at, u.name as user_name, u.email as user_email, u.profile_color as user_profile_color
+        `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, u.name as user_name, u.email as user_email, u.profile_color as user_profile_color
          FROM memberships m
          JOIN users u ON m.user_id = u.id
          WHERE m.group_id = ?

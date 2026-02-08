@@ -289,12 +289,14 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
           name: group?.name || invitedGroupMembership.group_name,
           role: invitedGroupMembership.role,
           ownerId: group?.owner_id || invitedGroupMembership.group_owner_id,
+          imageProtection: invitedGroupMembership.image_protection === 1,
         },
         groups: memberships.map((m) => ({
           id: m.group_id,
           name: m.group_name,
           role: m.role,
           ownerId: m.group_owner_id,
+          imageProtection: m.image_protection === 1,
         })),
         needsGroupSelection: false,
       });
@@ -364,12 +366,14 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
             name: membership.group_name,
             role: membership.role,
             ownerId: membership.group_owner_id,
+            imageProtection: membership.image_protection === 1,
           },
           groups: memberships.map((m) => ({
             id: m.group_id,
             name: m.group_name,
             role: m.role,
             ownerId: m.group_owner_id,
+            imageProtection: m.image_protection === 1,
           })),
           needsGroupSelection: false,
         });
@@ -391,6 +395,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
           name: m.group_name,
           role: m.role,
           ownerId: m.group_owner_id,
+          imageProtection: m.image_protection === 1,
         })),
         needsGroupSelection: true,
       });
@@ -469,12 +474,14 @@ auth.post('/switch-group', requireAuth, async (c) => {
         name: group.name,
         role: membership.role,
         ownerId: group.owner_id,
+        imageProtection: membership.image_protection === 1,
       },
       groups: memberships.map((m) => ({
         id: m.group_id,
         name: m.group_name,
         role: m.role,
         ownerId: m.group_owner_id,
+        imageProtection: m.image_protection === 1,
       })),
     });
   } catch (error) {
@@ -561,12 +568,14 @@ auth.post('/select-group', async (c) => {
         name: group.name,
         role: membership.role,
         ownerId: group.owner_id,
+        imageProtection: membership.image_protection === 1,
       },
       groups: memberships.map((m) => ({
         id: m.group_id,
         name: m.group_name,
         role: m.role,
         ownerId: m.group_owner_id,
+        imageProtection: m.image_protection === 1,
       })),
     });
   } catch (error) {
@@ -625,6 +634,7 @@ auth.post('/refresh', async (c) => {
           name: m.group_name,
           role: m.role,
           ownerId: m.group_owner_id,
+          imageProtection: m.image_protection === 1,
         })),
         needsGroupSelection: memberships.length > 0,
       });
@@ -669,12 +679,14 @@ auth.post('/refresh', async (c) => {
         name: group?.name || 'Unknown',
         role: membership.role,
         ownerId: group?.owner_id,
+        imageProtection: membership.image_protection === 1,
       },
       groups: memberships.map((m) => ({
         id: m.group_id,
         name: m.group_name,
         role: m.role,
         ownerId: m.group_owner_id,
+        imageProtection: m.image_protection === 1,
       })),
     });
   } catch (error) {
