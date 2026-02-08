@@ -15,17 +15,33 @@ import { ConfirmModal } from './ConfirmModal';
 import { SelectDropdown } from './SelectDropdown';
 import { Modal } from './Modal';
 import { PhotoUpload } from './PhotoUpload';
+import { ProtectedImage } from './ProtectedImage';
 import { useAuth } from '../contexts/AuthContext';
 
 // Grid thumbnail component that uses authenticated image loading
-function GridThumbnail({ photoId, alt }: { photoId: string; alt: string }) {
+function GridThumbnail({
+  photoId,
+  alt,
+  imageProtectionEnabled,
+}: {
+  photoId: string;
+  alt: string;
+  imageProtectionEnabled: boolean;
+}) {
   const { src, loading } = useAuthenticatedImage(photoId, 'thumbnail');
 
   if (loading || !src) {
     return <div className="w-full h-auto min-h-[200px] animate-pulse bg-bg-secondary" />;
   }
 
-  return <img src={src} alt={alt} className="w-full h-auto block max-h-[400px] object-cover" />;
+  return (
+    <ProtectedImage
+      protected={imageProtectionEnabled}
+      src={src}
+      alt={alt}
+      className="w-full h-auto block max-h-[400px] object-cover"
+    />
+  );
 }
 
 interface ReactionSummary {
@@ -430,7 +446,7 @@ interface ReactionWithUser {
 }
 
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
-  const { user } = useAuth();
+  const { user, imageProtection: imageProtectionEnabled } = useAuth();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -856,7 +872,11 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               className="cursor-pointer bg-surface rounded-xl border border-border shadow-card transition-shadow hover:shadow-elevated"
             >
               <div className="relative bg-bg-secondary overflow-hidden rounded-t-xl">
-                <GridThumbnail photoId={photo.id} alt={photo.caption || ''} />
+                <GridThumbnail
+                  photoId={photo.id}
+                  alt={photo.caption || ''}
+                  imageProtectionEnabled={imageProtectionEnabled}
+                />
               </div>
               <div className="p-4 px-5">
                 {photo.caption && (
@@ -994,6 +1014,7 @@ interface Comment {
 
 // Progressive image that shows thumbnail first, then loads full image
 function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
+  const { imageProtection } = useAuth();
   const thumbnail = useAuthenticatedImage(photoId, 'thumbnail');
   const full = useAuthenticatedImage(photoId, 'download');
 
@@ -1003,7 +1024,8 @@ function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
     <div className="relative w-full h-full">
       {/* Thumbnail - always renders, fades out when full loads */}
       {thumbnail.src && (
-        <img
+        <ProtectedImage
+          protected={imageProtection}
           src={thumbnail.src}
           alt={alt}
           className={`absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
@@ -1013,7 +1035,8 @@ function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
       )}
       {/* Full image - fades in when loaded */}
       {full.src && (
-        <img
+        <ProtectedImage
+          protected={imageProtection}
           src={full.src}
           alt={alt}
           className="absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 opacity-100"

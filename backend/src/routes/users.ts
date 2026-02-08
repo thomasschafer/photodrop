@@ -74,6 +74,7 @@ users.get('/me', requireAuth, async (c) => {
             name: currentMembership.group_name,
             role: currentMembership.role,
             ownerId: currentMembership.group_owner_id,
+            imageProtection: currentMembership.image_protection === 1,
           }
         : null,
       groups: memberships.map((m) => ({
@@ -81,6 +82,7 @@ users.get('/me', requireAuth, async (c) => {
         name: m.group_name,
         role: m.role,
         ownerId: m.group_owner_id,
+        imageProtection: m.image_protection === 1,
       })),
     });
   } catch (error) {

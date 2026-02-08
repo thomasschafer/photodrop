@@ -4,6 +4,7 @@ import { api, ApiError } from '../lib/api';
 import { useFocusRestore } from '../lib/hooks';
 import type { ProfileColor } from '../lib/profileColors';
 import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
+import { setNativeScreenshotProtection } from '../lib/privacyScreen';
 import { Avatar } from './Avatar';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
@@ -16,6 +17,7 @@ interface Member {
   profileColor: ProfileColor;
   role: MembershipRole;
   joinedAt: number;
+  imageProtection: boolean;
 }
 
 export function MembersList() {
@@ -89,6 +91,44 @@ export function MembersList() {
     }
     setSuccessMessage(message);
     successTimeoutRef.current = setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const handleImageProtectionToggle = async (
+    memberId: string,
+    memberName: string,
+    enabled: boolean
+  ) => {
+    if (!currentGroup) return;
+
+    setActionLoading(memberId);
+    setError(null);
+
+    // Optimistic update
+    const previousMembers = members;
+    setMembers((prev) =>
+      prev.map((m) => (m.userId === memberId ? { ...m, imageProtection: enabled } : m))
+    );
+
+    try {
+      await api.groups.updateMemberImageProtection(currentGroup.id, memberId, enabled);
+      // If toggling own protection, update the privacy screen and notify AuthContext
+      if (memberId === user?.id) {
+        await setNativeScreenshotProtection(enabled);
+        window.dispatchEvent(new CustomEvent('imageProtectionChanged', { detail: { enabled } }));
+      }
+      showSuccess(`Image protection ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);
+    } catch (err) {
+      // Revert optimistic update
+      setMembers(previousMembers);
+      console.error('Failed to update image protection:', err);
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Failed to update image protection');
+      }
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleRoleChangeRequest = (
@@ -463,6 +503,61 @@ export function MembersList() {
                       <option value="member">{ROLE_DISPLAY_NAMES.member}</option>
                     </select>
                   )}
+
+                  <button
+                    onClick={() =>
+                      handleImageProtectionToggle(
+                        member.userId,
+                        member.name,
+                        !member.imageProtection
+                      )
+                    }
+                    disabled={isLoading}
+                    className={`p-2 rounded-md transition-colors disabled:opacity-50 cursor-pointer ${
+                      member.imageProtection
+                        ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
+                        : 'text-text-tertiary hover:text-text-secondary'
+                    }`}
+                    title={
+                      member.imageProtection
+                        ? `Image protection on — click to allow ${member.name} to save images`
+                        : `Image protection off — click to block ${member.name} from saving images`
+                    }
+                    aria-label={
+                      member.imageProtection
+                        ? `Disable image protection for ${member.name}`
+                        : `Enable image protection for ${member.name}`
+                    }
+                  >
+                    {member.imageProtection ? (
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        <path d="M9 12l2 2 4-4" />
+                      </svg>
+                    ) : (
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                    )}
+                  </button>
 
                   <button
                     ref={(el) => {

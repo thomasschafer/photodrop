@@ -5,6 +5,7 @@ import {
   createMembership,
   deleteMembership,
   updateMembershipRole,
+  updateMemberImageProtection,
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
@@ -394,6 +395,61 @@ describe('Membership functions', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('is_owner');
+    });
+  });
+
+  describe('updateMemberImageProtection', () => {
+    it('enables image protection', async () => {
+      const db = createMockDb();
+
+      const result = await updateMemberImageProtection(db, 'user-1', 'group-1', true);
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(1, 'user-1', 'group-1');
+    });
+
+    it('disables image protection', async () => {
+      const db = createMockDb();
+
+      const result = await updateMemberImageProtection(db, 'user-1', 'group-1', false);
+
+      expect(result).toBe(true);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(0, 'user-1', 'group-1');
+    });
+
+    it('returns false on database error', async () => {
+      const db = createMockDb([], undefined);
+      db._mocks.mockRun.mockResolvedValueOnce({ success: false });
+
+      const result = await updateMemberImageProtection(db, 'user-1', 'group-1', true);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('getUserMemberships includes image_protection', () => {
+    it('returns image_protection in membership data', async () => {
+      const memberships = [
+        {
+          user_id: 'user-1',
+          group_id: 'group-1',
+          role: 'member',
+          joined_at: 1000,
+          image_protection: 1,
+          group_name: 'Test Group',
+          group_owner_id: 'owner-1',
+        },
+      ];
+      const db = createMockDb(memberships);
+      db._mocks.mockAll.mockResolvedValueOnce({ results: memberships, success: true });
+
+      const result = await getUserMemberships(db, 'user-1');
+
+      expect(result[0].image_protection).toBe(1);
+      // Verify query includes image_protection
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('m.image_protection')
+      );
     });
   });
 });

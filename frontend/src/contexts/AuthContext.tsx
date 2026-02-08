@@ -16,6 +16,7 @@ import {
   cleanupOnLogout as cleanupNativePush,
   onGroupSwitch as nativePushGroupSwitch,
 } from '../lib/nativePush';
+import { setNativeScreenshotProtection } from '../lib/privacyScreen';
 
 interface AuthState {
   user: User | null;
@@ -31,6 +32,7 @@ interface AuthContextType {
   groups: Group[];
   needsGroupSelection: boolean;
   loading: boolean;
+  imageProtection: boolean;
   login: (
     accessToken: string | null,
     user: User,
@@ -61,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Track if native push has been initialized (to avoid double init)
   const nativePushInitialized = useRef(false);
+  const [imageProtection, setImageProtectionState] = useState(true);
 
   const login = useCallback(
     (
@@ -301,6 +304,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, [authState.user, authState.currentGroup]);
 
+  // Update privacy screen protection when current group changes
+  useEffect(() => {
+    if (!authState.currentGroup) return;
+    const enabled = authState.currentGroup.imageProtection;
+    setImageProtectionState(enabled);
+    setNativeScreenshotProtection(enabled).catch((error) => {
+      console.error('Failed to update image protection:', error);
+    });
+  }, [authState.currentGroup]);
+
+  // Listen for image protection changes from settings toggle
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
+      setImageProtectionState(detail.enabled);
+      setAuthState((prev) => {
+        if (!prev.currentGroup) return prev;
+        return {
+          ...prev,
+          currentGroup: { ...prev.currentGroup, imageProtection: detail.enabled },
+          groups: prev.groups.map((g) =>
+            g.id === prev.currentGroup!.id ? { ...g, imageProtection: detail.enabled } : g
+          ),
+        };
+      });
+    };
+    window.addEventListener('imageProtectionChanged', handler);
+    return () => window.removeEventListener('imageProtectionChanged', handler);
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -309,6 +342,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         groups: authState.groups,
         needsGroupSelection: authState.needsGroupSelection,
         loading,
+        imageProtection,
         login,
         logout,
         refreshAuth,
