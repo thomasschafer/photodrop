@@ -9,7 +9,7 @@ export interface CompressionResult {
 /**
  * Check if file is HEIC format
  */
-function isHeicFile(file: File): boolean {
+export function isHeicFile(file: File): boolean {
   const heicTypes = ['image/heic', 'image/heif'];
   if (heicTypes.includes(file.type.toLowerCase())) return true;
   // Also check extension for files with incorrect MIME type
@@ -20,7 +20,7 @@ function isHeicFile(file: File): boolean {
 /**
  * Convert HEIC file to JPEG
  */
-async function convertHeicToJpeg(file: File): Promise<File> {
+export async function convertHeicToJpeg(file: File): Promise<File> {
   const blob = await heic2any({
     blob: file,
     toType: 'image/jpeg',

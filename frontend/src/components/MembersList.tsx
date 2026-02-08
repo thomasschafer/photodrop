@@ -114,9 +114,7 @@ export function MembersList() {
       // If toggling own protection, update the privacy screen and notify AuthContext
       if (memberId === user?.id) {
         await setNativeScreenshotProtection(enabled);
-        window.dispatchEvent(
-          new CustomEvent('imageProtectionChanged', { detail: { enabled } })
-        );
+        window.dispatchEvent(new CustomEvent('imageProtectionChanged', { detail: { enabled } }));
       }
       showSuccess(`Image protection ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);
     } catch (err) {
@@ -515,20 +513,20 @@ export function MembersList() {
                       )
                     }
                     disabled={isLoading}
-                    className={`p-2 transition-colors disabled:opacity-50 cursor-pointer ${
+                    className={`p-2 rounded-md transition-colors disabled:opacity-50 cursor-pointer ${
                       member.imageProtection
-                        ? 'text-text-tertiary hover:text-accent'
-                        : 'text-accent hover:text-accent/70'
+                        ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
+                        : 'text-text-tertiary hover:text-text-secondary'
                     }`}
                     title={
                       member.imageProtection
-                        ? `Allow ${member.name} to save images`
-                        : `Block ${member.name} from saving images`
+                        ? `Image protection on — click to allow ${member.name} to save images`
+                        : `Image protection off — click to block ${member.name} from saving images`
                     }
                     aria-label={
                       member.imageProtection
-                        ? `Allow ${member.name} to save images`
-                        : `Block ${member.name} from saving images`
+                        ? `Disable image protection for ${member.name}`
+                        : `Enable image protection for ${member.name}`
                     }
                   >
                     {member.imageProtection ? (
@@ -539,11 +537,11 @@ export function MembersList() {
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <circle cx="8.5" cy="8.5" r="1.5" />
-                        <path d="M21 15l-5-5L5 21" />
-                        <path d="M1 1l22 22" />
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        <path d="M9 12l2 2 4-4" />
                       </svg>
                     ) : (
                       <svg
@@ -553,10 +551,10 @@ export function MembersList() {
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <circle cx="8.5" cy="8.5" r="1.5" />
-                        <path d="M21 15l-5-5L5 21" />
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                       </svg>
                     )}
                   </button>

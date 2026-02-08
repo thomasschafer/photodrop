@@ -1,6 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
-import { compressImage, validateImageFile, formatFileSize } from '../lib/imageCompression';
+import {
+  compressImage,
+  convertHeicToJpeg,
+  isHeicFile,
+  validateImageFile,
+  formatFileSize,
+} from '../lib/imageCompression';
 
 interface PhotoUploadProps {
   onUploadComplete?: () => void;
@@ -13,10 +19,11 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [progress, setProgress] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = useCallback((file: File) => {
+  const handleFile = useCallback(async (file: File) => {
     const validation = validateImageFile(file);
     if (!validation.valid) {
       setError(validation.error || 'Invalid file');
@@ -25,10 +32,31 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
 
     setSelectedFile(file);
     setError(null);
+    setPreviewLoading(true);
+
+    // HEIC files can't be previewed by most browsers — convert first
+    let previewFile = file;
+    if (isHeicFile(file)) {
+      try {
+        previewFile = await convertHeicToJpeg(file);
+      } catch (err) {
+        console.error('HEIC preview conversion failed:', err);
+        setError('Could not generate preview for HEIC file. Upload may still work.');
+        setPreviewLoading(false);
+        return;
+      }
+    }
 
     const reader = new FileReader();
-    reader.onload = (e) => setPreview(e.target?.result as string);
-    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      setPreview(e.target?.result as string);
+      setPreviewLoading(false);
+    };
+    reader.onerror = () => {
+      setError('Failed to generate image preview');
+      setPreviewLoading(false);
+    };
+    reader.readAsDataURL(previewFile);
   }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,11 +122,15 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
       ) : (
         <div className="space-y-4">
           <div className="relative">
-            <img
-              src={preview || ''}
-              alt="Preview"
-              className="w-full rounded-lg bg-bg-secondary max-h-60 object-contain"
-            />
+            {previewLoading || !preview ? (
+              <div className="w-full rounded-lg bg-bg-secondary max-h-60 min-h-[200px] animate-pulse" />
+            ) : (
+              <img
+                src={preview}
+                alt="Preview"
+                className="w-full rounded-lg bg-bg-secondary max-h-60 object-contain"
+              />
+            )}
             {!uploading && (
               <button
                 onClick={handleCancel}

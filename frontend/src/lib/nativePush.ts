@@ -13,6 +13,9 @@ let currentToken: string | null = null;
 // Track if listeners have been set up
 let listenersInitialized = false;
 
+// Track initialization to prevent race with logout
+let initializationAborted = false;
+
 // Pending registration state (shared across concurrent calls)
 let pendingRegistrationPromise: Promise<string | null> | null = null;
 let pendingResolve: ((token: string | null) => void) | null = null;
@@ -238,7 +241,13 @@ export async function initializeNativePush(): Promise<void> {
     return;
   }
 
+  initializationAborted = false;
+
   const token = await registerForPush();
+  if (initializationAborted) {
+    console.log('[NativePush] Initialization aborted by logout, skipping backend registration');
+    return;
+  }
   console.log('[NativePush] Got token:', token ? token.substring(0, 20) + '...' : 'null');
   if (token) {
     const registered = await registerDeviceWithBackend();
@@ -250,6 +259,9 @@ export async function initializeNativePush(): Promise<void> {
  * Clean up on logout - unregister from backend but keep FCM registration
  */
 export async function cleanupOnLogout(): Promise<void> {
+  // Abort any in-flight initialization to prevent it from re-registering after cleanup
+  initializationAborted = true;
+
   if (currentToken) {
     await unregisterDeviceFromBackend();
   }

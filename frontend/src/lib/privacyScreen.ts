@@ -2,9 +2,9 @@ import { Capacitor } from '@capacitor/core';
 
 /**
  * Enable/disable OS-level screenshot protection on native platforms (iOS/Android).
- * On web this is a no-op — web screenshot prevention is handled via CSS
- * (pointer-events, user-select, context menu blocking) driven by the
- * `screenshotProtection` state in AuthContext.
+ * On web this is a no-op — web image protection is handled via CSS
+ * (user-select, context menu blocking) driven by the
+ * `imageProtection` state in AuthContext.
  */
 export async function setNativeScreenshotProtection(enabled: boolean): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;

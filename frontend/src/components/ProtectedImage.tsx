@@ -26,8 +26,6 @@ export function ProtectedImage({
   className,
   style,
   draggable,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- deliberately stripped to prevent overriding protection
-  onContextMenu,
   ...imgProps
 }: ProtectedImageProps) {
   if (!isProtected) {
@@ -41,7 +39,6 @@ export function ProtectedImage({
       style={{ ...style, ...PROTECTED_STYLE }}
       draggable={false}
       onContextMenu={(e) => e.preventDefault()}
-      data-protected="true"
     />
   );
 }
