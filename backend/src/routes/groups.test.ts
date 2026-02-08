@@ -6,6 +6,8 @@ const mockGetGroup = vi.fn();
 const mockGetGroupPhotoKeys = vi.fn();
 const mockGetGroupPhotoCount = vi.fn();
 const mockDeleteGroup = vi.fn();
+const mockGetMembership = vi.fn();
+const mockUpdateMemberImageProtection = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
@@ -18,10 +20,11 @@ vi.mock('../lib/db', () => ({
   deleteGroup: (...args: unknown[]) => mockDeleteGroup(...args),
   getUserMemberships: vi.fn(),
   getGroupMembers: vi.fn(),
-  getMembership: vi.fn(),
+  getMembership: (...args: unknown[]) => mockGetMembership(...args),
   updateMembershipRole: vi.fn(),
   deleteMembership: vi.fn(),
   updateUserName: vi.fn(),
+  updateMemberImageProtection: (...args: unknown[]) => mockUpdateMemberImageProtection(...args),
 }));
 
 import groups from './groups';
@@ -284,5 +287,237 @@ describe('GET /groups/:groupId/photo-count', () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { count: number };
     expect(json.count).toBe(42);
+  });
+});
+
+describe('PATCH /groups/:groupId/members/:userId/image-protection', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = new Hono();
+    app.use('*', async (c, next) => {
+      c.env = {
+        JWT_SECRET: 'test-secret',
+        DB: {},
+      };
+      await next();
+    });
+    app.route('/groups', groups);
+  });
+
+  it('returns 401 when not authenticated', async () => {
+    const res = await app.request('/groups/group-1/members/user-1/image-protection', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when non-admin tries to update', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'member-user',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+
+    const res = await app.request('/groups/group-1/members/user-1/image-protection', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 when groupId does not match user context', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+
+    const res = await app.request('/groups/different-group/members/user-1/image-protection', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 when user is not a member', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    // First call: requireAdmin middleware checks the requesting user's membership
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+    });
+    // Second call: endpoint checks the target user's membership
+    mockGetMembership.mockResolvedValueOnce(null);
+
+    const res = await app.request('/groups/group-1/members/nonexistent/image-protection', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 when enabled is not a boolean', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    // First: middleware auth check, Second: endpoint membership check
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+    });
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+    });
+
+    const res = await app.request('/groups/group-1/members/user-1/image-protection', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ enabled: 'yes' }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('enabled must be a boolean');
+  });
+
+  it('enables image protection successfully', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+    });
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+    });
+    mockUpdateMemberImageProtection.mockResolvedValue(true);
+
+    const res = await app.request('/groups/group-1/members/user-1/image-protection', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { message: string };
+    expect(json.message).toBe('Image protection updated');
+    expect(mockUpdateMemberImageProtection).toHaveBeenCalledWith({}, 'user-1', 'group-1', true);
+  });
+
+  it('disables image protection successfully', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+    });
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+    });
+    mockUpdateMemberImageProtection.mockResolvedValue(true);
+
+    const res = await app.request('/groups/group-1/members/user-1/image-protection', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ enabled: false }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateMemberImageProtection).toHaveBeenCalledWith({}, 'user-1', 'group-1', false);
+  });
+
+  it('returns 500 when database update fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+    });
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+    });
+    mockUpdateMemberImageProtection.mockResolvedValue(false);
+
+    const res = await app.request('/groups/group-1/members/user-1/image-protection', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(res.status).toBe(500);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Failed to update image protection');
+
+    consoleSpy.mockRestore();
   });
 });

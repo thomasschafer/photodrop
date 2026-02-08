@@ -118,7 +118,8 @@ export async function makeDirectApiCall(
   request: APIRequestContext,
   method: 'GET' | 'POST' | 'DELETE' | 'PATCH',
   path: string,
-  token: string
+  token: string,
+  data?: unknown
 ): Promise<{ status: number; body: unknown }> {
   const response = await request[method.toLowerCase() as 'get' | 'post' | 'delete' | 'patch'](
     `${API_BASE}${path}`,
@@ -127,6 +128,7 @@ export async function makeDirectApiCall(
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
+      ...(data !== undefined ? { data } : {}),
     }
   );
 
