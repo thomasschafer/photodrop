@@ -13,6 +13,7 @@ import {
   waitForNativePushInit,
   getDebugTimeline,
 } from '../lib/nativePush';
+import { App as CapApp } from '@capacitor/app';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { useAuth } from '../contexts/AuthContext';
@@ -166,6 +167,27 @@ export function NotificationBell() {
 
     window.addEventListener('nativePushStateChanged', handleStateChange);
     return () => window.removeEventListener('nativePushStateChanged', handleStateChange);
+  }, [isNative, checkNativeSubscriptionStatus]);
+
+  // Re-check permissions when app resumes (e.g., returning from Android settings
+  // after enabling notifications there)
+  useEffect(() => {
+    if (!isNative) return;
+
+    let handle: { remove: () => Promise<void> } | null = null;
+
+    CapApp.addListener('appStateChange', (appState) => {
+      if (appState.isActive) {
+        console.log('[NotificationBell] App resumed, rechecking permissions...');
+        checkNativeSubscriptionStatus();
+      }
+    }).then((h) => {
+      handle = h;
+    });
+
+    return () => {
+      handle?.remove();
+    };
   }, [isNative, checkNativeSubscriptionStatus]);
 
   // Subscribe to web push
