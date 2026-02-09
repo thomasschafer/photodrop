@@ -1,7 +1,7 @@
 /**
  * Structured logging wrapper
  *
- * Outputs JSON-structured logs in production, readable console logs in dev.
+ * Outputs JSON-structured logs for all environments.
  * Cloudflare Workers logs are captured via console.log/error automatically.
  */
 
@@ -16,7 +16,7 @@ function formatLog(level: LogLevel, message: string, context?: LogContext): stri
     level,
     message,
     timestamp: new Date().toISOString(),
-    ...context,
+    ...(context ? { data: context } : {}),
   });
 }
 

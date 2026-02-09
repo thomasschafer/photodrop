@@ -52,6 +52,12 @@ function ReactionPillButton({
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
   const longPressedRef = useRef(false);
 
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
       if (!enableLongPress) return;

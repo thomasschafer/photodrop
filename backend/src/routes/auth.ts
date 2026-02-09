@@ -52,7 +52,8 @@ const verifyMagicLinkRateLimit = createRateLimitMiddleware({
 auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
   try {
     const body = await c.req.json();
-    const { email: rawEmail, role = 'member' } = body;
+    const { email: rawInput, role = 'member' } = body;
+    const rawEmail = typeof rawInput === 'string' ? rawInput.trim() : rawInput;
 
     if (!rawEmail || typeof rawEmail !== 'string' || !isValidEmail(rawEmail)) {
       return c.json({ error: 'Valid email is required' }, 400);
@@ -109,7 +110,8 @@ auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
 auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
   try {
     const body = await c.req.json();
-    const { email: rawEmail } = body;
+    const { email: rawInput } = body;
+    const rawEmail = typeof rawInput === 'string' ? rawInput.trim() : rawInput;
 
     if (!rawEmail || typeof rawEmail !== 'string' || !isValidEmail(rawEmail)) {
       return c.json({ error: 'Valid email is required' }, 400);

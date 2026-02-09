@@ -17,8 +17,18 @@
 - ✅ Phase 2.5.1 (Profile colors): Complete - colored avatars with initials, user menu
 - ✅ Phase 2.6 (Production hardening): Complete - rate limiting, security headers, file validation, auth fixes
 - ✅ Phase 2.7 (Performance optimizations): Complete - N+1 query fix, infinite scroll, non-blocking notifications
+- ✅ Phase 2.8 (Codebase improvements): Complete - security hardening, Zod validation, component splits, mobile fixes
 - ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
+
+### Deferred from Phase 2.8
+- **Token revocation** — Add ability to invalidate refresh tokens (token version or blocklist in D1). Needs schema design thought.
+- **Frontend component tests** — Unit tests for AuthContext, PhotoFeed, MembersList, NotificationBell, useAuthenticatedImage, useVirtualCarousel. Needs test infrastructure (mocking providers, API).
+- **Token refresh integration test** — Test valid/expired/revoked refresh flows end-to-end.
+- **E2e upload flow test** — Full upload → notification → view receipt test.
+- **Eliminate double image fetch** — useAuthenticatedImage fetches URL endpoint then image. Could fetch directly with auth header or use R2 signed URLs.
+- **Move rate limiting to KV/RateLimit binding** — Currently uses D1 for every check, adding latency.
+- **Smart image preloading** — Preload based on scroll direction and connection speed via navigator.connection.
 
 ---
 
