@@ -139,19 +139,23 @@ export function Lightbox({
     const cachedReactionDetails = reactionDetailsCache.current.get(photo.id);
     setComments(cachedComments ?? []);
     setReactionDetails(cachedReactionDetails ?? []);
+    // Reset only on photo change, not on optimistic reaction updates
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
 
+  const prevPhotoId = prevPhoto?.id;
+  const nextPhotoId = nextPhoto?.id;
+
   useEffect(() => {
-    if (nextPhoto) {
-      preloadImage(nextPhoto.id, 'download');
-      preloadImage(nextPhoto.id, 'thumbnail');
+    if (nextPhotoId) {
+      preloadImage(nextPhotoId, 'download');
+      preloadImage(nextPhotoId, 'thumbnail');
     }
-    if (prevPhoto) {
-      preloadImage(prevPhoto.id, 'download');
-      preloadImage(prevPhoto.id, 'thumbnail');
+    if (prevPhotoId) {
+      preloadImage(prevPhotoId, 'download');
+      preloadImage(prevPhotoId, 'thumbnail');
     }
-  }, [photo.id, nextPhoto?.id, prevPhoto?.id]);
+  }, [nextPhotoId, prevPhotoId]);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -209,9 +213,9 @@ export function Lightbox({
       }
     };
 
-    if (prevPhoto) preloadComments(prevPhoto.id);
-    if (nextPhoto) preloadComments(nextPhoto.id);
-  }, [photo.id, prevPhoto?.id, nextPhoto?.id]);
+    if (prevPhotoId) preloadComments(prevPhotoId);
+    if (nextPhotoId) preloadComments(nextPhotoId);
+  }, [prevPhotoId, nextPhotoId]);
 
   const loadReactionDetails = useCallback(async () => {
     if (loadingReactionDetailsRef.current) return;
@@ -251,9 +255,11 @@ export function Lightbox({
       }
     };
 
-    if (prevPhoto) preloadReactionDetails(prevPhoto.id, prevPhoto.reactions.length > 0);
-    if (nextPhoto) preloadReactionDetails(nextPhoto.id, nextPhoto.reactions.length > 0);
-  }, [photo.id, prevPhoto?.id, nextPhoto?.id]);
+    if (prevPhotoId) preloadReactionDetails(prevPhotoId, (prevPhoto?.reactions.length ?? 0) > 0);
+    if (nextPhotoId) preloadReactionDetails(nextPhotoId, (nextPhoto?.reactions.length ?? 0) > 0);
+    // prevPhoto/nextPhoto accessed only for .reactions.length which is stable per photo identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prevPhotoId, nextPhotoId]);
 
   const handleReactionClick = async (emoji: string) => {
     if (!user) return;

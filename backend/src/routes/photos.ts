@@ -649,7 +649,7 @@ photos.delete('/:id/comments/:commentId', requireAuth, async (c) => {
     }
 
     const comment = await getComment(c.env.DB, commentId);
-    if (!comment) {
+    if (!comment || comment.user_id === null) {
       return c.json({ error: 'Comment not found' }, 404);
     }
 
