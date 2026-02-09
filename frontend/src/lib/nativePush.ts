@@ -86,6 +86,32 @@ async function waitForAppReady(): Promise<void> {
 }
 
 /**
+ * After the permission dialog closes, Android may need a beat to fully resume
+ * the activity before FCM registration is safe.
+ */
+async function waitForPostPermissionResume(): Promise<void> {
+  try {
+    const state = await CapApp.getState();
+    if (state.isActive) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return;
+    }
+  } catch {
+    // getState failed, fall through to listener approach
+  }
+
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => resolve(), 2000);
+    CapApp.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        clearTimeout(timeout);
+        setTimeout(() => resolve(), 400);
+      }
+    });
+  });
+}
+
+/**
  * Get the debug timeline for diagnostics
  */
 export function getDebugTimeline(): Array<{ ts: number; event: string }> {
@@ -212,16 +238,20 @@ export async function registerForPush(): Promise<string | null> {
     // Check/request permissions
     let permission = await checkPermissions();
     logDebug(`checkPermissions: ${permission}`);
-    if (permission === 'prompt') {
-      logDebug('requesting permission...');
-      permission = await requestPermissions();
-      logDebug(`requestPermissions result: ${permission}`);
-    }
+  if (permission === 'prompt') {
+    logDebug('requesting permission...');
+    permission = await requestPermissions();
+    logDebug(`requestPermissions result: ${permission}`);
+  }
 
     if (permission !== 'granted') {
       logDebug('permission denied');
       return null;
     }
+
+    // Allow the activity to fully resume after the permission dialog closes
+    logDebug('waiting for post-permission resume...');
+    await waitForPostPermissionResume();
 
     // Set up listeners before registering
     await setupListeners();
