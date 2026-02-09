@@ -17,7 +17,6 @@ import {
   getCommentsByPhotoId,
   getComment,
   deleteComment as dbDeleteComment,
-  type MembershipRole,
 } from '../lib/db';
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -30,6 +29,7 @@ import {
   ALLOWED_MIME_TYPES,
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
+import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for photo uploads: 20 per user per hour
 const uploadRateLimit = createRateLimitMiddleware({
@@ -38,25 +38,7 @@ const uploadRateLimit = createRateLimitMiddleware({
   keyFn: rateLimitKeys.byUserId('upload'),
 });
 
-type Bindings = {
-  DB: D1Database;
-  PHOTOS: R2Bucket;
-  JWT_SECRET: string;
-  VAPID_PUBLIC_KEY: string;
-  VAPID_PRIVATE_KEY: string;
-  FRONTEND_URL: string;
-  FIREBASE_SERVICE_ACCOUNT?: string;
-};
-
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const photos = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const photos = new Hono<AppEnv>();
 
 // Send push notifications in background (non-blocking)
 async function sendPhotoUploadNotifications(

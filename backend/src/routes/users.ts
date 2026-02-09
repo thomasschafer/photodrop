@@ -5,25 +5,11 @@ import {
   getGroupMembers,
   updateUserProfileColor,
   isProfileColor,
-  type MembershipRole,
 } from '../lib/db';
 import { requireAuth } from '../middleware/auth';
+import type { AppEnv } from '../types';
 
-type Bindings = {
-  DB: D1Database;
-  PHOTOS: R2Bucket;
-  JWT_SECRET: string;
-};
-
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const users = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const users = new Hono<AppEnv>();
 
 users.get('/', requireAuth, async (c) => {
   try {

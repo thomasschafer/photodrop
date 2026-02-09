@@ -25,17 +25,9 @@ import { sendInviteEmail, sendLoginLinkEmail } from '../lib/email';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { createRateLimitMiddleware, rateLimitKeys, getClientIP } from '../middleware/rateLimit';
 import { isValidEmail } from '../lib/validation';
-import type { Bindings } from '../types';
+import type { AppEnv } from '../types';
 
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const auth = new Hono<AppEnv>();
 
 // Rate limit configurations
 const sendInviteRateLimit = createRateLimitMiddleware({

@@ -6,9 +6,9 @@ import users from './routes/users';
 import photos from './routes/photos';
 import groups from './routes/groups';
 import push from './routes/push';
-import type { Bindings } from './types';
+import type { AppEnv } from './types';
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<AppEnv>();
 
 // Security headers middleware
 app.use('/*', async (c, next) => {

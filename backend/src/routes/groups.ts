@@ -11,25 +11,11 @@ import {
   getGroupPhotoCount,
   deleteGroup,
   updateMemberImageProtection,
-  type MembershipRole,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
+import type { AppEnv } from '../types';
 
-type Bindings = {
-  DB: D1Database;
-  PHOTOS: R2Bucket;
-  JWT_SECRET: string;
-};
-
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const groups = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const groups = new Hono<AppEnv>();
 
 // Get all groups the current user is a member of
 groups.get('/', requireAuth, async (c) => {

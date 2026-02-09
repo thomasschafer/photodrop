@@ -1,6 +1,7 @@
 /**
  * Shared type definitions for the photodrop backend
  */
+import type { MembershipRole } from './lib/db';
 
 export type Bindings = {
   DB: D1Database;
@@ -14,3 +15,14 @@ export type Bindings = {
   EMAIL_FROM?: string;
   FIREBASE_SERVICE_ACCOUNT?: string;
 };
+
+export type Variables = {
+  user: {
+    id: string;
+    groupId: string;
+    role: MembershipRole;
+  };
+};
+
+/** Shorthand for Hono app/route type parameters */
+export type AppEnv = { Bindings: Bindings; Variables: Variables };
