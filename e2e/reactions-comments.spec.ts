@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { createTestGroup, cleanupTestGroup, createFreshMagicLink, TestGroup } from './helpers/setup';
+import {
+  createTestGroup,
+  cleanupTestGroup,
+  createFreshMagicLink,
+  TestGroup,
+} from './helpers/setup';
 import { loginWithMagicLink, getAuthToken } from './helpers/auth';
 import { uploadPhotoViaApi, createApiClient } from './helpers/api';
 
@@ -117,6 +122,7 @@ test.describe('Reactions and comments', () => {
     await request.post(`${API_BASE}/photos/${photoId}/react`, {
       headers: {
         Authorization: `Bearer ${token}`,
+        'X-Requested-With': 'XMLHttpRequest',
         'Content-Type': 'application/json',
       },
       data: { emoji: '❤️' },
@@ -211,7 +217,9 @@ test.describe('Reactions and comments', () => {
     await dialog.getByRole('button', { name: /post/i }).click();
 
     // Verify comment appears
-    const commentParagraph = dialog.locator('p.text-text-secondary', { hasText: uniqueCommentText });
+    const commentParagraph = dialog.locator('p.text-text-secondary', {
+      hasText: uniqueCommentText,
+    });
     await expect(commentParagraph).toBeVisible({ timeout: 5000 });
 
     // Find the delete button within the same comment container (parent div of the paragraph)
@@ -295,6 +303,7 @@ test.describe('Reactions and comments', () => {
     await request.post(`${API_BASE}/photos/${photoId}/react`, {
       headers: {
         Authorization: `Bearer ${token}`,
+        'X-Requested-With': 'XMLHttpRequest',
         'Content-Type': 'application/json',
       },
       data: { emoji: '❤️' },
@@ -325,6 +334,7 @@ test.describe('Reactions and comments', () => {
     await request.post(`${API_BASE}/photos/${photoId}/react`, {
       headers: {
         Authorization: `Bearer ${token}`,
+        'X-Requested-With': 'XMLHttpRequest',
         'Content-Type': 'application/json',
       },
       data: { emoji: '❤️' },

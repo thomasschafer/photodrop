@@ -46,9 +46,16 @@ app.use(
 
 // CSRF protection: require X-Requested-With header on state-changing requests
 // This prevents cross-site form submissions since custom headers can't be set by forms
+// Skip for /auth/* routes (public endpoints that don't use cookie-based auth)
 app.use('/*', async (c, next) => {
   const method = c.req.method;
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    await next();
+    return;
+  }
+  // Auth endpoints don't use cookies for authentication — they issue tokens
+  const path = new URL(c.req.url).pathname;
+  if (path.startsWith('/auth/')) {
     await next();
     return;
   }

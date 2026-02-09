@@ -39,10 +39,9 @@ export function createTestGroup(name: string): TestGroup {
     `INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at) VALUES ('${token}', '${groupId}', '${ownerEmail}', 'login', NULL, ${now}, ${expiresAt})`,
   ].join('; ');
 
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "${sql};"`,
-    { stdio: 'pipe' }
-  );
+  execSync(`cd backend && npx wrangler d1 execute photodrop-db --local --command "${sql};"`, {
+    stdio: 'pipe',
+  });
 
   return {
     groupId,
@@ -133,16 +132,12 @@ export function cleanupTestGroup(groupId: string): void {
     `DELETE FROM users WHERE id NOT IN (SELECT user_id FROM memberships) AND email LIKE '%@test.local'`,
   ].join('; ');
 
-  execSync(
-    `cd backend && npx wrangler d1 execute photodrop-db --local --command "${sql};"`,
-    { stdio: 'pipe' }
-  );
+  execSync(`cd backend && npx wrangler d1 execute photodrop-db --local --command "${sql};"`, {
+    stdio: 'pipe',
+  });
 }
 
-export async function waitForServer(
-  url: string,
-  maxWaitMs: number = 30000
-): Promise<void> {
+export async function waitForServer(url: string, maxWaitMs: number = 30000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
     try {

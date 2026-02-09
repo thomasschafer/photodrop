@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { createTestGroup, cleanupTestGroup, createFreshMagicLink, TestGroup } from './helpers/setup';
+import {
+  createTestGroup,
+  cleanupTestGroup,
+  createFreshMagicLink,
+  TestGroup,
+} from './helpers/setup';
 import { loginWithMagicLink, getAuthToken } from './helpers/auth';
 import { uploadPhotoViaApi, createApiClient } from './helpers/api';
 

@@ -86,7 +86,10 @@ test.describe('Group deletion', () => {
     await expect(dialog).not.toBeVisible();
   });
 
-  test('owner can delete group and sees empty state when no other groups', async ({ page, request }) => {
+  test('owner can delete group and sees empty state when no other groups', async ({
+    page,
+    request,
+  }) => {
     // Create a fresh group specifically for this deletion test
     const deleteTestGroup = createTestGroup('To Be Deleted Group');
 

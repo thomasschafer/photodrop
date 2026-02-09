@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { createTestGroup, cleanupTestGroup, createFreshMagicLink, TestGroup } from './helpers/setup';
+import {
+  createTestGroup,
+  cleanupTestGroup,
+  createFreshMagicLink,
+  TestGroup,
+} from './helpers/setup';
 import { loginWithMagicLink } from './helpers/auth';
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
@@ -19,70 +24,76 @@ const mockSubscription = {
 };
 
 // Helper to inject push notification mocks into page
-async function mockPushSupported(page: import('@playwright/test').Page, permission: 'granted' | 'denied' | 'default' = 'default') {
-  await page.addInitScript(({ permission, subscription }) => {
-    // Mock Notification API
-    Object.defineProperty(window, 'Notification', {
-      value: {
-        permission,
-        requestPermission: async () => 'granted',
-      },
-      writable: true,
-    });
-
-    // Mock PushManager
-    const mockPushManager = {
-      getSubscription: async () => null,
-      subscribe: async () => ({
-        endpoint: subscription.endpoint,
-        expirationTime: subscription.expirationTime,
-        getKey: (name: string) => {
-          const keys: Record<string, ArrayBuffer> = {
-            p256dh: new TextEncoder().encode(subscription.keys.p256dh).buffer,
-            auth: new TextEncoder().encode(subscription.keys.auth).buffer,
-          };
-          return keys[name] || null;
+async function mockPushSupported(
+  page: import('@playwright/test').Page,
+  permission: 'granted' | 'denied' | 'default' = 'default'
+) {
+  await page.addInitScript(
+    ({ permission, subscription }) => {
+      // Mock Notification API
+      Object.defineProperty(window, 'Notification', {
+        value: {
+          permission,
+          requestPermission: async () => 'granted',
         },
-        toJSON: () => subscription,
-        unsubscribe: async () => true,
-      }),
-    };
+        writable: true,
+      });
 
-    // Mock ServiceWorkerRegistration
-    const mockRegistration = {
-      pushManager: mockPushManager,
-      active: { state: 'activated' },
-      installing: null,
-      waiting: null,
-      scope: '/',
-      updateViaCache: 'imports',
-      onupdatefound: null,
-      getNotifications: async () => [],
-      showNotification: async () => undefined,
-      update: async () => undefined,
-      unregister: async () => true,
-    };
+      // Mock PushManager
+      const mockPushManager = {
+        getSubscription: async () => null,
+        subscribe: async () => ({
+          endpoint: subscription.endpoint,
+          expirationTime: subscription.expirationTime,
+          getKey: (name: string) => {
+            const keys: Record<string, ArrayBuffer> = {
+              p256dh: new TextEncoder().encode(subscription.keys.p256dh).buffer,
+              auth: new TextEncoder().encode(subscription.keys.auth).buffer,
+            };
+            return keys[name] || null;
+          },
+          toJSON: () => subscription,
+          unsubscribe: async () => true,
+        }),
+      };
 
-    // Mock navigator.serviceWorker
-    Object.defineProperty(navigator, 'serviceWorker', {
-      value: {
-        ready: Promise.resolve(mockRegistration),
-        controller: { state: 'activated' },
-        register: async () => mockRegistration,
-        getRegistration: async () => mockRegistration,
-        getRegistrations: async () => [mockRegistration],
-        addEventListener: () => {},
-        removeEventListener: () => {},
-      },
-      writable: true,
-    });
+      // Mock ServiceWorkerRegistration
+      const mockRegistration = {
+        pushManager: mockPushManager,
+        active: { state: 'activated' },
+        installing: null,
+        waiting: null,
+        scope: '/',
+        updateViaCache: 'imports',
+        onupdatefound: null,
+        getNotifications: async () => [],
+        showNotification: async () => undefined,
+        update: async () => undefined,
+        unregister: async () => true,
+      };
 
-    // Mock PushManager on window for feature detection
-    Object.defineProperty(window, 'PushManager', {
-      value: class PushManager {},
-      writable: true,
-    });
-  }, { permission, subscription: mockSubscription });
+      // Mock navigator.serviceWorker
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: {
+          ready: Promise.resolve(mockRegistration),
+          controller: { state: 'activated' },
+          register: async () => mockRegistration,
+          getRegistration: async () => mockRegistration,
+          getRegistrations: async () => [mockRegistration],
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        },
+        writable: true,
+      });
+
+      // Mock PushManager on window for feature detection
+      Object.defineProperty(window, 'PushManager', {
+        value: class PushManager {},
+        writable: true,
+      });
+    },
+    { permission, subscription: mockSubscription }
+  );
 }
 
 // Helper to mock push as unsupported
@@ -104,49 +115,52 @@ async function mockPushUnsupported(page: import('@playwright/test').Page) {
 
 // Helper to mock an existing subscription
 async function mockPushSubscribed(page: import('@playwright/test').Page, endpoint: string) {
-  await page.addInitScript(({ endpoint, subscription }) => {
-    // Mock Notification API with granted permission
-    Object.defineProperty(window, 'Notification', {
-      value: {
-        permission: 'granted',
-        requestPermission: async () => 'granted',
-      },
-      writable: true,
-    });
+  await page.addInitScript(
+    ({ endpoint, subscription }) => {
+      // Mock Notification API with granted permission
+      Object.defineProperty(window, 'Notification', {
+        value: {
+          permission: 'granted',
+          requestPermission: async () => 'granted',
+        },
+        writable: true,
+      });
 
-    const existingSubscription = {
-      ...subscription,
-      endpoint,
-      toJSON: () => ({ ...subscription, endpoint }),
-      unsubscribe: async () => true,
-    };
+      const existingSubscription = {
+        ...subscription,
+        endpoint,
+        toJSON: () => ({ ...subscription, endpoint }),
+        unsubscribe: async () => true,
+      };
 
-    // Mock PushManager with existing subscription
-    const mockPushManager = {
-      getSubscription: async () => existingSubscription,
-      subscribe: async () => existingSubscription,
-    };
+      // Mock PushManager with existing subscription
+      const mockPushManager = {
+        getSubscription: async () => existingSubscription,
+        subscribe: async () => existingSubscription,
+      };
 
-    // Mock ServiceWorkerRegistration
-    const mockRegistration = {
-      pushManager: mockPushManager,
-      active: { state: 'activated' },
-    };
+      // Mock ServiceWorkerRegistration
+      const mockRegistration = {
+        pushManager: mockPushManager,
+        active: { state: 'activated' },
+      };
 
-    // Mock navigator.serviceWorker
-    Object.defineProperty(navigator, 'serviceWorker', {
-      value: {
-        ready: Promise.resolve(mockRegistration),
-        controller: { state: 'activated' },
-      },
-      writable: true,
-    });
+      // Mock navigator.serviceWorker
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: {
+          ready: Promise.resolve(mockRegistration),
+          controller: { state: 'activated' },
+        },
+        writable: true,
+      });
 
-    Object.defineProperty(window, 'PushManager', {
-      value: class PushManager {},
-      writable: true,
-    });
-  }, { endpoint, subscription: mockSubscription });
+      Object.defineProperty(window, 'PushManager', {
+        value: class PushManager {},
+        writable: true,
+      });
+    },
+    { endpoint, subscription: mockSubscription }
+  );
 }
 
 // Helper to create a push subscription in the database
@@ -192,7 +206,9 @@ test.describe('Push Notifications', () => {
     await expect(bell).toBeVisible();
   });
 
-  test('NotificationBell shows unsupported state and help modal when push is not available', async ({ page }) => {
+  test('NotificationBell shows unsupported state and help modal when push is not available', async ({
+    page,
+  }) => {
     await mockPushUnsupported(page);
 
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
@@ -216,7 +232,9 @@ test.describe('Push Notifications', () => {
     await expect(dialog).not.toBeVisible();
   });
 
-  test('NotificationBell shows blocked state when permission denied and shows help modal on click', async ({ page }) => {
+  test('NotificationBell shows blocked state when permission denied and shows help modal on click', async ({
+    page,
+  }) => {
     await mockPushSupported(page, 'denied');
 
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
