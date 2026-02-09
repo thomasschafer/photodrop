@@ -15,6 +15,10 @@ app.use('/*', async (c, next) => {
   c.res.headers.set('X-Content-Type-Options', 'nosniff');
   c.res.headers.set('X-Frame-Options', 'DENY');
   c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.res.headers.set(
+    'Content-Security-Policy',
+    "default-src 'none'; frame-ancestors 'none'"
+  );
 });
 
 app.use(
@@ -37,6 +41,21 @@ app.use(
     credentials: true,
   })
 );
+
+// CSRF protection: require X-Requested-With header on state-changing requests
+// This prevents cross-site form submissions since custom headers can't be set by forms
+app.use('/*', async (c, next) => {
+  const method = c.req.method;
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    await next();
+    return;
+  }
+  const xRequestedWith = c.req.header('X-Requested-With');
+  if (!xRequestedWith) {
+    return c.json({ error: 'Missing X-Requested-With header' }, 403);
+  }
+  await next();
+});
 
 app.get('/', (c) => {
   return c.json({ message: 'photodrop API' });

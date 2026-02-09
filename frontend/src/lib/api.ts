@@ -114,6 +114,9 @@ async function fetchWithAuth(
     headers['Content-Type'] = 'application/json';
   }
 
+  // CSRF protection header
+  headers['X-Requested-With'] = 'XMLHttpRequest';
+
   // Use native HTTP for Capacitor, regular fetch for web
   // EXCEPT for FormData uploads - use regular fetch for those (CapacitorHttp handles it via plugin)
   if (isNative && !(options.body instanceof FormData)) {
@@ -473,7 +476,7 @@ export const api = {
       }
       await fetch(`${API_BASE_URL}/push/unsubscribe`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({ endpoint, deletionToken }),
       });
       localStorage.removeItem(`push_deletion_token:${endpoint}`);

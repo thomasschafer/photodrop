@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { setCookie } from 'hono/cookie';
+import { getCookie, setCookie } from 'hono/cookie';
 import {
   createMagicLinkToken,
   getUserByEmail,
@@ -24,6 +24,7 @@ import { verifyMagicLink } from '../lib/magic-links';
 import { sendInviteEmail, sendLoginLinkEmail } from '../lib/email';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { createRateLimitMiddleware, rateLimitKeys, getClientIP } from '../middleware/rateLimit';
+import { isValidEmail } from '../lib/validation';
 import type { Bindings } from '../types';
 
 type Variables = {
@@ -59,11 +60,13 @@ const verifyMagicLinkRateLimit = createRateLimitMiddleware({
 auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
   try {
     const body = await c.req.json();
-    const { email, role = 'member' } = body;
+    const { email: rawEmail, role = 'member' } = body;
 
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
+    if (!rawEmail || typeof rawEmail !== 'string' || !isValidEmail(rawEmail)) {
       return c.json({ error: 'Valid email is required' }, 400);
     }
+
+    const email = rawEmail.toLowerCase().trim();
 
     if (role !== 'admin' && role !== 'member') {
       return c.json({ error: 'Invalid role' }, 400);
@@ -114,11 +117,13 @@ auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
 auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
   try {
     const body = await c.req.json();
-    const { email } = body;
+    const { email: rawEmail } = body;
 
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
+    if (!rawEmail || typeof rawEmail !== 'string' || !isValidEmail(rawEmail)) {
       return c.json({ error: 'Valid email is required' }, 400);
     }
+
+    const email = rawEmail.toLowerCase().trim();
 
     // Get user by email
     const user = await getUserByEmail(c.env.DB, email);
@@ -271,7 +276,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
       setCookie(c, 'refreshToken', refreshToken, {
         httpOnly: true,
         secure: true,
-        sameSite: 'Strict',
+        sameSite: 'Lax',
         maxAge: 30 * 24 * 60 * 60,
         path: '/',
       });
@@ -348,7 +353,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
         setCookie(c, 'refreshToken', refreshToken, {
           httpOnly: true,
           secure: true,
-          sameSite: 'Strict',
+          sameSite: 'Lax',
           maxAge: 30 * 24 * 60 * 60,
           path: '/',
         });
@@ -453,7 +458,7 @@ auth.post('/switch-group', requireAuth, async (c) => {
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'Strict',
+      sameSite: 'Lax',
       maxAge: 30 * 24 * 60 * 60,
       path: '/',
     });
@@ -547,7 +552,7 @@ auth.post('/select-group', async (c) => {
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'Strict',
+      sameSite: 'Lax',
       maxAge: 30 * 24 * 60 * 60,
       path: '/',
     });
@@ -587,7 +592,7 @@ auth.post('/select-group', async (c) => {
 // Refresh access token
 auth.post('/refresh', async (c) => {
   try {
-    const refreshToken = c.req.header('Cookie')?.match(/refreshToken=([^;]+)/)?.[1];
+    const refreshToken = getCookie(c, 'refreshToken');
 
     if (!refreshToken) {
       return c.json({ error: 'No refresh token provided' }, 401);
@@ -661,7 +666,7 @@ auth.post('/refresh', async (c) => {
     setCookie(c, 'refreshToken', newRefreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'Strict',
+      sameSite: 'Lax',
       maxAge: 30 * 24 * 60 * 60,
       path: '/',
     });
@@ -701,7 +706,7 @@ auth.post('/logout', async (c) => {
   setCookie(c, 'refreshToken', '', {
     httpOnly: true,
     secure: true,
-    sameSite: 'Strict',
+    sameSite: 'Lax',
     maxAge: 0,
     path: '/',
   });

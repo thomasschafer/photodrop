@@ -75,7 +75,9 @@ async function sendPhotoUploadNotifications(
   const groupName = group?.name || 'your group';
   const uploaderName = uploader?.name || 'Someone';
   const title = `New photo in ${groupName}`;
-  const body = caption || `${uploaderName} shared a new photo`;
+  // Sanitize caption to prevent injection in push notifications
+  const sanitizedCaption = caption ? caption.replace(/[<>&"']/g, '').slice(0, 200) : null;
+  const body = sanitizedCaption || `${uploaderName} shared a new photo`;
 
   // Send web push notifications
   if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {

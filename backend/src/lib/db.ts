@@ -173,13 +173,14 @@ export async function createUser(db: D1Database, name: string, email: string): P
   const userId = generateId();
   const now = Math.floor(Date.now() / 1000);
   const profileColor = getRandomProfileColor();
+  const normalizedEmail = email.toLowerCase().trim();
 
   await db
     .prepare(
       `INSERT INTO users (id, name, email, profile_color, created_at)
        VALUES (?, ?, ?, ?, ?)`
     )
-    .bind(userId, name, email, profileColor, now)
+    .bind(userId, name, normalizedEmail, profileColor, now)
     .run();
 
   return userId;
@@ -304,7 +305,8 @@ export async function getUserById(db: D1Database, userId: string): Promise<User 
 }
 
 export async function getUserByEmail(db: D1Database, email: string): Promise<User | null> {
-  const result = await db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first<User>();
+  const normalizedEmail = email.toLowerCase().trim();
+  const result = await db.prepare('SELECT * FROM users WHERE email = ?').bind(normalizedEmail).first<User>();
 
   return result;
 }
@@ -353,12 +355,14 @@ export async function createMagicLinkToken(
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 15 * 60; // 15 minutes
 
+  const normalizedEmail = email.toLowerCase().trim();
+
   await db
     .prepare(
       `INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(token, groupId, email, type, inviteRole || null, now, expiresAt)
+    .bind(token, groupId, normalizedEmail, type, inviteRole || null, now, expiresAt)
     .run();
 
   return token;
