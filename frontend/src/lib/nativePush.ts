@@ -238,11 +238,11 @@ export async function registerForPush(): Promise<string | null> {
     // Check/request permissions
     let permission = await checkPermissions();
     logDebug(`checkPermissions: ${permission}`);
-  if (permission === 'prompt') {
-    logDebug('requesting permission...');
-    permission = await requestPermissions();
-    logDebug(`requestPermissions result: ${permission}`);
-  }
+    if (permission === 'prompt') {
+      logDebug('requesting permission...');
+      permission = await requestPermissions();
+      logDebug(`requestPermissions result: ${permission}`);
+    }
 
     if (permission !== 'granted') {
       logDebug('permission denied');
@@ -428,7 +428,9 @@ export async function initializeNativePush(): Promise<void> {
 
   // Check crash guard — if push init has been crashing the app, skip auto-init
   if (isPushInitCrashing()) {
-    logDebug('CRASH GUARD: push init has crashed the app repeatedly, skipping auto-init. Tap bell to retry.');
+    logDebug(
+      'CRASH GUARD: push init has crashed the app repeatedly, skipping auto-init. Tap bell to retry.'
+    );
     initializationComplete = true;
     window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
     return;
