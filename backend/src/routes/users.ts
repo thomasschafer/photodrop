@@ -16,11 +16,15 @@ users.get('/', requireAuth, async (c) => {
     const currentUser = c.get('user');
     const { members } = await getGroupMembers(c.env.DB, currentUser.groupId);
 
+    // Only admins can see other members' email addresses
+    const currentMember = members.find((m) => m.user_id === currentUser.id);
+    const isAdmin = currentMember?.role === 'admin';
+
     return c.json({
       users: members.map((m) => ({
         id: m.user_id,
         name: m.user_name,
-        email: m.user_email,
+        email: isAdmin ? m.user_email : undefined,
         profileColor: m.user_profile_color,
         role: m.role,
         joinedAt: m.joined_at,

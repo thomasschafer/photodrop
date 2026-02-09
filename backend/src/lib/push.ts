@@ -99,7 +99,7 @@ export async function sendPushNotification(
 
       const response = await fetch(subscription.endpoint, fetchOptions);
 
-      if (response.ok || response.status === 201) {
+      if (response.ok) {
         if (attempt > 0) {
           console.log(`Push notification sent successfully after ${attempt} retries`);
         }

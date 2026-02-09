@@ -8,7 +8,7 @@ const emailSchema = z
   .string()
   .email()
   .max(254)
-  .transform((e) => e.toLowerCase().trim());
+  .transform((e) => e.toLowerCase());
 
 // Auth schemas
 export const sendInviteSchema = z.object({

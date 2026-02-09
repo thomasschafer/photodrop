@@ -94,7 +94,7 @@ export function Lightbox({
   const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
   const [reactionDetails, setReactionDetails] = useState<ReactionWithUser[]>([]);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const [loadingReactionDetails, setLoadingReactionDetails] = useState(false);
+  const loadingReactionDetailsRef = useRef(false);
 
   const currentReactionIndex = userReaction ? EMOJI_OPTIONS.indexOf(userReaction) : 0;
   const {
@@ -210,7 +210,7 @@ export function Lightbox({
   }, [photo.id, prevPhoto, nextPhoto]);
 
   const loadReactionDetails = useCallback(async () => {
-    if (loadingReactionDetails) return;
+    if (loadingReactionDetailsRef.current) return;
 
     const cached = reactionDetailsCache.current.get(photo.id);
     if (cached) {
@@ -218,7 +218,7 @@ export function Lightbox({
       return;
     }
 
-    setLoadingReactionDetails(true);
+    loadingReactionDetailsRef.current = true;
     try {
       const data = await api.photos.getReactions(photo.id);
       setReactionDetails(data.reactions);
@@ -226,9 +226,9 @@ export function Lightbox({
     } catch (err) {
       console.error('Failed to load reaction details:', err);
     } finally {
-      setLoadingReactionDetails(false);
+      loadingReactionDetailsRef.current = false;
     }
-  }, [photo.id, loadingReactionDetails]);
+  }, [photo.id]);
 
   useEffect(() => {
     if (reactions.length > 0) {

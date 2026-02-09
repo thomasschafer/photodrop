@@ -51,9 +51,9 @@ groups.get('/:groupId/members', requireAuth, async (c) => {
 
     const { members, ownerId } = await getGroupMembers(c.env.DB, groupId);
 
-    // Check if the requesting user is an admin
-    const membership = await getMembership(c.env.DB, user.id, groupId);
-    const isAdmin = membership?.role === 'admin';
+    // Check if the requesting user is an admin (already in the members list)
+    const currentMember = members.find((m) => m.user_id === user.id);
+    const isAdmin = currentMember?.role === 'admin';
 
     return c.json({
       ownerId,
@@ -263,13 +263,14 @@ groups.delete('/:groupId', requireOwner, async (c) => {
 
     // If any R2 deletions failed, abort and return error
     if (r2Failures.length > 0) {
+      console.error('R2 deletion failures:', r2Failures.slice(0, 10));
       return c.json(
         {
           error: 'Failed to delete some photos from storage',
           details: {
             failedCount: r2Failures.length,
             totalFiles,
-            failures: r2Failures.slice(0, 5),
+            // Note: failure details logged server-side only to avoid leaking internal paths
           },
         },
         500
