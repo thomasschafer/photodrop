@@ -19,6 +19,21 @@ if (Capacitor.isNativePlatform()) {
       window.dispatchEvent(new CustomEvent(DEEP_LINK_EVENT, { detail: { path } }));
     }
   });
+
+  // Handle cold start deep links (app opened via notification or URL)
+  CapApp.getLaunchUrl().then((result) => {
+    if (result?.url) {
+      try {
+        const urlObj = new URL(result.url);
+        const path = urlObj.pathname + urlObj.search;
+        if (path && path !== '/' && path !== window.location.pathname) {
+          window.dispatchEvent(new CustomEvent(DEEP_LINK_EVENT, { detail: { path } }));
+        }
+      } catch {
+        // Invalid URL, ignore
+      }
+    }
+  });
 }
 
 createRoot(document.getElementById('root')!).render(

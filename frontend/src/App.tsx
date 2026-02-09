@@ -12,6 +12,7 @@ import { NotificationBell } from './components/NotificationBell';
 import { UserMenu } from './components/UserMenu';
 import { NotificationPrompt } from './components/NotificationPrompt';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { SwUpdatePrompt } from './components/SwUpdatePrompt';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
@@ -130,6 +131,7 @@ function MainApp() {
       </header>
 
       <OfflineIndicator />
+      <SwUpdatePrompt />
       <InstallPrompt />
       <NotificationPrompt />
 

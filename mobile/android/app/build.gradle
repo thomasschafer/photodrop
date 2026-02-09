@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+// Read version from project root VERSION file
+def versionFile = file("${rootProject.projectDir}/../../VERSION")
+def appVersionName = versionFile.exists() ? versionFile.text.trim() : "1.0.0"
+def versionParts = appVersionName.tokenize('.')
+def appVersionCode = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts.size() > 2 ? versionParts[2] as int : 0)
+
 android {
     namespace = "com.photodrop.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +13,8 @@ android {
         applicationId "com.photodrop.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
