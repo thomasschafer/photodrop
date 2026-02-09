@@ -4,6 +4,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { api } from './api';
 
@@ -27,10 +28,61 @@ let initializationComplete = false;
 // Debug timeline for diagnosing cold-start issues
 const debugTimeline: Array<{ ts: number; event: string }> = [];
 
+// Track whether the app has been fully visible at least once
+let appFullyVisible = false;
+
 function logDebug(event: string) {
   const ts = Date.now();
   debugTimeline.push({ ts, event });
   console.log(`[NativePush ${ts}] ${event}`);
+}
+
+/**
+ * Wait for the app to be fully visible (splash screen dismissed, activity resumed).
+ * On cold start, the splash screen may overlay permission dialogs, so we need to
+ * ensure the app is in the foreground before requesting permissions.
+ */
+async function waitForAppReady(): Promise<void> {
+  if (appFullyVisible) return;
+
+  logDebug('waiting for app to be fully visible...');
+
+  // Check current state first
+  try {
+    const state = await CapApp.getState();
+    if (state.isActive) {
+      // App reports active, but on cold start the splash screen may still be showing.
+      // Wait a short period for the splash screen to dismiss and the WebView to be fully interactive.
+      logDebug(`app state: active, waiting for splash screen to dismiss`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      appFullyVisible = true;
+      logDebug('app ready (active + delay)');
+      return;
+    }
+  } catch {
+    // getState failed, fall through to listener approach
+  }
+
+  // App not active yet — wait for it to become active
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      logDebug('app ready timeout (5s), proceeding anyway');
+      appFullyVisible = true;
+      resolve();
+    }, 5000);
+
+    CapApp.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        clearTimeout(timeout);
+        // Additional delay for splash screen dismissal
+        setTimeout(() => {
+          appFullyVisible = true;
+          logDebug('app ready (state change + delay)');
+          resolve();
+        }, 500);
+      }
+    });
+  });
 }
 
 /**
@@ -304,6 +356,11 @@ export async function initializeNativePush(): Promise<void> {
 
   initializationPromise = (async () => {
     try {
+      // Wait for the app to be fully visible before requesting permissions.
+      // On cold start, the splash screen may overlay the Android permission dialog,
+      // causing it to be invisible or dismissed without user interaction.
+      await waitForAppReady();
+
       const token = await registerForPush();
       logDebug(`registerForPush returned: ${token ? 'token' : 'null'}`);
       if (initializationAborted) {
