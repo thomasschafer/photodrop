@@ -336,6 +336,56 @@ export function waitForNativePushInit(): Promise<void> {
 }
 
 /**
+ * Crash guard: detect if push init is causing repeated crashes.
+ * We set a flag before attempting FCM registration and clear it after.
+ * If the flag is still set on next app start, push init likely crashed the app.
+ */
+const PUSH_INIT_GUARD_KEY = 'nativePush_initInProgress';
+const PUSH_INIT_CRASH_COUNT_KEY = 'nativePush_crashCount';
+const MAX_CRASH_RETRIES = 2;
+
+function markPushInitStarted(): void {
+  try {
+    const crashCount = parseInt(localStorage.getItem(PUSH_INIT_CRASH_COUNT_KEY) || '0', 10);
+    localStorage.setItem(PUSH_INIT_GUARD_KEY, 'true');
+    localStorage.setItem(PUSH_INIT_CRASH_COUNT_KEY, String(crashCount + 1));
+  } catch {
+    // localStorage not available
+  }
+}
+
+function markPushInitCompleted(): void {
+  try {
+    localStorage.removeItem(PUSH_INIT_GUARD_KEY);
+    localStorage.setItem(PUSH_INIT_CRASH_COUNT_KEY, '0');
+  } catch {
+    // localStorage not available
+  }
+}
+
+function isPushInitCrashing(): boolean {
+  try {
+    const wasInProgress = localStorage.getItem(PUSH_INIT_GUARD_KEY) === 'true';
+    const crashCount = parseInt(localStorage.getItem(PUSH_INIT_CRASH_COUNT_KEY) || '0', 10);
+    return wasInProgress && crashCount >= MAX_CRASH_RETRIES;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reset the crash guard (called from debug UI to retry)
+ */
+export function resetPushCrashGuard(): void {
+  try {
+    localStorage.removeItem(PUSH_INIT_GUARD_KEY);
+    localStorage.setItem(PUSH_INIT_CRASH_COUNT_KEY, '0');
+  } catch {
+    // localStorage not available
+  }
+}
+
+/**
  * Initialize native push notifications
  * Call this on app startup after authentication
  */
@@ -343,6 +393,14 @@ export async function initializeNativePush(): Promise<void> {
   logDebug('initializeNativePush called');
   if (!isNativePlatform()) {
     logDebug('not native platform, skipping');
+    return;
+  }
+
+  // Check crash guard — if push init has been crashing the app, skip auto-init
+  if (isPushInitCrashing()) {
+    logDebug('CRASH GUARD: push init has crashed the app repeatedly, skipping auto-init. Tap bell to retry.');
+    initializationComplete = true;
+    window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
     return;
   }
 
@@ -361,8 +419,15 @@ export async function initializeNativePush(): Promise<void> {
       // causing it to be invisible or dismissed without user interaction.
       await waitForAppReady();
 
+      // Set crash guard before FCM registration (the risky part)
+      markPushInitStarted();
+
       const token = await registerForPush();
       logDebug(`registerForPush returned: ${token ? 'token' : 'null'}`);
+
+      // Clear crash guard — we survived FCM registration
+      markPushInitCompleted();
+
       if (initializationAborted) {
         logDebug('Initialization aborted by logout, skipping backend registration');
         return;
@@ -373,6 +438,7 @@ export async function initializeNativePush(): Promise<void> {
       }
     } catch (error) {
       logDebug(`init error: ${error instanceof Error ? error.message : String(error)}`);
+      markPushInitCompleted(); // Clear guard on caught errors (app didn't crash)
     } finally {
       initializationComplete = true;
       logDebug('init complete, dispatching nativePushStateChanged');

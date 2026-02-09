@@ -12,6 +12,7 @@ import {
   getCurrentToken,
   waitForNativePushInit,
   getDebugTimeline,
+  resetPushCrashGuard,
 } from '../lib/nativePush';
 import { App as CapApp } from '@capacitor/app';
 import { ConfirmModal } from './ConfirmModal';
@@ -490,6 +491,7 @@ Permission: ${debugInfo.permission || 'not checked'}
 Has Token: ${debugInfo.hasToken ? 'yes' : 'no'}
 Token: ${debugInfo.tokenPreview || 'none'}
 Error: ${debugInfo.error || 'none'}
+Crash guard: ${localStorage.getItem('nativePush_initInProgress') === 'true' ? 'TRIGGERED' : 'ok'} (count: ${localStorage.getItem('nativePush_crashCount') || '0'})
 
 Timeline:
 ${
@@ -504,6 +506,7 @@ ${
             <button
               onClick={async () => {
                 setShowDebug(false);
+                resetPushCrashGuard();
                 if (isNative) {
                   await subscribeNative();
                 } else {
@@ -512,7 +515,7 @@ ${
               }}
               className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium"
             >
-              Try subscribe
+              Try subscribe (resets crash guard)
             </button>
             <button
               onClick={() => setShowDebug(false)}
