@@ -368,11 +368,14 @@ export function Lightbox({
     try {
       await api.photos.deleteComment(photo.id, confirmDeleteCommentId);
       setComments((prev) => {
-        const updated = prev.filter((c) => c.id !== confirmDeleteCommentId);
+        const updated = prev.map((c) =>
+          c.id === confirmDeleteCommentId
+            ? { ...c, isDeleted: true, content: '[deleted]', userId: null }
+            : c
+        );
         commentsCache.current.set(photo.id, updated);
         return updated;
       });
-      onPhotoUpdate({ id: photo.id, commentCount: Math.max(0, photo.commentCount - 1) });
       setConfirmDeleteCommentId(null);
     } catch (err) {
       console.error('Failed to delete comment:', err);

@@ -199,7 +199,11 @@ export function CommentPanel({
                         </button>
                       )}
                     </div>
-                    <p className="text-text-secondary mt-0.5 break-words">{comment.content}</p>
+                    <p
+                      className={`mt-0.5 break-words ${comment.isDeleted ? 'text-text-muted italic' : 'text-text-secondary'}`}
+                    >
+                      {comment.isDeleted ? 'This comment has been deleted.' : comment.content}
+                    </p>
                     <p className="text-xs text-text-muted mt-1">
                       {formatRelativeTime(comment.createdAt)}
                     </p>
