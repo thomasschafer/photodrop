@@ -33,13 +33,8 @@ function MainApp() {
 
   const isAdmin = currentGroup?.role === 'admin';
 
-  // Filter tabs based on role - only admins can see the Group tab
-  const visibleTabs = tabs.filter((tab) => {
-    if (tab.id === 'members') {
-      return isAdmin;
-    }
-    return true;
-  });
+  // All members can see both tabs now
+  const visibleTabs = tabs;
 
   const activeTab = visibleTabs.find((tab) => tab.path === location.pathname)?.id ?? 'feed';
 
@@ -107,7 +102,7 @@ function MainApp() {
             </div>
           </div>
 
-          {isAdmin && (
+          {visibleTabs.length > 1 && (
             <nav className="flex gap-8" role="tablist" aria-label="Main navigation">
               {visibleTabs.map((tab, index) => (
                 <Link
@@ -142,7 +137,7 @@ function MainApp() {
         <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-label={`${activeTab} content`}>
           <Suspense fallback={<div className="flex justify-center py-12"><div className="spinner" /></div>}>
             {activeTab === 'feed' && <PhotoFeed isAdmin={isAdmin} />}
-            {activeTab === 'members' && isAdmin && (
+            {activeTab === 'members' && (
               <div className="max-w-[600px] mx-auto">
                 <MembersList />
               </div>

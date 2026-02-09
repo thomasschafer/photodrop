@@ -912,7 +912,11 @@ export async function getComment(db: D1Database, commentId: string): Promise<Com
 }
 
 export async function deleteComment(db: D1Database, commentId: string): Promise<boolean> {
-  const result = await db.prepare('DELETE FROM comments WHERE id = ?').bind(commentId).run();
+  // Soft-delete: null out user_id and content but keep the row
+  const result = await db
+    .prepare('UPDATE comments SET user_id = NULL, content = \'[deleted]\' WHERE id = ?')
+    .bind(commentId)
+    .run();
 
   return result.success;
 }

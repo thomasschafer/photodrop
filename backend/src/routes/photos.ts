@@ -31,6 +31,13 @@ import {
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
 import type { Bindings, AppEnv } from '../types';
 
+// Rate limit for comments: 30 per user per 15 minutes
+const commentRateLimit = createRateLimitMiddleware({
+  maxRequests: 30,
+  windowSeconds: 15 * 60,
+  keyFn: rateLimitKeys.byUserId('comment'),
+});
+
 // Rate limit for photo uploads: 20 per user per hour
 const uploadRateLimit = createRateLimitMiddleware({
   maxRequests: 20,
@@ -584,7 +591,7 @@ photos.get('/:id/comments', requireAuth, async (c) => {
   }
 });
 
-photos.post('/:id/comments', requireAuth, async (c) => {
+photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
   try {
     const photoId = c.req.param('id');
     const currentUser = c.get('user');
