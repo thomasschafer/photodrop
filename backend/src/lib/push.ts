@@ -47,7 +47,11 @@ export function configureVapid(publicKey: string, privateKey: string, subject: s
   vapidConfig = { publicKey, privateKey, subject };
 }
 
-export function createVapidConfig(publicKey: string, privateKey: string, subject: string): VapidConfig {
+export function createVapidConfig(
+  publicKey: string,
+  privateKey: string,
+  subject: string
+): VapidConfig {
   return { publicKey, privateKey, subject };
 }
 

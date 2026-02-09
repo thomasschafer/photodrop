@@ -16,10 +16,7 @@ app.use('/*', async (c, next) => {
   c.res.headers.set('X-Content-Type-Options', 'nosniff');
   c.res.headers.set('X-Frame-Options', 'DENY');
   c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  c.res.headers.set(
-    'Content-Security-Policy',
-    "default-src 'none'; frame-ancestors 'none'"
-  );
+  c.res.headers.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
   // Default: no caching for API responses (individual routes can override)
   if (!c.res.headers.has('Cache-Control')) {
     c.res.headers.set('Cache-Control', 'no-store');

@@ -4,7 +4,11 @@
 import { z } from 'zod';
 
 // Email schema with proper validation
-const emailSchema = z.string().email().max(254).transform((e) => e.toLowerCase().trim());
+const emailSchema = z
+  .string()
+  .email()
+  .max(254)
+  .transform((e) => e.toLowerCase().trim());
 
 // Auth schemas
 export const sendInviteSchema = z.object({

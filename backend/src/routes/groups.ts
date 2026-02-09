@@ -250,9 +250,7 @@ groups.delete('/:groupId', requireOwner, async (c) => {
 
     for (let i = 0; i < allKeys.length; i += BATCH_SIZE) {
       const batch = allKeys.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map((key) => c.env.PHOTOS.delete(key))
-      );
+      const results = await Promise.allSettled(batch.map((key) => c.env.PHOTOS.delete(key)));
 
       results.forEach((result, idx) => {
         if (result.status === 'rejected') {

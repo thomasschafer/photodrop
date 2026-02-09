@@ -55,9 +55,7 @@ export function SwUpdatePrompt() {
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md">
       <div className="bg-surface border border-border rounded-lg shadow-elevated p-4 flex items-center justify-between gap-3">
-        <p className="text-sm text-text-secondary">
-          A new version is available!
-        </p>
+        <p className="text-sm text-text-secondary">A new version is available!</p>
         <button
           onClick={handleUpdate}
           className="px-3 py-1.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors cursor-pointer flex-shrink-0"

@@ -306,7 +306,10 @@ export async function getUserById(db: D1Database, userId: string): Promise<User 
 
 export async function getUserByEmail(db: D1Database, email: string): Promise<User | null> {
   const normalizedEmail = email.toLowerCase().trim();
-  const result = await db.prepare('SELECT * FROM users WHERE email = ?').bind(normalizedEmail).first<User>();
+  const result = await db
+    .prepare('SELECT * FROM users WHERE email = ?')
+    .bind(normalizedEmail)
+    .first<User>();
 
   return result;
 }
@@ -914,7 +917,7 @@ export async function getComment(db: D1Database, commentId: string): Promise<Com
 export async function deleteComment(db: D1Database, commentId: string): Promise<boolean> {
   // Soft-delete: null out user_id and content but keep the row
   const result = await db
-    .prepare('UPDATE comments SET user_id = NULL, content = \'[deleted]\' WHERE id = ?')
+    .prepare("UPDATE comments SET user_id = NULL, content = '[deleted]' WHERE id = ?")
     .bind(commentId)
     .run();
 

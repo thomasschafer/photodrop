@@ -19,8 +19,12 @@ import { LandingPage } from './pages/LandingPage';
 import { GroupPickerPage } from './pages/GroupPickerPage';
 
 // Lazy-load heavy components
-const PhotoFeed = lazy(() => import('./components/PhotoFeed').then((m) => ({ default: m.PhotoFeed })));
-const MembersList = lazy(() => import('./components/MembersList').then((m) => ({ default: m.MembersList })));
+const PhotoFeed = lazy(() =>
+  import('./components/PhotoFeed').then((m) => ({ default: m.PhotoFeed }))
+);
+const MembersList = lazy(() =>
+  import('./components/MembersList').then((m) => ({ default: m.MembersList }))
+);
 
 const tabs = [
   { id: 'feed' as const, path: '/', label: 'Photos' },
@@ -137,7 +141,13 @@ function MainApp() {
 
       <main id="main-content" className="max-w-[900px] mx-auto py-8 px-6">
         <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-label={`${activeTab} content`}>
-          <Suspense fallback={<div className="flex justify-center py-12"><div className="spinner" /></div>}>
+          <Suspense
+            fallback={
+              <div className="flex justify-center py-12">
+                <div className="spinner" />
+              </div>
+            }
+          >
             {activeTab === 'feed' && <PhotoFeed isAdmin={isAdmin} />}
             {activeTab === 'members' && (
               <div className="max-w-[600px] mx-auto">
