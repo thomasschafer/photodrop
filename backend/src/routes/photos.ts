@@ -29,6 +29,7 @@ import {
   ALLOWED_MIME_TYPES,
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
+import { ALLOWED_EMOJIS } from '../lib/schemas';
 import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for comments: 30 per user per 15 minutes
@@ -485,8 +486,6 @@ photos.get('/:id/viewers', requireAdmin, async (c) => {
   }
 });
 
-const ALLOWED_EMOJIS = ['❤️', '😂', '😮', '😢', '👏', '🔥'];
-
 photos.post('/:id/react', requireAuth, async (c) => {
   try {
     const photoId = c.req.param('id');
@@ -498,7 +497,7 @@ photos.post('/:id/react', requireAuth, async (c) => {
       return c.json({ error: 'Emoji is required' }, 400);
     }
 
-    if (!ALLOWED_EMOJIS.includes(emoji)) {
+    if (!(ALLOWED_EMOJIS as readonly string[]).includes(emoji)) {
       return c.json({ error: 'Invalid emoji' }, 400);
     }
 

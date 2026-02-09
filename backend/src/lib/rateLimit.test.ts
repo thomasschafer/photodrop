@@ -34,6 +34,16 @@ describe('checkRateLimit', () => {
     expect(result.remaining).toBe(0);
   });
 
+  it('allows request at exact boundary (count === maxRequests)', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const db = createMockDb({ count: 5, window_start: now });
+
+    const result = await checkRateLimit(db, 'test:key', 5, 3600);
+
+    expect(result.allowed).toBe(true);
+    expect(result.remaining).toBe(0);
+  });
+
   it('returns allowed with defaults when result is null', async () => {
     const db = createMockDb(null);
 

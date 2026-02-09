@@ -289,8 +289,7 @@ groups.delete('/:groupId', requireOwner, async (c) => {
     });
   } catch (error) {
     console.error('Error deleting group:', error);
-    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    return c.json({ error: 'Failed to delete group', details: errorMsg }, 500);
+    return c.json({ error: 'Failed to delete group' }, 500);
   }
 });
 

@@ -265,12 +265,12 @@ export function ReactionPills({
   );
   const displayReactions = computedReactions ?? sortedReactionsFallback;
 
-  const handleMouseEnter = () => {
+  const handleMouseEnter = useCallback(() => {
     if (showNames && !hasLoadedRef.current && onLoadReactionDetails) {
       hasLoadedRef.current = true;
       onLoadReactionDetails();
     }
-  };
+  }, [showNames, onLoadReactionDetails]);
 
   return (
     <div

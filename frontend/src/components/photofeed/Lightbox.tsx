@@ -151,7 +151,7 @@ export function Lightbox({
       preloadImage(prevPhoto.id, 'download');
       preloadImage(prevPhoto.id, 'thumbnail');
     }
-  }, [photo.id, nextPhoto, prevPhoto]);
+  }, [photo.id, nextPhoto?.id, prevPhoto?.id]);
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -207,7 +207,7 @@ export function Lightbox({
 
     if (prevPhoto) preloadComments(prevPhoto.id);
     if (nextPhoto) preloadComments(nextPhoto.id);
-  }, [photo.id, prevPhoto, nextPhoto]);
+  }, [photo.id, prevPhoto?.id, nextPhoto?.id]);
 
   const loadReactionDetails = useCallback(async () => {
     if (loadingReactionDetailsRef.current) return;
@@ -249,7 +249,7 @@ export function Lightbox({
 
     if (prevPhoto) preloadReactionDetails(prevPhoto.id, prevPhoto.reactions.length > 0);
     if (nextPhoto) preloadReactionDetails(nextPhoto.id, nextPhoto.reactions.length > 0);
-  }, [photo.id, prevPhoto, nextPhoto]);
+  }, [photo.id, prevPhoto?.id, nextPhoto?.id]);
 
   const handleReactionClick = async (emoji: string) => {
     if (!user) return;

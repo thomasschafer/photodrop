@@ -25,20 +25,27 @@ describe('fileValidation', () => {
       expect(validateImageMagicBytes(buffer)).toBe('image/webp');
     });
 
-    it('detects HEIC files', () => {
-      const brand = 'heic';
-      const buffer = new Uint8Array([
-        0,
-        0,
-        0,
-        0,
-        0x66,
-        0x74,
-        0x79,
-        0x70,
-        ...Array.from(brand).map((c) => c.charCodeAt(0)),
-      ]).buffer;
-      expect(validateImageMagicBytes(buffer)).toBe('image/heic');
+    it.each(['heic', 'heix', 'mif1', 'msf1', 'hevc', 'hevx'])(
+      'detects HEIC files with brand %s',
+      (brand) => {
+        const buffer = new Uint8Array([
+          0,
+          0,
+          0,
+          0,
+          0x66,
+          0x74,
+          0x79,
+          0x70,
+          ...Array.from(brand).map((c) => c.charCodeAt(0)),
+        ]).buffer;
+        expect(validateImageMagicBytes(buffer)).toBe('image/heic');
+      }
+    );
+
+    it('returns null for 11-byte buffer (just under HEIC minimum)', () => {
+      const buffer = new Uint8Array([0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69]).buffer;
+      expect(validateImageMagicBytes(buffer)).toBeNull();
     });
 
     it('returns null for too-small buffer', () => {

@@ -6,6 +6,7 @@ import { z } from 'zod';
 // Email schema with proper validation
 const emailSchema = z
   .string()
+  .trim()
   .email()
   .max(254)
   .transform((e) => e.toLowerCase());
@@ -35,8 +36,10 @@ export const selectGroupSchema = z.object({
 });
 
 // Photo schemas
+export const ALLOWED_EMOJIS = ['❤️', '😂', '😮', '😢', '👏', '🔥'] as const;
+
 export const addReactionSchema = z.object({
-  emoji: z.enum(['❤️', '😂', '😮', '😢', '👏', '🔥']),
+  emoji: z.enum(ALLOWED_EMOJIS),
 });
 
 export const addCommentSchema = z.object({

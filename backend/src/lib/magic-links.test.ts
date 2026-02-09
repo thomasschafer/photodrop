@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { verifyMagicLink } from './magic-links';
 
 function createMockDb(token: unknown) {
@@ -12,6 +12,14 @@ function createMockDb(token: unknown) {
 }
 
 describe('verifyMagicLink', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const now = Math.floor(Date.now() / 1000);
 
   it('returns valid for a fresh token', async () => {

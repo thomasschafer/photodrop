@@ -16,6 +16,11 @@ describe('isValidEmail', () => {
     expect(isValidEmail('user@.com')).toBe(false);
   });
 
+  it('accepts email at 254-char boundary', () => {
+    const longEmail = 'a'.repeat(245) + '@test.com'; // 254 chars
+    expect(isValidEmail(longEmail)).toBe(true);
+  });
+
   it('rejects emails longer than 254 chars', () => {
     const longEmail = 'a'.repeat(246) + '@test.com'; // 255 chars
     expect(isValidEmail(longEmail)).toBe(false);

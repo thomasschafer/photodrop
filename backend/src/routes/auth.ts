@@ -58,7 +58,7 @@ auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
       return c.json({ error: 'Valid email is required' }, 400);
     }
 
-    const email = rawEmail.toLowerCase().trim();
+    const email = rawEmail.toLowerCase();
 
     if (role !== 'admin' && role !== 'member') {
       return c.json({ error: 'Invalid role' }, 400);
@@ -116,7 +116,7 @@ auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
       return c.json({ error: 'Valid email is required' }, 400);
     }
 
-    const email = rawEmail.toLowerCase().trim();
+    const email = rawEmail.toLowerCase();
 
     // Get user by email
     const user = await getUserByEmail(c.env.DB, email);
