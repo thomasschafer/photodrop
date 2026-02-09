@@ -92,7 +92,6 @@ export function NotificationBell() {
 
   // Check native push subscription status
   const checkNativeSubscriptionStatus = useCallback(async () => {
-    console.log('[NotificationBell] Checking native subscription status...');
     const debug: Partial<DebugInfo> = {
       isNative: true,
       groupId: currentGroup?.id || null,
@@ -101,12 +100,9 @@ export function NotificationBell() {
     try {
       // Wait for initialization to complete before checking status
       // This prevents racing with the permission dialog on cold start
-      console.log('[NotificationBell] Waiting for native push init...');
       await waitForNativePushInit();
-      console.log('[NotificationBell] Native push init complete, checking status...');
 
       const permission = await checkNativePermissions();
-      console.log('[NotificationBell] Native permission:', permission);
       debug.permission = permission;
 
       if (permission === 'denied') {
@@ -118,7 +114,6 @@ export function NotificationBell() {
 
       // If we don't have a token yet, user hasn't subscribed
       const token = getCurrentToken();
-      console.log('[NotificationBell] Current token:', token ? 'exists' : 'null');
       debug.hasToken = !!token;
       debug.tokenPreview = token ? token.substring(0, 20) + '...' : null;
 
@@ -131,7 +126,6 @@ export function NotificationBell() {
 
       // Check if registered with backend for this group
       const registered = await isRegisteredWithBackend();
-      console.log('[NotificationBell] Registered with backend:', registered);
       const finalState = registered ? 'subscribed' : 'unsubscribed';
       debug.state = finalState;
       setDebugInfo((prev) => ({ ...prev, ...debug, state: finalState }));
@@ -146,7 +140,6 @@ export function NotificationBell() {
   }, [currentGroup?.id]);
 
   useEffect(() => {
-    console.log('[NotificationBell] useEffect triggered, isNative:', isNative);
     setState('loading');
     setDebugInfo((prev) => ({ ...prev, isNative, groupId: currentGroup?.id || null }));
 
@@ -162,7 +155,6 @@ export function NotificationBell() {
     if (!isNative) return;
 
     const handleStateChange = () => {
-      console.log('[NotificationBell] Native push state changed, rechecking...');
       checkNativeSubscriptionStatus();
     };
 
@@ -179,7 +171,6 @@ export function NotificationBell() {
 
     CapApp.addListener('appStateChange', (appState) => {
       if (appState.isActive) {
-        console.log('[NotificationBell] App resumed, rechecking permissions...');
         checkNativeSubscriptionStatus();
       }
     }).then((h) => {

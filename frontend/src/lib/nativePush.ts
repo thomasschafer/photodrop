@@ -34,6 +34,7 @@ let appFullyVisible = false;
 function logDebug(event: string) {
   const ts = Date.now();
   debugTimeline.push({ ts, event });
+  if (debugTimeline.length > 200) debugTimeline.shift();
   console.log(`[NativePush ${ts}] ${event}`);
 }
 
@@ -65,9 +66,16 @@ async function waitForAppReady(): Promise<void> {
 
   // App not active yet — wait for it to become active
   return new Promise<void>((resolve) => {
+    let listenerHandle: { remove: () => Promise<void> } | null = null;
+
+    const cleanup = () => {
+      listenerHandle?.remove();
+    };
+
     const timeout = setTimeout(() => {
       logDebug('app ready timeout (5s), proceeding anyway');
       appFullyVisible = true;
+      cleanup();
       resolve();
     }, 5000);
 
@@ -78,9 +86,12 @@ async function waitForAppReady(): Promise<void> {
         setTimeout(() => {
           appFullyVisible = true;
           logDebug('app ready (state change + delay)');
+          cleanup();
           resolve();
         }, 500);
       }
+    }).then((handle) => {
+      listenerHandle = handle;
     });
   });
 }
@@ -352,16 +363,16 @@ export function waitForNativePushInit(): Promise<void> {
   if (initializationPromise) return initializationPromise;
   // Init hasn't started yet — return a promise that resolves when it does
   return new Promise<void>((resolve) => {
-    const handler = () => {
-      window.removeEventListener('nativePushStateChanged', handler);
-      resolve();
-    };
-    window.addEventListener('nativePushStateChanged', handler);
-    // Safety timeout — don't wait forever
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       window.removeEventListener('nativePushStateChanged', handler);
       resolve();
     }, 15000);
+    const handler = () => {
+      window.removeEventListener('nativePushStateChanged', handler);
+      clearTimeout(timeoutId);
+      resolve();
+    };
+    window.addEventListener('nativePushStateChanged', handler);
   });
 }
 
@@ -472,9 +483,14 @@ export async function initializeNativePush(): Promise<void> {
       logDebug(`init error: ${error instanceof Error ? error.message : String(error)}`);
       markPushInitCompleted(); // Clear guard on caught errors (app didn't crash)
     } finally {
-      initializationComplete = true;
-      logDebug('init complete, dispatching nativePushStateChanged');
-      window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
+      // Only update state if initialization wasn't aborted by logout
+      if (!initializationAborted) {
+        initializationComplete = true;
+        logDebug('init complete, dispatching nativePushStateChanged');
+        window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
+      } else {
+        logDebug('init finished but was aborted, skipping state update');
+      }
     }
   })();
 
@@ -494,6 +510,7 @@ export async function cleanupOnLogout(): Promise<void> {
   // Reset initialization state so next login re-initializes
   initializationPromise = null;
   initializationComplete = false;
+  debugTimeline.length = 0;
 }
 
 /**
