@@ -1,10 +1,8 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, Link, useNavigate } from 'react-router-dom';
 import { DEEP_LINK_EVENT } from './lib/deepLink';
 import { useAuth } from './contexts/AuthContext';
 import { getNavDirection } from './lib/keyboard';
-import { PhotoFeed } from './components/PhotoFeed';
-import { MembersList } from './components/MembersList';
 import { Logo } from './components/Logo';
 import { ThemeToggle } from './components/ThemeToggle';
 import { GroupSwitcher } from './components/GroupSwitcher';
@@ -18,6 +16,10 @@ import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
 import { GroupPickerPage } from './pages/GroupPickerPage';
+
+// Lazy-load heavy components
+const PhotoFeed = lazy(() => import('./components/PhotoFeed').then((m) => ({ default: m.PhotoFeed })));
+const MembersList = lazy(() => import('./components/MembersList').then((m) => ({ default: m.MembersList })));
 
 const tabs = [
   { id: 'feed' as const, path: '/', label: 'Photos' },
@@ -138,12 +140,14 @@ function MainApp() {
 
       <main id="main-content" className="max-w-[900px] mx-auto py-8 px-6">
         <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-label={`${activeTab} content`}>
-          {activeTab === 'feed' && <PhotoFeed isAdmin={isAdmin} />}
-          {activeTab === 'members' && isAdmin && (
-            <div className="max-w-[600px] mx-auto">
-              <MembersList />
-            </div>
-          )}
+          <Suspense fallback={<div className="flex justify-center py-12"><div className="spinner" /></div>}>
+            {activeTab === 'feed' && <PhotoFeed isAdmin={isAdmin} />}
+            {activeTab === 'members' && isAdmin && (
+              <div className="max-w-[600px] mx-auto">
+                <MembersList />
+              </div>
+            )}
+          </Suspense>
         </div>
       </main>
     </div>

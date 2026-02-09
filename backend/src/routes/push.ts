@@ -25,6 +25,7 @@ push.get('/vapid-public-key', (c) => {
   if (!publicKey) {
     return c.json({ error: 'Push notifications not configured' }, 500);
   }
+  c.header('Cache-Control', 'public, max-age=86400');
   return c.json({ publicKey });
 });
 

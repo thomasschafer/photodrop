@@ -20,6 +20,10 @@ app.use('/*', async (c, next) => {
     'Content-Security-Policy',
     "default-src 'none'; frame-ancestors 'none'"
   );
+  // Default: no caching for API responses (individual routes can override)
+  if (!c.res.headers.has('Cache-Control')) {
+    c.res.headers.set('Cache-Control', 'no-store');
+  }
 });
 
 app.use(

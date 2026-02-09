@@ -231,25 +231,32 @@ groups.delete('/:groupId', requireOwner, async (c) => {
     const photoKeys = await getGroupPhotoKeys(c.env.DB, groupId);
     const totalFiles = photoKeys.length + photoKeys.filter((p) => p.thumbnail_r2_key).length;
 
-    // Delete all R2 files - fail if any deletion fails
-    const r2Failures: Array<{ key: string; error: string }> = [];
+    // Collect all R2 keys to delete
+    const allKeys: string[] = [];
     for (const photo of photoKeys) {
-      try {
-        await c.env.PHOTOS.delete(photo.r2_key);
-      } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : 'Unknown error';
-        console.error(`Failed to delete R2 key: ${photo.r2_key}`, e);
-        r2Failures.push({ key: photo.r2_key, error: errorMsg });
-      }
+      allKeys.push(photo.r2_key);
       if (photo.thumbnail_r2_key) {
-        try {
-          await c.env.PHOTOS.delete(photo.thumbnail_r2_key);
-        } catch (e) {
-          const errorMsg = e instanceof Error ? e.message : 'Unknown error';
-          console.error(`Failed to delete R2 thumbnail: ${photo.thumbnail_r2_key}`, e);
-          r2Failures.push({ key: photo.thumbnail_r2_key, error: errorMsg });
-        }
+        allKeys.push(photo.thumbnail_r2_key);
       }
+    }
+
+    // Delete R2 files in parallel batches of 50
+    const BATCH_SIZE = 50;
+    const r2Failures: Array<{ key: string; error: string }> = [];
+
+    for (let i = 0; i < allKeys.length; i += BATCH_SIZE) {
+      const batch = allKeys.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map((key) => c.env.PHOTOS.delete(key))
+      );
+
+      results.forEach((result, idx) => {
+        if (result.status === 'rejected') {
+          const errorMsg = result.reason instanceof Error ? result.reason.message : 'Unknown error';
+          console.error(`Failed to delete R2 key: ${batch[idx]}`, result.reason);
+          r2Failures.push({ key: batch[idx], error: errorMsg });
+        }
+      });
     }
 
     // If any R2 deletions failed, abort and return error
@@ -260,7 +267,7 @@ groups.delete('/:groupId', requireOwner, async (c) => {
           details: {
             failedCount: r2Failures.length,
             totalFiles,
-            failures: r2Failures.slice(0, 5), // Limit to first 5 failures
+            failures: r2Failures.slice(0, 5),
           },
         },
         500
