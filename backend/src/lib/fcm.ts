@@ -194,6 +194,8 @@ export async function sendFcmNotification(
         priority: 'high',
         notification: {
           channel_id: 'photos',
+          icon: 'ic_notification',
+          color: '#F97316',
         },
       };
     } else if (deviceToken.platform === 'ios') {

@@ -30,22 +30,24 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
       return;
     }
 
-    setSelectedFile(file);
     setError(null);
     setPreviewLoading(true);
 
-    // HEIC files can't be previewed by most browsers — convert first
-    let previewFile = file;
+    // Convert HEIC files to JPEG upfront — browsers can't display or compress HEIC natively.
+    // We store the converted file as selectedFile so compressImage doesn't re-convert.
+    let processedFile = file;
     if (isHeicFile(file)) {
       try {
-        previewFile = await convertHeicToJpeg(file);
+        processedFile = await convertHeicToJpeg(file);
       } catch (err) {
-        console.error('HEIC preview conversion failed:', err);
-        setError('Could not generate preview for HEIC file. Upload may still work.');
+        console.error('HEIC conversion failed:', err);
+        setError('Could not process HEIC file. Please try a different image.');
         setPreviewLoading(false);
         return;
       }
     }
+
+    setSelectedFile(processedFile);
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -56,12 +58,17 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
       setError('Failed to generate image preview');
       setPreviewLoading(false);
     };
-    reader.readAsDataURL(previewFile);
+    reader.readAsDataURL(processedFile);
   }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (file) {
+      handleFile(file).catch((err) => {
+        console.error('Unexpected error handling file:', err);
+        setError('Failed to process file');
+      });
+    }
   };
 
   const handleUpload = async () => {

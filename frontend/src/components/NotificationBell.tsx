@@ -10,7 +10,11 @@ import {
   unregisterDeviceFromBackend,
   isRegisteredWithBackend,
   getCurrentToken,
+  waitForNativePushInit,
+  getDebugTimeline,
+  resetPushCrashGuard,
 } from '../lib/nativePush';
+import { App as CapApp } from '@capacitor/app';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { useAuth } from '../contexts/AuthContext';
@@ -88,15 +92,17 @@ export function NotificationBell() {
 
   // Check native push subscription status
   const checkNativeSubscriptionStatus = useCallback(async () => {
-    console.log('[NotificationBell] Checking native subscription status...');
     const debug: Partial<DebugInfo> = {
       isNative: true,
       groupId: currentGroup?.id || null,
     };
 
     try {
+      // Wait for initialization to complete before checking status
+      // This prevents racing with the permission dialog on cold start
+      await waitForNativePushInit();
+
       const permission = await checkNativePermissions();
-      console.log('[NotificationBell] Native permission:', permission);
       debug.permission = permission;
 
       if (permission === 'denied') {
@@ -108,7 +114,6 @@ export function NotificationBell() {
 
       // If we don't have a token yet, user hasn't subscribed
       const token = getCurrentToken();
-      console.log('[NotificationBell] Current token:', token ? 'exists' : 'null');
       debug.hasToken = !!token;
       debug.tokenPreview = token ? token.substring(0, 20) + '...' : null;
 
@@ -121,7 +126,6 @@ export function NotificationBell() {
 
       // Check if registered with backend for this group
       const registered = await isRegisteredWithBackend();
-      console.log('[NotificationBell] Registered with backend:', registered);
       const finalState = registered ? 'subscribed' : 'unsubscribed';
       debug.state = finalState;
       setDebugInfo((prev) => ({ ...prev, ...debug, state: finalState }));
@@ -136,15 +140,47 @@ export function NotificationBell() {
   }, [currentGroup?.id]);
 
   useEffect(() => {
-    console.log('[NotificationBell] useEffect triggered, isNative:', isNative);
     setState('loading');
     setDebugInfo((prev) => ({ ...prev, isNative, groupId: currentGroup?.id || null }));
+
     if (isNative) {
       checkNativeSubscriptionStatus();
     } else {
       checkWebSubscriptionStatus();
     }
   }, [checkWebSubscriptionStatus, checkNativeSubscriptionStatus, currentGroup?.id, isNative]);
+
+  // Listen for native push state changes (e.g., from auto-registration in AuthContext)
+  useEffect(() => {
+    if (!isNative) return;
+
+    const handleStateChange = () => {
+      checkNativeSubscriptionStatus();
+    };
+
+    window.addEventListener('nativePushStateChanged', handleStateChange);
+    return () => window.removeEventListener('nativePushStateChanged', handleStateChange);
+  }, [isNative, checkNativeSubscriptionStatus]);
+
+  // Re-check permissions when app resumes (e.g., returning from Android settings
+  // after enabling notifications there)
+  useEffect(() => {
+    if (!isNative) return;
+
+    let handle: { remove: () => Promise<void> } | null = null;
+
+    CapApp.addListener('appStateChange', (appState) => {
+      if (appState.isActive) {
+        checkNativeSubscriptionStatus();
+      }
+    }).then((h) => {
+      handle = h;
+    });
+
+    return () => {
+      handle?.remove();
+    };
+  }, [isNative, checkNativeSubscriptionStatus]);
 
   // Subscribe to web push
   const subscribeWeb = async () => {
@@ -436,29 +472,50 @@ export function NotificationBell() {
       )}
 
       {showDebug && (
-        <ConfirmModal
-          title="Notification debug info"
-          message={`
-State: ${debugInfo.state}
+        <Modal title="Notification debug info" onClose={() => setShowDebug(false)}>
+          <div className="space-y-3">
+            <pre className="text-xs p-3 bg-surface-elevated rounded-lg overflow-x-auto whitespace-pre-wrap">
+              {`State: ${debugInfo.state}
 Platform: ${debugInfo.isNative ? 'Native (Capacitor)' : 'Web'}
 Group ID: ${debugInfo.groupId || 'none'}
 Permission: ${debugInfo.permission || 'not checked'}
 Has Token: ${debugInfo.hasToken ? 'yes' : 'no'}
 Token: ${debugInfo.tokenPreview || 'none'}
 Error: ${debugInfo.error || 'none'}
-          `.trim()}
-          confirmLabel="Try subscribe"
-          cancelLabel="Close"
-          onConfirm={async () => {
-            setShowDebug(false);
-            if (isNative) {
-              await subscribeNative();
-            } else {
-              await subscribeWeb();
-            }
-          }}
-          onCancel={() => setShowDebug(false)}
-        />
+Crash guard: ${localStorage.getItem('nativePush_initInProgress') === 'true' ? 'TRIGGERED' : 'ok'} (count: ${localStorage.getItem('nativePush_crashCount') || '0'})
+
+Timeline:
+${
+  getDebugTimeline()
+    .map((e) => {
+      const t = new Date(e.ts);
+      return `${t.toLocaleTimeString()}.${String(t.getMilliseconds()).padStart(3, '0')} ${e.event}`;
+    })
+    .join('\n') || '(empty)'
+}`}
+            </pre>
+            <button
+              onClick={async () => {
+                setShowDebug(false);
+                resetPushCrashGuard();
+                if (isNative) {
+                  await subscribeNative();
+                } else {
+                  await subscribeWeb();
+                }
+              }}
+              className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium"
+            >
+              Try subscribe (resets crash guard)
+            </button>
+            <button
+              onClick={() => setShowDebug(false)}
+              className="w-full py-2 px-4 border border-border rounded-lg"
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
       )}
 
       {showTestModal && (

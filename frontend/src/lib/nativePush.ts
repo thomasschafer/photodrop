@@ -4,6 +4,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { api } from './api';
 
@@ -19,6 +20,114 @@ let initializationAborted = false;
 // Pending registration state (shared across concurrent calls)
 let pendingRegistrationPromise: Promise<string | null> | null = null;
 let pendingResolve: ((token: string | null) => void) | null = null;
+
+// Shared initialization promise so UI components can await initialization
+let initializationPromise: Promise<void> | null = null;
+let initializationComplete = false;
+
+// Debug timeline for diagnosing cold-start issues
+const debugTimeline: Array<{ ts: number; event: string }> = [];
+
+// Track whether the app has been fully visible at least once
+let appFullyVisible = false;
+
+function logDebug(event: string) {
+  const ts = Date.now();
+  debugTimeline.push({ ts, event });
+  if (debugTimeline.length > 200) debugTimeline.shift();
+  console.log(`[NativePush ${ts}] ${event}`);
+}
+
+/**
+ * Wait for the app to be fully visible (splash screen dismissed, activity resumed).
+ * On cold start, the splash screen may overlay permission dialogs, so we need to
+ * ensure the app is in the foreground before requesting permissions.
+ */
+async function waitForAppReady(): Promise<void> {
+  if (appFullyVisible) return;
+
+  logDebug('waiting for app to be fully visible...');
+
+  // Check current state first
+  try {
+    const state = await CapApp.getState();
+    if (state.isActive) {
+      // App reports active, but on cold start the splash screen may still be showing.
+      // Wait a short period for the splash screen to dismiss and the WebView to be fully interactive.
+      logDebug(`app state: active, waiting for splash screen to dismiss`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      appFullyVisible = true;
+      logDebug('app ready (active + delay)');
+      return;
+    }
+  } catch {
+    // getState failed, fall through to listener approach
+  }
+
+  // App not active yet — wait for it to become active
+  return new Promise<void>((resolve) => {
+    let listenerHandle: { remove: () => Promise<void> } | null = null;
+
+    const cleanup = () => {
+      listenerHandle?.remove();
+    };
+
+    const timeout = setTimeout(() => {
+      logDebug('app ready timeout (5s), proceeding anyway');
+      appFullyVisible = true;
+      cleanup();
+      resolve();
+    }, 5000);
+
+    CapApp.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        clearTimeout(timeout);
+        // Additional delay for splash screen dismissal
+        setTimeout(() => {
+          appFullyVisible = true;
+          logDebug('app ready (state change + delay)');
+          cleanup();
+          resolve();
+        }, 500);
+      }
+    }).then((handle) => {
+      listenerHandle = handle;
+    });
+  });
+}
+
+/**
+ * After the permission dialog closes, Android may need a beat to fully resume
+ * the activity before FCM registration is safe.
+ */
+async function waitForPostPermissionResume(): Promise<void> {
+  try {
+    const state = await CapApp.getState();
+    if (state.isActive) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return;
+    }
+  } catch {
+    // getState failed, fall through to listener approach
+  }
+
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => resolve(), 2000);
+    CapApp.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        clearTimeout(timeout);
+        setTimeout(() => resolve(), 400);
+      }
+    });
+  });
+}
+
+/**
+ * Get the debug timeline for diagnostics
+ */
+export function getDebugTimeline(): Array<{ ts: number; event: string }> {
+  return [...debugTimeline];
+}
 
 /**
  * Check if we're running on a native platform
@@ -76,6 +185,7 @@ async function setupListeners(): Promise<void> {
 
   // Handle registration success
   await PushNotifications.addListener('registration', (result) => {
+    logDebug(`registration event received, token: ${result.value?.substring(0, 20)}...`);
     currentToken = result.value;
     if (pendingResolve) {
       pendingResolve(result.value);
@@ -85,7 +195,7 @@ async function setupListeners(): Promise<void> {
 
   // Handle registration error
   await PushNotifications.addListener('registrationError', (error) => {
-    console.error('Push registration error:', error);
+    logDebug(`registrationError event: ${JSON.stringify(error)}`);
     if (pendingResolve) {
       pendingResolve(null);
       pendingResolve = null;
@@ -126,43 +236,49 @@ async function setupListeners(): Promise<void> {
  * Returns the token on success, null on failure
  */
 export async function registerForPush(): Promise<string | null> {
-  console.log('[NativePush] registerForPush called, isNative:', isNativePlatform());
+  logDebug('registerForPush called');
   if (!isNativePlatform()) return null;
 
   // If we already have a token, return it
   if (currentToken) {
-    console.log('[NativePush] Already have token:', currentToken.substring(0, 20) + '...');
+    logDebug('already have token');
     return currentToken;
   }
 
   try {
     // Check/request permissions
     let permission = await checkPermissions();
-    console.log('[NativePush] Current permission:', permission);
+    logDebug(`checkPermissions: ${permission}`);
     if (permission === 'prompt') {
-      console.log('[NativePush] Requesting permission...');
+      logDebug('requesting permission...');
       permission = await requestPermissions();
-      console.log('[NativePush] Permission result:', permission);
+      logDebug(`requestPermissions result: ${permission}`);
     }
 
     if (permission !== 'granted') {
-      console.log('[NativePush] Push notification permission denied');
+      logDebug('permission denied');
       return null;
     }
 
+    // Allow the activity to fully resume after the permission dialog closes
+    logDebug('waiting for post-permission resume...');
+    await waitForPostPermissionResume();
+
     // Set up listeners before registering
     await setupListeners();
+    logDebug('listeners set up');
 
     // If registration is already in progress, return the existing promise
     if (pendingRegistrationPromise) {
-      console.log('[NativePush] Registration already in progress, waiting...');
+      logDebug('registration already in progress, waiting...');
       return pendingRegistrationPromise;
     }
 
     // Register with FCM and wait for result
+    logDebug('calling PushNotifications.register()');
     pendingRegistrationPromise = new Promise<string | null>((resolve) => {
       const timeout = setTimeout(() => {
-        console.warn('Push registration timed out');
+        logDebug('FCM registration timed out (10s)');
         pendingResolve = null;
         pendingRegistrationPromise = null;
         resolve(null);
@@ -231,28 +347,154 @@ export async function isRegisteredWithBackend(): Promise<boolean> {
 }
 
 /**
+ * Check if native push initialization has completed
+ */
+export function isNativePushInitialized(): boolean {
+  return initializationComplete;
+}
+
+/**
+ * Wait for native push initialization to complete.
+ * Returns immediately if not native or already initialized.
+ * UI components should call this instead of independently checking status.
+ */
+export function waitForNativePushInit(): Promise<void> {
+  if (!isNativePlatform() || initializationComplete) return Promise.resolve();
+  if (initializationPromise) return initializationPromise;
+  // Init hasn't started yet — return a promise that resolves when it does
+  return new Promise<void>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      window.removeEventListener('nativePushStateChanged', handler);
+      resolve();
+    }, 15000);
+    const handler = () => {
+      window.removeEventListener('nativePushStateChanged', handler);
+      clearTimeout(timeoutId);
+      resolve();
+    };
+    window.addEventListener('nativePushStateChanged', handler);
+  });
+}
+
+/**
+ * Crash guard: detect if push init is causing repeated crashes.
+ * We set a flag before attempting FCM registration and clear it after.
+ * If the flag is still set on next app start, push init likely crashed the app.
+ */
+const PUSH_INIT_GUARD_KEY = 'nativePush_initInProgress';
+const PUSH_INIT_CRASH_COUNT_KEY = 'nativePush_crashCount';
+const MAX_CRASH_RETRIES = 2;
+
+function markPushInitStarted(): void {
+  try {
+    const crashCount = parseInt(localStorage.getItem(PUSH_INIT_CRASH_COUNT_KEY) || '0', 10);
+    localStorage.setItem(PUSH_INIT_GUARD_KEY, 'true');
+    localStorage.setItem(PUSH_INIT_CRASH_COUNT_KEY, String(crashCount + 1));
+  } catch {
+    // localStorage not available
+  }
+}
+
+function markPushInitCompleted(): void {
+  try {
+    localStorage.removeItem(PUSH_INIT_GUARD_KEY);
+    localStorage.setItem(PUSH_INIT_CRASH_COUNT_KEY, '0');
+  } catch {
+    // localStorage not available
+  }
+}
+
+function isPushInitCrashing(): boolean {
+  try {
+    const wasInProgress = localStorage.getItem(PUSH_INIT_GUARD_KEY) === 'true';
+    const crashCount = parseInt(localStorage.getItem(PUSH_INIT_CRASH_COUNT_KEY) || '0', 10);
+    return wasInProgress && crashCount >= MAX_CRASH_RETRIES;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reset the crash guard (called from debug UI to retry)
+ */
+export function resetPushCrashGuard(): void {
+  try {
+    localStorage.removeItem(PUSH_INIT_GUARD_KEY);
+    localStorage.setItem(PUSH_INIT_CRASH_COUNT_KEY, '0');
+  } catch {
+    // localStorage not available
+  }
+}
+
+/**
  * Initialize native push notifications
  * Call this on app startup after authentication
  */
 export async function initializeNativePush(): Promise<void> {
-  console.log('[NativePush] initializeNativePush called');
+  logDebug('initializeNativePush called');
   if (!isNativePlatform()) {
-    console.log('[NativePush] Not native platform, skipping');
+    logDebug('not native platform, skipping');
     return;
+  }
+
+  // Check crash guard — if push init has been crashing the app, skip auto-init
+  if (isPushInitCrashing()) {
+    logDebug(
+      'CRASH GUARD: push init has crashed the app repeatedly, skipping auto-init. Tap bell to retry.'
+    );
+    initializationComplete = true;
+    window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
+    return;
+  }
+
+  // Return existing promise if already in progress
+  if (initializationPromise) {
+    logDebug('init already in progress, returning existing promise');
+    return initializationPromise;
   }
 
   initializationAborted = false;
 
-  const token = await registerForPush();
-  if (initializationAborted) {
-    console.log('[NativePush] Initialization aborted by logout, skipping backend registration');
-    return;
-  }
-  console.log('[NativePush] Got token:', token ? token.substring(0, 20) + '...' : 'null');
-  if (token) {
-    const registered = await registerDeviceWithBackend();
-    console.log('[NativePush] Backend registration:', registered ? 'success' : 'failed');
-  }
+  initializationPromise = (async () => {
+    try {
+      // Wait for the app to be fully visible before requesting permissions.
+      // On cold start, the splash screen may overlay the Android permission dialog,
+      // causing it to be invisible or dismissed without user interaction.
+      await waitForAppReady();
+
+      // Set crash guard before FCM registration (the risky part)
+      markPushInitStarted();
+
+      const token = await registerForPush();
+      logDebug(`registerForPush returned: ${token ? 'token' : 'null'}`);
+
+      // Clear crash guard — we survived FCM registration
+      markPushInitCompleted();
+
+      if (initializationAborted) {
+        logDebug('Initialization aborted by logout, skipping backend registration');
+        return;
+      }
+      if (token) {
+        const registered = await registerDeviceWithBackend();
+        logDebug(`backend registration: ${registered ? 'success' : 'failed'}`);
+      }
+    } catch (error) {
+      logDebug(`init error: ${error instanceof Error ? error.message : String(error)}`);
+      markPushInitCompleted(); // Clear guard on caught errors (app didn't crash)
+    } finally {
+      // Only update state if initialization wasn't aborted by logout
+      if (!initializationAborted) {
+        initializationComplete = true;
+        logDebug('init complete, dispatching nativePushStateChanged');
+        window.dispatchEvent(new CustomEvent('nativePushStateChanged'));
+      } else {
+        logDebug('init finished but was aborted, skipping state update');
+      }
+    }
+  })();
+
+  return initializationPromise;
 }
 
 /**
@@ -265,6 +507,10 @@ export async function cleanupOnLogout(): Promise<void> {
   if (currentToken) {
     await unregisterDeviceFromBackend();
   }
+  // Reset initialization state so next login re-initializes
+  initializationPromise = null;
+  initializationComplete = false;
+  debugTimeline.length = 0;
 }
 
 /**

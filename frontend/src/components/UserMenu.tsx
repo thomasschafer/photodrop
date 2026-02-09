@@ -11,6 +11,7 @@ export function UserMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const handleColorSelect = useColorSelect();
+  const buildStamp = import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_GIT_SHA || 'dev';
 
   const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
     isOpen,
@@ -70,6 +71,9 @@ export function UserMenu() {
                 />
                 Change color
               </button>
+              <div className="px-3.5 pt-1 pb-1 text-[10px] text-text-muted">
+                Version: {buildStamp}
+              </div>
               <button
                 ref={setOptionRef(1)}
                 role="menuitem"
