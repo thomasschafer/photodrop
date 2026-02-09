@@ -159,6 +159,11 @@ export function ReactionPills({
   showNames = false,
 }: ReactionPillsProps) {
   const hasLoadedRef = useRef(false);
+  const prevReactionsRef = useRef(reactions);
+  if (prevReactionsRef.current !== reactions) {
+    prevReactionsRef.current = reactions;
+    hasLoadedRef.current = false;
+  }
   const [longPressTooltipEmoji, setLongPressTooltipEmoji] = useState<string | null>(null);
   const internalTriggerRef = useRef<HTMLButtonElement | null>(null);
   const internalPickerRef = useRef<HTMLDivElement | null>(null);

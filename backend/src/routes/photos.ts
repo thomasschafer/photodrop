@@ -67,7 +67,7 @@ async function sendPhotoUploadNotifications(
   const title = `New photo in ${groupName}`;
   // Sanitize caption to prevent injection in push notifications
   // Push payloads are plain text (not rendered as HTML), so just truncate
-  const sanitizedCaption = caption ? caption.slice(0, 200) : null;
+  const sanitizedCaption = caption ? Array.from(caption).slice(0, 200).join('') : null;
   const body = sanitizedCaption || `${uploaderName} shared a new photo`;
 
   // Send web push notifications

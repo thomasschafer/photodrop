@@ -172,27 +172,31 @@ export function Lightbox({
     }
   };
 
-  const loadComments = useCallback(async () => {
-    if (commentsCache.current.has(photo.id)) return;
+  useEffect(() => {
+    let stale = false;
+    const photoId = photo.id;
+
+    if (commentsCache.current.has(photoId)) return;
 
     setLoadingComments(true);
-    try {
-      const data = await api.photos.getComments(photo.id);
-      setComments(data.comments);
-      commentsCache.current.set(photo.id, data.comments);
-    } catch (err) {
-      console.error('Failed to load comments:', err);
-    } finally {
-      setLoadingComments(false);
-    }
-  }, [photo.id]);
+    (async () => {
+      try {
+        const data = await api.photos.getComments(photoId);
+        if (stale) return;
+        setComments(data.comments);
+        commentsCache.current.set(photoId, data.comments);
+      } catch (err) {
+        if (stale) return;
+        console.error('Failed to load comments:', err);
+      } finally {
+        if (!stale) setLoadingComments(false);
+      }
+    })();
 
-  useEffect(() => {
-    if (!commentsCache.current.has(photo.id)) {
-      setLoadingComments(true);
-    }
-    loadComments();
-  }, [loadComments, photo.id]);
+    return () => {
+      stale = true;
+    };
+  }, [photo.id]);
 
   useEffect(() => {
     const preloadComments = async (photoId: string) => {

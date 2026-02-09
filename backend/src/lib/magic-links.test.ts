@@ -12,15 +12,16 @@ function createMockDb(token: unknown) {
 }
 
 describe('verifyMagicLink', () => {
+  let now: number;
+
   beforeEach(() => {
     vi.useFakeTimers();
+    now = Math.floor(Date.now() / 1000);
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
-
-  const now = Math.floor(Date.now() / 1000);
 
   it('returns valid for a fresh token', async () => {
     const token = {
