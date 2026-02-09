@@ -70,6 +70,8 @@ async function mockPushSupported(
         showNotification: async () => undefined,
         update: async () => undefined,
         unregister: async () => true,
+        addEventListener: () => {},
+        removeEventListener: () => {},
       };
 
       // Mock navigator.serviceWorker
@@ -143,6 +145,17 @@ async function mockPushSubscribed(page: import('@playwright/test').Page, endpoin
       const mockRegistration = {
         pushManager: mockPushManager,
         active: { state: 'activated' },
+        installing: null,
+        waiting: null,
+        scope: '/',
+        updateViaCache: 'imports',
+        onupdatefound: null,
+        getNotifications: async () => [],
+        showNotification: async () => undefined,
+        update: async () => undefined,
+        unregister: async () => true,
+        addEventListener: () => {},
+        removeEventListener: () => {},
       };
 
       // Mock navigator.serviceWorker
@@ -150,6 +163,11 @@ async function mockPushSubscribed(page: import('@playwright/test').Page, endpoin
         value: {
           ready: Promise.resolve(mockRegistration),
           controller: { state: 'activated' },
+          register: async () => mockRegistration,
+          getRegistration: async () => mockRegistration,
+          getRegistrations: async () => [mockRegistration],
+          addEventListener: () => {},
+          removeEventListener: () => {},
         },
         writable: true,
       });
