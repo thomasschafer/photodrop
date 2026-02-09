@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { ZodError } from 'zod';
 import auth from './routes/auth';
 import users from './routes/users';
 import photos from './routes/photos';
@@ -70,5 +71,16 @@ app.route('/users', users);
 app.route('/photos', photos);
 app.route('/groups', groups);
 app.route('/push', push);
+
+// Global error handler
+app.onError((err, c) => {
+  if (err instanceof ZodError) {
+    const messages = err.issues.map((e) => `${e.path.join('.')}: ${e.message}`);
+    return c.json({ error: 'Validation error', details: messages }, 400);
+  }
+
+  console.error('Unhandled error:', err);
+  return c.json({ error: 'Internal server error' }, 500);
+});
 
 export default app;
