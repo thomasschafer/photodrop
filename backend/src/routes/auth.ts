@@ -11,7 +11,6 @@ import {
   getUserMemberships,
   markMagicLinkTokenUsed,
   markMagicLinkTokenPending,
-  type MembershipRole,
 } from '../lib/db';
 import {
   generateAccessToken,
