@@ -29,7 +29,7 @@ import {
   ALLOWED_MIME_TYPES,
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
-import { canonicalizeEmoji } from '../lib/schemas';
+import { canonicalizeEmoji, addReactionSchema, addCommentSchema } from '../lib/schemas';
 import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for comments: 30 per user per 15 minutes
@@ -491,25 +491,16 @@ photos.post('/:id/react', requireAuth, async (c) => {
     const photoId = c.req.param('id');
     const currentUser = c.get('user');
     const body = await c.req.json();
-    const { emoji } = body;
-
-    if (!emoji || typeof emoji !== 'string') {
-      return c.json({ error: 'Emoji is required' }, 400);
-    }
-
-    const canonicalEmoji = canonicalizeEmoji(emoji);
-    if (!canonicalEmoji) {
-      return c.json({ error: 'Invalid emoji' }, 400);
-    }
+    const { emoji } = addReactionSchema.parse(body);
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
     }
 
-    await addPhotoReaction(c.env.DB, photoId, currentUser.id, canonicalEmoji);
+    await addPhotoReaction(c.env.DB, photoId, currentUser.id, emoji);
 
-    return c.json({ message: 'Reaction added', emoji: canonicalEmoji });
+    return c.json({ message: 'Reaction added', emoji });
   } catch (error) {
     console.error('Error adding reaction:', error);
     return c.json({ error: 'Failed to add reaction' }, 500);
@@ -605,15 +596,7 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
     const photoId = c.req.param('id');
     const currentUser = c.get('user');
     const body = await c.req.json();
-    const { content } = body;
-
-    if (!content || typeof content !== 'string' || content.trim().length === 0) {
-      return c.json({ error: 'Comment content is required' }, 400);
-    }
-
-    if (content.trim().length > 1000) {
-      return c.json({ error: 'Comment is too long (max 1000 characters)' }, 400);
-    }
+    const { content } = addCommentSchema.parse(body);
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
@@ -630,7 +613,7 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
       photoId,
       currentUser.id,
       user.name,
-      content.trim()
+      content
     );
 
     return c.json(

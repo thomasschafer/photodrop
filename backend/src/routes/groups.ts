@@ -13,6 +13,7 @@ import {
   updateMemberImageProtection,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
+import { updateMemberSchema, imageProtectionSchema } from '../lib/schemas';
 import type { AppEnv } from '../types';
 
 const groups = new Hono<AppEnv>();
@@ -82,7 +83,7 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
     }
 
     const body = await c.req.json();
-    const { role, name } = body;
+    const { role, name } = updateMemberSchema.parse(body);
 
     // Check if membership exists
     const membership = await getMembership(c.env.DB, userId, groupId);
@@ -97,10 +98,6 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
         return c.json({ error: 'Cannot promote to owner' }, 400);
       }
 
-      if (role !== 'admin' && role !== 'member') {
-        return c.json({ error: 'Invalid role' }, 400);
-      }
-
       const result = await updateMembershipRole(c.env.DB, userId, groupId, role);
       if (!result.success) {
         if (result.error === 'is_owner') {
@@ -112,15 +109,7 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
 
     // Handle name update
     if (name !== undefined) {
-      const trimmedName = name.trim();
-      if (trimmedName.length === 0) {
-        return c.json({ error: 'Name cannot be empty' }, 400);
-      }
-      if (trimmedName.length > 100) {
-        return c.json({ error: 'Name is too long' }, 400);
-      }
-
-      await updateUserName(c.env.DB, userId, trimmedName);
+      await updateUserName(c.env.DB, userId, name);
     }
 
     return c.json({ message: 'Member updated successfully' });
@@ -182,11 +171,7 @@ groups.patch('/:groupId/members/:userId/image-protection', requireAdmin, async (
     }
 
     const body = await c.req.json();
-    const { enabled } = body;
-
-    if (typeof enabled !== 'boolean') {
-      return c.json({ error: 'enabled must be a boolean' }, 400);
-    }
+    const { enabled } = imageProtectionSchema.parse(body);
 
     const success = await updateMemberImageProtection(c.env.DB, userId, groupId, enabled);
     if (!success) {
