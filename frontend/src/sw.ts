@@ -40,6 +40,7 @@ const stripTokenFromCacheKey = {
 // The SW controls the page and sees all fetches; without this guard, CacheFirst can capture those requests.
 const isSameOrigin = (url: URL) => url.origin === self.location.origin;
 // Cache thumbnails with cache-first strategy (no expiry, small files ~200KB)
+// (?:api\/)? prefix handles local dev where vite proxies /api/* to backend
 registerRoute(
   ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/thumbnail$/),
   new CacheFirst({
