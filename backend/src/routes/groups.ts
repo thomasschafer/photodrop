@@ -93,10 +93,8 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
 
     // Handle role update
     if (role !== undefined) {
-      // Cannot promote to owner - owner is set at group creation only
-      if (role === 'owner') {
-        return c.json({ error: 'Cannot promote to owner' }, 400);
-      }
+      // Note: Cannot promote to owner (owner is set at group creation only)
+      // This is enforced by the Zod schema which only allows 'admin' | 'member'
 
       const result = await updateMembershipRole(c.env.DB, userId, groupId, role);
       if (!result.success) {
