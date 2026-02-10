@@ -17,6 +17,7 @@ nix run .#dev
 Visit http://localhost:5173. No Cloudflare account needed - D1 and R2 are simulated locally.
 
 **Note:** Push notifications don't work in local development yet (although we could change this in future).
+**Note:** The frontend uses a same-origin `/api` proxy by default in dev. Override with `VITE_API_URL` if needed.
 
 ### Creating a group
 
@@ -78,6 +79,9 @@ Your app will be available at:
 
 - Frontend: `https://your-domain.com`
 - API: `https://api.your-domain.com`
+
+Note: If you want the frontend to call the API through the same origin (e.g. for SW caching),
+set `VITE_API_URL=/api` at build time and configure your Pages/edge to proxy `/api` to the API worker.
 
 ### Deploy
 

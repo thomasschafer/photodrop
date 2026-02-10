@@ -36,9 +36,12 @@ const stripTokenFromCacheKey = {
 // - photodrop:group:* = group-scoped (cleared on group switch)
 // - photodrop:user:* = user-scoped (cleared on logout along with group caches)
 
+// Match only same-origin requests so we don't intercept cross-origin API/images (e.g. dev API on another port).
+// The SW controls the page and sees all fetches; without this guard, CacheFirst can capture those requests.
+const isSameOrigin = (url: URL) => url.origin === self.location.origin;
 // Cache thumbnails with cache-first strategy (no expiry, small files ~200KB)
 registerRoute(
-  ({ url }) => url.origin === self.location.origin && url.pathname.match(/\/photos\/[^/]+\/thumbnail$/),
+  ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/thumbnail$/),
   new CacheFirst({
     cacheName: 'photodrop:group:thumbnails',
     plugins: [
@@ -52,7 +55,7 @@ registerRoute(
 
 // Cache full-size photos with cache-first strategy (max 20 entries, purge on quota error)
 registerRoute(
-  ({ url }) => url.origin === self.location.origin && url.pathname.match(/\/photos\/[^/]+\/download$/),
+  ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/download$/),
   new CacheFirst({
     cacheName: 'photodrop:group:fullsize',
     plugins: [
@@ -71,7 +74,7 @@ registerRoute(
 
 // Cache photo list API responses with network-first (prefer fresh data, cache fallback when offline)
 registerRoute(
-  ({ url }) => url.origin === self.location.origin && url.pathname === '/photos',
+  ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos$/),
   new NetworkFirst({
     cacheName: 'photodrop:group:photo-list',
     networkTimeoutSeconds: 3,
@@ -90,10 +93,10 @@ registerRoute(
 // Cache user/group info API responses with network-first (prefer fresh data)
 registerRoute(
   ({ url }) =>
-    url.origin === self.location.origin &&
-    (url.pathname === '/users/me' ||
-      url.pathname === '/groups' ||
-      url.pathname.match(/\/groups\/[^/]+\/members$/)),
+    isSameOrigin(url) &&
+    (url.pathname.match(/^\/(?:api\/)?users\/me$/) ||
+      url.pathname.match(/^\/(?:api\/)?groups$/) ||
+      url.pathname.match(/^\/(?:api\/)?groups\/[^/]+\/members$/)),
   new NetworkFirst({
     cacheName: 'photodrop:user:api',
     networkTimeoutSeconds: 3,

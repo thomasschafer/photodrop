@@ -44,14 +44,19 @@ interface GetMeResponse extends User {
 }
 
 function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) {
+    return envUrl;
+  }
+
   const hostname = window.location.hostname;
 
   // Local development or Capacitor native
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    if (isNative && import.meta.env.VITE_API_URL) {
-      return import.meta.env.VITE_API_URL;
+    if (isNative) {
+      return 'http://localhost:8787';
     }
-    return 'http://localhost:8787';
+    return '/api';
   }
 
   // Production web - API is at api.{domain}
