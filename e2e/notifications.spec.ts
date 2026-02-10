@@ -101,17 +101,14 @@ async function mockPushSupported(
 // Helper to mock push as unsupported
 async function mockPushUnsupported(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
-    // Remove PushManager to simulate unsupported browser
-    Object.defineProperty(window, 'PushManager', {
-      value: undefined,
-      writable: true,
-    });
+    // Delete PushManager so 'PushManager' in window returns false
+    delete (window as Record<string, unknown>).PushManager;
 
-    // Remove serviceWorker to simulate unsupported
-    Object.defineProperty(navigator, 'serviceWorker', {
-      value: undefined,
-      writable: true,
-    });
+    // Delete serviceWorker from navigator prototype so 'serviceWorker' in navigator returns false.
+    // Using Object.defineProperty with undefined would keep the property present, causing
+    // 'serviceWorker' in navigator to return true while the value is undefined — crashing
+    // code that guards with `in` but then accesses navigator.serviceWorker.
+    delete (Navigator.prototype as Record<string, unknown>).serviceWorker;
   });
 }
 

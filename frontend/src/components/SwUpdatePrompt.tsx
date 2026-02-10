@@ -9,7 +9,7 @@ export function SwUpdatePrompt() {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
 
   useEffect(() => {
-    if (!('serviceWorker' in navigator)) return;
+    if (!navigator.serviceWorker) return;
 
     const handleControllerChange = () => {
       window.location.reload();

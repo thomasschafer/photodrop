@@ -91,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     try {
       // Clean up web push subscriptions
-      if ('serviceWorker' in navigator && 'PushManager' in window) {
+      if (navigator.serviceWorker && window.PushManager) {
         try {
           const registration = await navigator.serviceWorker.ready;
           const subscription = await registration.pushManager.getSubscription();
