@@ -3,6 +3,8 @@
  */
 import { z } from 'zod';
 
+const EMOJI_VARIATION_SELECTOR = /\uFE0F/g;
+
 // Email schema with proper validation
 const emailSchema = z
   .string()
@@ -38,8 +40,29 @@ export const selectGroupSchema = z.object({
 // Photo schemas
 export const ALLOWED_EMOJIS = ['❤️', '😂', '😮', '😢', '👏', '🔥'] as const;
 
+export function normalizeEmoji(emoji: string): string {
+  return emoji.replace(EMOJI_VARIATION_SELECTOR, '');
+}
+
+const ALLOWED_EMOJI_MAP = new Map(
+  ALLOWED_EMOJIS.map((emoji) => [normalizeEmoji(emoji), emoji])
+);
+
+export function canonicalizeEmoji(emoji: string): (typeof ALLOWED_EMOJIS)[number] | null {
+  const normalized = normalizeEmoji(emoji);
+  return ALLOWED_EMOJI_MAP.get(normalized) ?? null;
+}
+
+const emojiSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== 'string') return value;
+    return canonicalizeEmoji(value) ?? value;
+  },
+  z.enum(ALLOWED_EMOJIS)
+);
+
 export const addReactionSchema = z.object({
-  emoji: z.enum(ALLOWED_EMOJIS),
+  emoji: emojiSchema,
 });
 
 export const addCommentSchema = z.object({

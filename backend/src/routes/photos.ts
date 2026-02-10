@@ -29,7 +29,7 @@ import {
   ALLOWED_MIME_TYPES,
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
-import { ALLOWED_EMOJIS } from '../lib/schemas';
+import { canonicalizeEmoji } from '../lib/schemas';
 import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for comments: 30 per user per 15 minutes
@@ -497,7 +497,8 @@ photos.post('/:id/react', requireAuth, async (c) => {
       return c.json({ error: 'Emoji is required' }, 400);
     }
 
-    if (!(ALLOWED_EMOJIS as readonly string[]).includes(emoji)) {
+    const canonicalEmoji = canonicalizeEmoji(emoji);
+    if (!canonicalEmoji) {
       return c.json({ error: 'Invalid emoji' }, 400);
     }
 
@@ -506,9 +507,9 @@ photos.post('/:id/react', requireAuth, async (c) => {
       return c.json({ error: 'Photo not found' }, 404);
     }
 
-    await addPhotoReaction(c.env.DB, photoId, currentUser.id, emoji);
+    await addPhotoReaction(c.env.DB, photoId, currentUser.id, canonicalEmoji);
 
-    return c.json({ message: 'Reaction added' });
+    return c.json({ message: 'Reaction added', emoji: canonicalEmoji });
   } catch (error) {
     console.error('Error adding reaction:', error);
     return c.json({ error: 'Failed to add reaction' }, 500);
