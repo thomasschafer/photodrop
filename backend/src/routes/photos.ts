@@ -608,13 +608,7 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    const commentId = await createComment(
-      c.env.DB,
-      photoId,
-      currentUser.id,
-      user.name,
-      content
-    );
+    const commentId = await createComment(c.env.DB, photoId, currentUser.id, user.name, content);
 
     return c.json(
       {

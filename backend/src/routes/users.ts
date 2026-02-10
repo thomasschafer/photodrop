@@ -12,16 +12,20 @@ import type { AppEnv } from '../types';
 
 const users = new Hono<AppEnv>();
 
-users.get('/', requireAdmin, async (c) => {
+users.get('/', requireAuth, async (c) => {
   try {
     const currentUser = c.get('user');
     const { members } = await getGroupMembers(c.env.DB, currentUser.groupId);
+
+    // Check if current user is admin
+    const currentMember = members.find((m) => m.user_id === currentUser.id);
+    const isAdmin = currentMember?.role === 'admin';
 
     return c.json({
       users: members.map((m) => ({
         id: m.user_id,
         name: m.user_name,
-        email: m.user_email,
+        email: isAdmin ? m.user_email : undefined,
         profileColor: m.user_profile_color,
         role: m.role,
         joinedAt: m.joined_at,

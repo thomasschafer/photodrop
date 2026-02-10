@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ZodError } from 'zod';
 import {
   getUserMemberships,
   getGroupMembers,
@@ -178,6 +179,9 @@ groups.patch('/:groupId/members/:userId/image-protection', requireAdmin, async (
 
     return c.json({ message: 'Image protection updated' });
   } catch (error) {
+    if (error instanceof ZodError) {
+      return c.json({ error: 'enabled must be a boolean' }, 400);
+    }
     console.error('Error updating image protection:', error);
     return c.json({ error: 'Failed to update image protection' }, 500);
   }
