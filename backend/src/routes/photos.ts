@@ -582,7 +582,7 @@ photos.get('/:id/comments', requireAuth, async (c) => {
         authorProfileColor: comment.author_profile_color,
         content: comment.content,
         createdAt: comment.created_at,
-        isDeleted: comment.user_id === null,
+        isDeleted: comment.deleted_at !== null,
       })),
     });
   } catch (error) {
@@ -649,7 +649,7 @@ photos.delete('/:id/comments/:commentId', requireAuth, async (c) => {
     }
 
     const comment = await getComment(c.env.DB, commentId);
-    if (!comment || comment.user_id === null) {
+    if (!comment || comment.deleted_at !== null) {
       return c.json({ error: 'Comment not found' }, 404);
     }
 

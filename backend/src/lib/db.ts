@@ -119,6 +119,7 @@ export interface Comment {
   author_profile_color: ProfileColor | null;
   content: string;
   created_at: number;
+  deleted_at: number | null;
 }
 
 export interface ReactionSummary {
@@ -893,7 +894,7 @@ export async function createComment(
 export async function getCommentsByPhotoId(db: D1Database, photoId: string): Promise<Comment[]> {
   const result = await db
     .prepare(
-      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.profile_color as author_profile_color, c.content, c.created_at
+      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.profile_color as author_profile_color, c.content, c.created_at, c.deleted_at
        FROM comments c
        LEFT JOIN users u ON c.user_id = u.id
        WHERE c.photo_id = ?
@@ -916,9 +917,10 @@ export async function getComment(db: D1Database, commentId: string): Promise<Com
 
 export async function deleteComment(db: D1Database, commentId: string): Promise<boolean> {
   // Soft-delete: null out user_id and content but keep the row
+  const now = Math.floor(Date.now() / 1000);
   const result = await db
-    .prepare("UPDATE comments SET user_id = NULL, content = '[deleted]' WHERE id = ?")
-    .bind(commentId)
+    .prepare("UPDATE comments SET user_id = NULL, content = '[deleted]', deleted_at = ? WHERE id = ?")
+    .bind(now, commentId)
     .run();
 
   return result.success;
@@ -926,7 +928,7 @@ export async function deleteComment(db: D1Database, commentId: string): Promise<
 
 export async function getCommentCount(db: D1Database, photoId: string): Promise<number> {
   const result = await db
-    .prepare('SELECT COUNT(*) as count FROM comments WHERE photo_id = ?')
+    .prepare('SELECT COUNT(*) as count FROM comments WHERE photo_id = ? AND deleted_at IS NULL')
     .bind(photoId)
     .first<{ count: number }>();
 
@@ -1016,6 +1018,7 @@ export async function listPhotosWithCounts(
       LEFT JOIN (
         SELECT photo_id, COUNT(*) as comment_count
         FROM comments
+        WHERE deleted_at IS NULL
         GROUP BY photo_id
       ) c ON c.photo_id = p.id
       LEFT JOIN (
