@@ -382,6 +382,10 @@ export function Lightbox({
         commentsCache.current.set(photo.id, updated);
         return updated;
       });
+      
+      // Update comment count in the grid (soft-deleted comments shouldn't count)
+      onPhotoUpdate({ id: photo.id, commentCount: photo.commentCount - 1 });
+      
       setConfirmDeleteCommentId(null);
     } catch (err) {
       console.error('Failed to delete comment:', err);
