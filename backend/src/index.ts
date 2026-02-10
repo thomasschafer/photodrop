@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { ZodError } from 'zod';
+import { logger } from './lib/logger';
 import auth from './routes/auth';
 import users from './routes/users';
 import photos from './routes/photos';
@@ -88,7 +89,7 @@ app.onError((err, c) => {
     return c.json({ error: 'Validation error', details: messages }, 400);
   }
 
-  console.error('Unhandled error:', err);
+  logger.error('Unhandled error', { error: err instanceof Error ? err.message : String(err) });
   return c.json({ error: 'Internal server error' }, 500);
 });
 
