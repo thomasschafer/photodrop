@@ -38,7 +38,7 @@ const stripTokenFromCacheKey = {
 
 // Cache thumbnails with cache-first strategy (no expiry, small files ~200KB)
 registerRoute(
-  ({ url }) => url.pathname.match(/\/photos\/[^/]+\/thumbnail$/),
+  ({ url }) => url.origin === self.location.origin && url.pathname.match(/\/photos\/[^/]+\/thumbnail$/),
   new CacheFirst({
     cacheName: 'photodrop:group:thumbnails',
     plugins: [
@@ -52,7 +52,7 @@ registerRoute(
 
 // Cache full-size photos with cache-first strategy (max 20 entries, purge on quota error)
 registerRoute(
-  ({ url }) => url.pathname.match(/\/photos\/[^/]+\/download$/),
+  ({ url }) => url.origin === self.location.origin && url.pathname.match(/\/photos\/[^/]+\/download$/),
   new CacheFirst({
     cacheName: 'photodrop:group:fullsize',
     plugins: [
@@ -71,7 +71,7 @@ registerRoute(
 
 // Cache photo list API responses with network-first (prefer fresh data, cache fallback when offline)
 registerRoute(
-  ({ url }) => url.pathname === '/photos',
+  ({ url }) => url.origin === self.location.origin && url.pathname === '/photos',
   new NetworkFirst({
     cacheName: 'photodrop:group:photo-list',
     networkTimeoutSeconds: 3,
@@ -90,9 +90,10 @@ registerRoute(
 // Cache user/group info API responses with network-first (prefer fresh data)
 registerRoute(
   ({ url }) =>
-    url.pathname === '/users/me' ||
-    url.pathname === '/groups' ||
-    url.pathname.match(/\/groups\/[^/]+\/members$/),
+    url.origin === self.location.origin &&
+    (url.pathname === '/users/me' ||
+      url.pathname === '/groups' ||
+      url.pathname.match(/\/groups\/[^/]+\/members$/)),
   new NetworkFirst({
     cacheName: 'photodrop:user:api',
     networkTimeoutSeconds: 3,

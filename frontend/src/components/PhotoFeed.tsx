@@ -18,7 +18,7 @@ import {
   type Photo,
   type ReactionSummary,
   type ReactionWithUser,
-} from './photofeed';
+} from './photo-feed';
 
 // Grid thumbnail component that uses authenticated image loading
 function GridThumbnail({
