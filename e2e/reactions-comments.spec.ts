@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { execSync } from 'child_process';
 import {
   createTestGroup,
+  createTestMember,
   cleanupTestGroup,
   createFreshMagicLink,
   TestGroup,
@@ -239,6 +241,56 @@ test.describe('Reactions and comments', () => {
 
     // Comment should be gone
     await expect(dialog.getByText(uniqueCommentText)).not.toBeVisible({ timeout: 5000 });
+  });
+
+  test('comment from deleted author is labeled as former member', async ({ page, request }) => {
+    const member = createTestMember(testGroup.groupId, 'Former Member');
+    const memberToken = member.magicLink.split('/auth/')[1];
+
+    await request.post(`${API_BASE}/auth/verify-magic-link`, {
+      data: { token: memberToken, name: member.name },
+    });
+
+    const memberLoginLink = createFreshMagicLink(testGroup.groupId, member.email, 'login');
+    await loginWithMagicLink(page, memberLoginLink);
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+    await page.locator('article').first().click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /expand comments/i }).click();
+
+    const uniqueCommentText = `Former member comment ${Date.now()}`;
+    const commentInput = dialog.getByPlaceholder(/add a comment/i);
+    await commentInput.fill(uniqueCommentText);
+    await dialog.getByRole('button', { name: /post/i }).click();
+    await expect(dialog.getByText(uniqueCommentText)).toBeVisible();
+
+    const adminApiLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    const adminToken = adminApiLink.split('/auth/')[1];
+    const verifyResponse = await request.post(`${API_BASE}/auth/verify-magic-link`, {
+      data: { token: adminToken, name: 'Admin User' },
+    });
+    const verifyData = await verifyResponse.json();
+    const adminApi = createApiClient(request, verifyData.accessToken);
+    const userResponse = (await adminApi.getUsers()) as { users: { id: string; email: string }[] };
+    const memberRecord = userResponse.users.find((u) => u.email === member.email);
+    expect(memberRecord).toBeTruthy();
+
+    execSync(
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "DELETE FROM users WHERE id = '${memberRecord!.id}';"`,
+      { stdio: 'pipe' }
+    );
+
+    const adminUiLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, adminUiLink);
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+    await page.locator('article').first().click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /expand comments/i }).click();
+
+    await expect(dialog.getByText(uniqueCommentText)).toBeVisible();
+    await expect(dialog.getByText(`${member.name} (former member)`)).toBeVisible();
   });
 
   test('collapse button returns to collapsed mode', async ({ page }) => {
