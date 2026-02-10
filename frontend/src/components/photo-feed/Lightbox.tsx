@@ -122,6 +122,7 @@ export function Lightbox({
 
   const commentsCache = useRef<Map<string, Comment[]>>(new Map());
   const reactionDetailsCache = useRef<Map<string, ReactionWithUser[]>>(new Map());
+  const currentPhotoIdRef = useRef(photo.id);
 
   useLayoutEffect(() => {
     if (initialIndex !== centerIndex) {
@@ -130,6 +131,7 @@ export function Lightbox({
   }, [initialIndex, centerIndex, resetCarousel]);
 
   useLayoutEffect(() => {
+    currentPhotoIdRef.current = photo.id;
     setUserReaction(photo.userReaction);
     setReactions(photo.reactions);
     setShowReactionPicker(false);
@@ -222,15 +224,19 @@ export function Lightbox({
 
     const cached = reactionDetailsCache.current.get(photo.id);
     if (cached) {
-      setReactionDetails(cached);
+      if (currentPhotoIdRef.current === photo.id) {
+        setReactionDetails(cached);
+      }
       return;
     }
 
     loadingReactionDetailsRef.current = true;
     try {
       const data = await api.photos.getReactions(photo.id);
-      setReactionDetails(data.reactions);
       reactionDetailsCache.current.set(photo.id, data.reactions);
+      if (currentPhotoIdRef.current === photo.id) {
+        setReactionDetails(data.reactions);
+      }
     } catch (err) {
       console.error('Failed to load reaction details:', err);
     } finally {
