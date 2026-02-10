@@ -41,6 +41,7 @@ app.use(
       return '';
     },
     credentials: true,
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
 );
 

@@ -34,14 +34,21 @@ const tabs = [
 function MainApp() {
   const { user, currentGroup } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
   const isAdmin = currentGroup?.role === 'admin';
 
-  // All members can see both tabs now
-  const visibleTabs = tabs;
+  // Only admins can access the Group tab
+  const visibleTabs = isAdmin ? tabs : tabs.filter((tab) => tab.id === 'feed');
 
   const activeTab = visibleTabs.find((tab) => tab.path === location.pathname)?.id ?? 'feed';
+
+  useEffect(() => {
+    if (!isAdmin && location.pathname === '/members') {
+      navigate('/', { replace: true });
+    }
+  }, [isAdmin, location.pathname, navigate]);
 
   const focusTab = useCallback(
     (index: number) => {

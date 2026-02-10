@@ -38,8 +38,8 @@ groups.get('/', requireAuth, async (c) => {
   }
 });
 
-// Get members of the current group (all members can see, emails hidden for non-admins)
-groups.get('/:groupId/members', requireAuth, async (c) => {
+// Get members of the current group (admin only)
+groups.get('/:groupId/members', requireAdmin, async (c) => {
   try {
     const groupId = c.req.param('groupId');
     const user = c.get('user');
@@ -51,20 +51,16 @@ groups.get('/:groupId/members', requireAuth, async (c) => {
 
     const { members, ownerId } = await getGroupMembers(c.env.DB, groupId);
 
-    // Check if the requesting user is an admin (already in the members list)
-    const currentMember = members.find((m) => m.user_id === user.id);
-    const isAdmin = currentMember?.role === 'admin';
-
     return c.json({
       ownerId,
       members: members.map((m) => ({
         userId: m.user_id,
         name: m.user_name,
-        email: isAdmin ? m.user_email : undefined,
+        email: m.user_email,
         profileColor: m.user_profile_color,
         role: m.role,
         joinedAt: m.joined_at,
-        imageProtection: isAdmin ? m.image_protection === 1 : undefined,
+        imageProtection: m.image_protection === 1,
       })),
     });
   } catch (error) {
