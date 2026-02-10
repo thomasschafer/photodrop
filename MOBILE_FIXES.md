@@ -2,14 +2,14 @@
 
 ## Status Summary
 
-| # | Issue | Status |
-|---|-------|--------|
-| 1 | Header/safe area | ✅ Done |
-| 2 | Hide install banner | ✅ Done |
-| 3 | Images not loading | ✅ Done |
-| 4 | Pull-to-refresh | ✅ Done |
-| 5 | GitHub workflow PR builds | ✅ Done |
-| 6 | Native push notifications | ✅ Done (testing in progress) |
+| #   | Issue                     | Status                        |
+| --- | ------------------------- | ----------------------------- |
+| 1   | Header/safe area          | ✅ Done                       |
+| 2   | Hide install banner       | ✅ Done                       |
+| 3   | Images not loading        | ✅ Done                       |
+| 4   | Pull-to-refresh           | ✅ Done                       |
+| 5   | GitHub workflow PR builds | ✅ Done                       |
+| 6   | Native push notifications | ✅ Done (testing in progress) |
 
 ---
 
@@ -20,6 +20,7 @@
 **Problem:** App content overlapped with device status bar and camera notch.
 
 **Solution implemented:**
+
 - Added `viewport-fit=cover` to viewport meta tag
 - Header extends into safe area with `pt-[env(safe-area-inset-top)]`
 - Created CSS utilities: `.pt-safe`, `.top-safe`, `.top-4-safe`
@@ -30,6 +31,7 @@
 **Problem:** PWA install prompt showed inside the native Capacitor app.
 
 **Solution implemented:**
+
 - Added `Capacitor.isNativePlatform()` check to `useInstallPrompt.ts`
 - Install prompt hidden in native apps, shown only on web browsers
 
@@ -40,6 +42,7 @@
 **Root cause:** Backend only accepts tokens via Authorization header (security design), but `<img>` tags can't send headers.
 
 **Solution implemented:**
+
 - Created `useAuthenticatedImage` hook that fetches images via JS with proper auth
 - Uses `CapacitorHttp` on native, regular fetch on web
 - In-memory cache with cleanup on logout/group switch
@@ -50,6 +53,7 @@
 **Problem:** No way to refresh content in native app.
 
 **Solution implemented:**
+
 - Created `PullToRefresh` component (native-only)
 - Uses document-level touch events for smooth UX
 - Indicator positioned relative to content container
@@ -60,6 +64,7 @@
 **Problem:** Mobile builds only ran on hardcoded branches.
 
 **Solution implemented:**
+
 - Removed `feat/mobile-capacitor` from branch list
 - Added `pull_request` trigger for PR builds
 
@@ -74,6 +79,7 @@
 **Problem:** Native apps need platform-specific push notifications, not web push.
 
 **Solution implemented:**
+
 - FCM HTTP v1 API client for sending notifications
 - Device token storage and management in D1
 - NotificationBell works for both web push and native push
@@ -83,6 +89,7 @@
 #### What's Done
 
 **Frontend:**
+
 - [x] `frontend/src/lib/nativePush.ts` - Full FCM registration and handling
 - [x] `frontend/src/lib/api.ts` - Device registration endpoints
 - [x] `frontend/src/components/NotificationBell.tsx` - Works on native and web
@@ -90,6 +97,7 @@
 - [x] Unit tests for nativePush
 
 **Backend:**
+
 - [x] `backend/migrations/0010_device_tokens.sql` - Device token table
 - [x] `backend/src/lib/db.ts` - Device token CRUD functions
 - [x] `backend/src/routes/push.ts` - Device registration endpoints
@@ -164,7 +172,8 @@ These issues were discovered during testing. Fixes have been implemented but not
 
 **Root cause:** Component returned `null` during loading state, and the status check was failing/hanging.
 
-**Fix implemented:** 
+**Fix implemented:**
+
 - Bell now always renders (shows spinner during loading)
 - Added error state handling
 - Tap bell in loading/error state shows debug info
@@ -194,6 +203,7 @@ Requires Apple Developer account ($99/year). Do this after Android is working.
 6. [ ] Run `cd mobile && npx cap sync`
 
 **iOS Testing Checklist:**
+
 - [ ] Same tests as Android
 
 #### Future Considerations

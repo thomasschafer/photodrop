@@ -15,25 +15,29 @@ export function SwUpdatePrompt() {
       window.location.reload();
     };
 
+    let registration: ServiceWorkerRegistration | undefined;
+
+    const handleUpdateFound = () => {
+      const newWorker = registration?.installing;
+      if (!newWorker) return;
+
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          setWaitingWorker(newWorker);
+          setShowPrompt(true);
+        }
+      });
+    };
+
     const checkForWaiting = async () => {
-      const registration = await navigator.serviceWorker.getRegistration();
+      registration = await navigator.serviceWorker.getRegistration();
       if (registration?.waiting) {
         setWaitingWorker(registration.waiting);
         setShowPrompt(true);
       }
 
       // Listen for new service workers
-      registration?.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        if (!newWorker) return;
-
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            setWaitingWorker(newWorker);
-            setShowPrompt(true);
-          }
-        });
-      });
+      registration?.addEventListener('updatefound', handleUpdateFound);
     };
 
     checkForWaiting();
@@ -41,6 +45,7 @@ export function SwUpdatePrompt() {
 
     return () => {
       navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+      registration?.removeEventListener('updatefound', handleUpdateFound);
     };
   }, []);
 

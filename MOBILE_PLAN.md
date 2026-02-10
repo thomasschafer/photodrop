@@ -3,6 +3,7 @@
 ## Overview
 
 Wrap the existing photodrop PWA in native iOS/Android shells using Capacitor to get:
+
 - **Reliable push notifications** via FCM (Android) and APNs (iOS)
 - **Screenshot protection** on both platforms (black screen)
 - **App Store / Play Store distribution**
@@ -35,12 +36,14 @@ The web app remains unchanged and continues to work — Capacitor wraps it in a 
 For faster development, Capacitor can connect to a live dev server. Since the server is remote, we need a secure tunnel:
 
 **Option: Tailscale (Recommended)**
+
 - Install Tailscale on server and phone
 - Both join private mesh VPN
 - Phone accesses dev server via private Tailscale IP
 - Zero ports exposed to internet
 
 **Setup:**
+
 ```bash
 # On server (NixOS)
 # Add to configuration: services.tailscale.enable = true;
@@ -61,13 +64,15 @@ server: {
 ## Dependencies
 
 ### Official Capacitor Plugins
+
 - `@capacitor/core` — Core Capacitor runtime
-- `@capacitor/cli` — Build tooling  
+- `@capacitor/cli` — Build tooling
 - `@capacitor/ios` — iOS platform
 - `@capacitor/android` — Android platform
 - `@capacitor/push-notifications` — Native push notifications (FCM/APNs)
 
 ### Community Plugin
+
 - `@capacitor-community/privacy-screen` — Screenshot/screen recording prevention
   - Source: [capacitor-community/privacy-screen](https://github.com/capacitor-community/privacy-screen)
   - Maintainer: Robin Genz ([@robingenz](https://github.com/robingenz))
@@ -87,6 +92,7 @@ server: {
 - [x] `.github/workflows/mobile-ios.yml` — Build IPA on push to mobile branch (requires signing setup)
 
 **Artifacts:**
+
 - APK available for download from GitHub Actions
 - IPA available for download (once signing is configured)
 
@@ -104,6 +110,7 @@ mobile/
 ```
 
 **Tasks:**
+
 - [x] Create `mobile/` directory in repo root
 - [x] Initialize Capacitor project
 - [x] Configure `capacitor.config.ts`:
@@ -117,6 +124,7 @@ mobile/
 - [ ] Test that web app loads on real device (after first APK build)
 
 **Commands:**
+
 ```bash
 cd mobile
 npm init -y
@@ -158,15 +166,15 @@ import { Capacitor } from '@capacitor/core';
 
 export async function registerNativePush() {
   if (!Capacitor.isNativePlatform()) return null;
-  
+
   const permission = await PushNotifications.checkPermissions();
   if (permission.receive === 'prompt') {
     const result = await PushNotifications.requestPermissions();
     if (result.receive !== 'granted') return null;
   }
-  
+
   await PushNotifications.register();
-  
+
   return new Promise((resolve) => {
     PushNotifications.addListener('registration', (token) => {
       resolve(token.value);
@@ -176,6 +184,7 @@ export async function registerNativePush() {
 ```
 
 **Update existing notification flow:**
+
 - [ ] Detect native vs web platform
 - [ ] On native: register for FCM/APNs, send token to backend
 - [ ] On web: use existing Web Push flow
@@ -254,6 +263,7 @@ PrivacyScreen.addListener('screenshotTaken', () => {
 ```
 
 **Behavior:**
+
 - **Android:** Uses `FLAG_SECURE` — screenshots show black
 - **iOS:** Hides WebView on app switch, screenshots capture black
 
@@ -266,15 +276,17 @@ PrivacyScreen.addListener('screenshotTaken', () => {
 - [ ] Handle `/auth/:token` routes from email links
 
 **capacitor.config.ts:**
+
 ```typescript
 {
   appUrlOpen: {
-    url: 'https://photos.example.com'  // Your domain
+    url: 'https://photos.example.com'; // Your domain
   }
 }
 ```
 
 **Frontend handler:**
+
 ```typescript
 import { App } from '@capacitor/app';
 
@@ -302,10 +314,12 @@ App.addListener('appUrlOpen', ({ url }) => {
 ### Phase 7: App Store Submission
 
 **Prerequisites:**
+
 - [ ] Apple Developer account ($99/year) — **TODO: Set up when ready for iOS testing**
 - [ ] Google Play Developer account ($25 one-time) — **TODO: Set up when ready for Android release**
 
 **iOS (TestFlight first):**
+
 - [ ] Configure signing in Xcode
 - [ ] Set up GitHub Actions secrets for iOS signing
 - [ ] Archive and upload to App Store Connect
@@ -314,6 +328,7 @@ App.addListener('appUrlOpen', ({ url }) => {
 - [ ] Submit for App Store review
 
 **Android (Internal Testing first):**
+
 - [ ] Generate signing keystore
 - [ ] Set up GitHub Actions secrets for Android signing
 - [ ] Generate signed APK/AAB
@@ -353,7 +368,7 @@ photodrop/
 Minimal changes — existing API stays the same:
 
 1. **New migration:** `device_tokens` table
-2. **New endpoints:** 
+2. **New endpoints:**
    - `POST /push/register-device`
    - `DELETE /push/register-device`
 3. **Updated logic:** Photo upload sends to both web push + FCM/APNs

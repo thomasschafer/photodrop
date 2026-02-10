@@ -3,6 +3,7 @@
 ## Status
 
 **Current implementation:**
+
 - ✅ Phase 1 (Foundation): Complete - photo upload/feed, JWT auth, user management
 - ✅ Phase 1.5 (Email Auth): Complete - magic links working, mock email for local dev
 - ✅ Phase 1.6 (UI Polish): Complete - warm terracotta design, responsive layout
@@ -22,6 +23,7 @@
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 
 ### Deferred from Phase 2.8
+
 - **Token revocation** — Add ability to invalidate refresh tokens (token version or blocklist in D1). Needs schema design thought.
 - **Frontend component tests** — Unit tests for AuthContext, PhotoFeed, MembersList, NotificationBell, useAuthenticatedImage, useVirtualCarousel. Needs test infrastructure (mocking providers, API).
 - **Token refresh integration test** — Test valid/expired/revoked refresh flows end-to-end.
@@ -45,12 +47,14 @@ A PWA for privately sharing photos within isolated groups. Each group has its ow
 ### Functional
 
 **Group admins:**
+
 - Upload photos with optional captions
 - Manage member invitations and roles
 - View delivery status (who has seen what)
 - Delete photos from their group
 
 **Group members:**
+
 - View all photos in their group (newest first)
 - React with emojis
 - Receive push notifications for new photos
@@ -58,6 +62,7 @@ A PWA for privately sharing photos within isolated groups. Each group has its ow
 - Offline support with sync
 
 **Group isolation (critical):**
+
 - Complete data isolation between groups
 - Users can belong to multiple groups (via memberships table)
 - Each session operates in one group context at a time
@@ -107,6 +112,7 @@ A PWA for privately sharing photos within isolated groups. Each group has its ow
 **Colors:** Warm terracotta/clay primary palette, warm gray neutrals, forest green accents. All combinations meet WCAG 2.1 AA contrast requirements.
 
 **Accessibility requirements:**
+
 - 4.5:1 minimum contrast for interactive elements
 - All elements keyboard accessible with visible focus indicators
 - Semantic HTML with ARIA labels
@@ -179,6 +185,7 @@ CREATE TABLE photos (
 ### API endpoints
 
 **Authentication:**
+
 - `POST /auth/send-invite` - Send invite email (admin only, scoped to admin's group)
 - `POST /auth/send-login-link` - Send login link (public, looks up user by email)
 - `POST /auth/verify-magic-link` - Verify token and issue JWT
@@ -188,17 +195,20 @@ CREATE TABLE photos (
 - `POST /auth/select-group` - Initial group selection for multi-group users (after login)
 
 **Groups:**
+
 - `GET /groups` - List groups current user is a member of (with roles)
 - `GET /groups/:groupId/members` - List members of a group (admin only)
 - `PATCH /groups/:groupId/members/:userId` - Update member role (admin only)
 - `DELETE /groups/:groupId/members/:userId` - Remove user from group (admin only)
 
 **Group + admin creation:** CLI script only (no public endpoint)
+
 ```bash
 nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 ```
 
 **Photos:** All endpoints validate group_id
+
 - `GET /photos` - List photos (paginated)
 - `POST /photos` - Upload (admin only)
 - `DELETE /photos/:id` - Delete (admin only)
@@ -207,6 +217,7 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 - `GET /photos/:id/url` - Get signed URL
 
 **Users:** All endpoints validate group_id
+
 - `GET /users` - List users (admin only)
 - `GET /users/me` - Current user
 - `PATCH /users/:id/role` - Update role (admin only)
@@ -215,17 +226,20 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 ### Security model
 
 **Authentication flow:**
+
 1. First admin created via CLI script (secure, no public endpoint)
 2. Admin invites users via email (magic link scoped to admin's group)
 3. User clicks link → account created → JWT issued with group_id claim
 4. Returning users request login links (self-service)
 
 **Photo access:**
+
 - R2 bucket is private; all access via signed URLs
 - API validates user's group_id matches photo's group_id before generating URLs
 - Signed URLs expire in 1 hour
 
 **Security measures:**
+
 - HTTPS only, CORS restricted, rate limiting
 - JWT with HS256, httpOnly cookies
 - Magic links: cryptographically random, single-use, 15-minute expiry
@@ -234,6 +248,7 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 ### Image processing
 
 **Client-side approach** (avoids Worker CPU limits):
+
 - Generate 800px thumbnail on client using Canvas API
 - Compress thumbnails to ~200KB at 85% quality
 - Upload both full-size and thumbnail to R2 in parallel
@@ -250,20 +265,24 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 ## User flows
 
 ### Photo upload (admin)
+
 1. Tap "+" → select photo → compress client-side → add caption → upload
 2. Push notifications sent to all group members
 3. Photo appears in feed
 
 ### Invite flow
+
 1. Admin enters name, email, role → sends invite
 2. User receives email with magic link (15 min expiry)
 3. Click link → account created → logged in with group context
 
 ### Self-service login
+
 1. Enter email → receive login link → click → logged in
 2. No admin intervention needed
 
 ### Session persistence
+
 - Refresh token (30 day) in httpOnly cookie
 - Access token (15 min) in memory, auto-refreshes
 - Offline: service worker caches app shell and viewed photos
@@ -282,6 +301,7 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 ### Phase 1.5: Email auth + multi-group ✅
 
 **Completed:**
+
 - [x] Email service scaffolding (templates ready)
 - [x] Magic link service
 - [x] Database layer updated for groups
@@ -296,6 +316,7 @@ nix run .#create-group -- "Group Name" "Admin Name" "admin@example.com"
 - [x] `scripts/create-group.sh` CLI script
 
 **Local testing:**
+
 ```bash
 nix run .#db-seed  # Create test users (one time)
 nix run .#dev      # Start servers (auto-setup on first run)
@@ -306,6 +327,7 @@ nix run .#dev      # Start servers (auto-setup on first run)
 ### Phase 1.6: UI polish ✅
 
 **Completed:**
+
 - [x] Warm terracotta color palette (#c67d5a primary, warm cream background)
 - [x] Landing page with centered sign-in
 - [x] Login page with responsive form layout
@@ -410,6 +432,7 @@ nix run .#dev      # Start servers (auto-setup on first run)
 **Testing:**
 
 Unit tests (Vitest):
+
 - [x] `getUserMemberships()` returns all memberships for a user
 - [x] `getUserMemberships()` returns empty array for user with no groups
 - [x] `getMembership()` returns correct role for user+group
@@ -421,6 +444,7 @@ Unit tests (Vitest):
 - [x] Switch-group rejects if user not a member of group
 
 E2E tests (Playwright):
+
 - [x] User with single group logs in directly to feed (no picker)
 - [x] User with multiple groups sees group picker after login
 - [x] User can select group from picker and lands on correct feed
@@ -442,6 +466,7 @@ E2E tests (Playwright):
 **Goal:** Each group has exactly one owner who cannot be removed or have their role changed. The owner is stored in `groups.owner_id` (not as a separate role in memberships). The owner also has an 'admin' membership, so admin permission checks work unchanged. This replaces the "last admin" protection - since every group has an immutable owner, there's always someone who can manage the group.
 
 **Design approach:**
+
 - `groups.owner_id` = identifies who the owner is (source of truth)
 - Owner's membership has `role='admin'` (not a separate 'owner' role)
 - `memberships.role` is just `'admin' | 'member'`
@@ -450,6 +475,7 @@ E2E tests (Playwright):
 - Display: if `user_id === owner_id` → show "Owner" badge, else show membership role
 
 **Key invariants:**
+
 - Every group has exactly one owner (enforced by NOT NULL constraint)
 - Owner cannot be removed or have their role changed
 - Groups are created via CLI with the owner specified
@@ -476,10 +502,12 @@ E2E tests (Playwright):
 **Testing:**
 
 Unit tests (Vitest):
+
 - [x] `updateMembershipRole()` rejects changing owner's role
 - [x] `deleteMembership()` rejects removing owner
 
 E2E tests (Playwright):
+
 - [x] Owner badge displays with distinct styling in members list
 - [x] Owner role dropdown is not shown (immutable)
 - [x] Owner has no remove button
@@ -491,6 +519,7 @@ E2E tests (Playwright):
 **Goal:** Make photodrop a fully-featured PWA with push notifications and offline support. Target audience includes older/less tech-savvy users, so installation and notification setup must be simple and guided.
 
 **User flow:**
+
 1. User logs in successfully
 2. If not installed → show install prompt with platform-specific instructions
 3. After install (or if already installed) → prompt to enable notifications
@@ -499,6 +528,7 @@ E2E tests (Playwright):
 #### Phase 2.1: Installation prompt
 
 **Design:**
+
 - Detect if app is running as installed PWA vs browser
 - Show friendly install banner after first successful login (not a modal - non-blocking)
 - Platform-specific instructions:
@@ -527,6 +557,7 @@ E2E tests (Playwright):
 **Goal:** Get the current app deployed to production as quickly as possible with a custom domain. This enables real-device testing and iterating with actual users. Defer email delivery and advanced security to Phase 2.5.
 
 **Prerequisites:**
+
 - Cloudflare account with Workers, D1, R2, and Pages enabled
 - `wrangler` CLI authenticated (`wrangler login`)
 - Domain already in Cloudflare (for custom domain setup)
@@ -578,6 +609,7 @@ The setup script prompts for configuration and automates resource creation:
 **Goal:** Replace mock email with real delivery via Resend, sending from `noreply@<domain>.com`.
 
 **Why Resend:**
+
 - Simple API (single HTTP call from Workers)
 - 3,000 emails/month free tier (more than enough for magic links)
 - Easy domain verification via DNS records
@@ -624,6 +656,7 @@ The setup script prompts for configuration and automates resource creation:
 #### Phase 2.3: Push notifications
 
 **Design:**
+
 - Notification bell icon in header (next to theme toggle)
 - Bell states: enabled (filled), disabled (outline), unsupported (hidden)
 - Click bell when disabled → browser permission prompt → if granted, subscribe
@@ -677,6 +710,7 @@ The setup script prompts for configuration and automates resource creation:
 **Testing:**
 
 Unit tests (Vitest) - `backend/src/lib/db.test.ts`:
+
 - [x] `createPushSubscription()` creates new subscription
 - [x] `createPushSubscription()` upserts on duplicate endpoint
 - [x] `getPushSubscription()` returns subscription for user+group+endpoint
@@ -689,6 +723,7 @@ Unit tests (Vitest) - `backend/src/lib/db.test.ts`:
 - [x] `deletePushSubscriptionForGroup()` removes subscription for specific user+group+endpoint
 
 E2E tests (Playwright) - `e2e/notifications.spec.ts`:
+
 - [x] NotificationBell is visible in header when logged in
 - [x] NotificationBell shows blocked state when permission denied
 - [x] Clicking bell when unsubscribed calls subscribe API
@@ -697,6 +732,7 @@ E2E tests (Playwright) - `e2e/notifications.spec.ts`:
 - [x] Subscription is per-group (subscribe in group A, switch to group B → shows unsubscribed)
 
 Manual testing checklist:
+
 - [ ] iOS Safari: Bell appears, permission prompt works, notification received
 - [x] Android Chrome: Bell appears, permission prompt works, notification received
 - [x] Desktop Chrome/Edge: Bell appears, permission prompt works, notification received
@@ -708,6 +744,7 @@ Manual testing checklist:
 #### Phase 2.4: Offline caching ✅
 
 **Design:**
+
 - Cache app shell (HTML, JS, CSS) for offline app loading
 - Cache thumbnails as viewed (small, ~200KB each)
 - Cache last ~20 full-size photos viewed (purges on quota error)
@@ -732,6 +769,7 @@ Manual testing checklist:
 #### Testing
 
 **Manual testing checklist:**
+
 - [x] Offline banner appears when network is disabled
 - [x] Offline banner disappears when network is restored
 - [x] Previously viewed photos display when offline
@@ -744,6 +782,7 @@ Manual testing checklist:
 #### Comments hidden mode (default)
 
 Users start with `commentsEnabled: false`:
+
 - **Reaction counts visible** in feed (e.g., "❤️ 3 😂 2")
 - **Cannot see who reacted** (hover/click does nothing)
 - **Comment count hidden** in feed
@@ -753,6 +792,7 @@ Users start with `commentsEnabled: false`:
 - **Cannot add comments** until enabling
 
 When user clicks "Show":
+
 - Preference saved to database (`commentsEnabled: true`)
 - Applies globally to all photos in all groups
 - Syncs across devices
@@ -798,23 +838,27 @@ CREATE INDEX idx_photo_reactions_photo ON photo_reactions(photo_id);
 #### Backend changes
 
 **Reactions** (update existing):
+
 - [x] Update `POST /photos/:id/reactions` - Add/update reaction (emoji in body)
 - [x] Add `DELETE /photos/:id/reactions` - Remove user's reaction
 - [x] Update photo list endpoint to include reaction summary (grouped counts)
 - [x] Add `GET /photos/:id/reactions` - Get reactions with user details (for popover)
 
 **Comments** (new):
+
 - [x] `POST /photos/:id/comments` - Add comment (requires `commentsEnabled`)
 - [x] `GET /photos/:id/comments` - Get comments for photo
 - [x] `DELETE /photos/:id/comments/:commentId` - Delete comment (author or admin)
 - [x] Update photo list endpoint to include comment count
 
 **User preferences**:
+
 - [x] Update `GET /users/me` - Include `commentsEnabled` in response
 - [x] Add `PATCH /users/me/preferences` - Update own `commentsEnabled`
 - [x] Update `PATCH /groups/:groupId/members/:userId` - Admin can update member's `commentsEnabled`
 
 **Deleted user handling**:
+
 - [x] When user deleted, comments preserved with `user_id = NULL`
 - [x] `author_name` remains for display
 - [x] Frontend shows "(deleted) AuthorName" greyed out
@@ -822,11 +866,13 @@ CREATE INDEX idx_photo_reactions_photo ON photo_reactions(photo_id);
 #### Frontend changes
 
 **Photo feed**:
+
 - [x] Reaction display below each photo: grouped emoji bubbles with counts
 - [x] If `commentsEnabled`: show comment count badge (💬 5)
 - [x] If `commentsEnabled`: click reactions → popover showing who reacted
 
 **Lightbox**:
+
 - [x] **Reaction bar**:
   - Emoji picker (fixed set: ❤️ 😂 😮 😢 👏 🔥)
   - Current reactions with counts
@@ -843,10 +889,12 @@ CREATE INDEX idx_photo_reactions_photo ON photo_reactions(photo_id);
 - [x] Delete button on own comments (and all comments for admin)
 
 **Members list (admin)**:
+
 - [x] Add toggle for each member's `commentsEnabled` preference
 - [x] Shows current state, allows admin to enable/disable
 
 **Preference management**:
+
 - [x] Store in database (syncs across devices)
 - [x] Cache in React context for immediate UI updates
 - [x] "Show" in lightbox calls API to update preference
@@ -854,20 +902,24 @@ CREATE INDEX idx_photo_reactions_photo ON photo_reactions(photo_id);
 #### UI details
 
 **Reaction picker**:
+
 - Small set of emojis: ❤️ 😂 😮 😢 👏 🔥
 - Tap to toggle your reaction
 - One reaction per user per photo
 
 **Reactions popover** (when `commentsEnabled`):
+
 - Shows grouped by emoji: "❤️ Alice, Bob, Carol"
 - Appears on hover (desktop) or tap (mobile)
 
 **Comments list**:
+
 - Chronological (oldest first)
 - Author name + relative timestamp ("2h ago")
 - Deleted users: "(deleted) OldName" in muted/grey text
 
 **"Comments hidden" prompt**:
+
 - Subtle, non-intrusive
 - Muted text at bottom of lightbox
 - "💬 Comments are hidden · Show"
@@ -875,6 +927,7 @@ CREATE INDEX idx_photo_reactions_photo ON photo_reactions(photo_id);
 #### Testing
 
 **Unit tests (Vitest)**:
+
 - [x] `createComment()` creates comment with author_name
 - [x] `getCommentsByPhotoId()` returns comments for photo
 - [x] `getCommentsByPhotoId()` returns empty array when none exist
@@ -888,6 +941,7 @@ CREATE INDEX idx_photo_reactions_photo ON photo_reactions(photo_id);
 - [x] Admin can update another user's `commentsEnabled`
 
 **E2E tests (Playwright)**:
+
 - [x] User can add emoji reaction to photo
 - [x] User can change their reaction to different emoji
 - [x] User can remove their reaction
@@ -974,12 +1028,14 @@ The migration assigns random colors to all existing users so the column can be N
 #### Testing
 
 **Unit tests (Vitest)**:
+
 - [x] `createUser()` assigns random color from valid palette
 - [x] `updateUserProfile()` updates color
 - [x] `updateUserProfile()` rejects invalid color names
 - [x] User responses include `profileColor` field
 
 **E2E tests (Playwright)**:
+
 - [x] Avatar appears in header with user's initials and color
 - [x] Clicking avatar opens menu with "Change color" and "Sign out"
 - [x] Color picker modal shows all colors with current highlighted
@@ -995,6 +1051,7 @@ The migration assigns random colors to all existing users so the column can be N
 #### Security hardening
 
 **Rate limiting (D1-based fixed window):**
+
 - [x] `/auth/send-login-link`: 5 requests per email per 15 minutes
 - [x] `/auth/send-invite`: 10 requests per admin per hour
 - [x] `/auth/verify-magic-link`: 10 attempts per IP per 15 minutes
@@ -1002,22 +1059,26 @@ The migration assigns random colors to all existing users so the column can be N
 - [x] Automatic cleanup of expired rate limit entries
 
 **File upload validation:**
+
 - [x] Size limits: 20MB for photos, 1MB for thumbnails
 - [x] MIME type validation (JPEG, PNG, WebP, HEIC only)
 - [x] Magic byte validation to prevent spoofed file types
 
 **Authentication hardening:**
+
 - [x] Fixed auth bypass in `/auth/select-group` - now requires signed selection token
 - [x] Removed query parameter token support (tokens only via Authorization header)
 - [x] Magic link token race condition fix with pending state
 - [x] Name length validation (max 100 characters)
 
 **Security headers:**
+
 - [x] `X-Content-Type-Options: nosniff`
 - [x] `X-Frame-Options: DENY`
 - [x] `Referrer-Policy: strict-origin-when-cross-origin`
 
 **Other:**
+
 - [x] Pagination bounds checking (limit clamped to 1-100)
 - [x] CORS configured (production domain only, permissive for local dev)
 
@@ -1064,6 +1125,7 @@ The migration assigns random colors to all existing users so the column can be N
 **Solution:** Add IntersectionObserver-based infinite scroll.
 
 **Files:**
+
 - `backend/src/routes/photos.ts` - Add `hasMore` to response
 - `frontend/src/lib/api.ts` - Update return type
 - `frontend/src/components/PhotoFeed.tsx` - Add scroll detection
@@ -1098,16 +1160,19 @@ The migration assigns random colors to all existing users so the column can be N
 #### Testing
 
 **Unit tests:**
+
 - [x] Test photos return with correct counts
 - [x] Test photos with no reactions/comments (null coalescing)
 - [x] Test empty group returns empty array
 - [x] Test reaction summaries correctly aggregated per photo
 
 **E2E tests:**
+
 - [x] Test infinite scroll loads more photos when scrolling to bottom
 - [x] Test all photos eventually visible with repeated scrolling
 
 **Manual testing:**
+
 - [ ] Verify feed loads with correct reaction/comment counts
 - [ ] Verify infinite scroll works smoothly
 - [ ] Verify photo upload returns quickly (<500ms)
@@ -1133,12 +1198,14 @@ The migration assigns random colors to all existing users so the column can be N
 **See [MOBILE_PLAN.md](MOBILE_PLAN.md) and [MOBILE_FIXES.md](MOBILE_FIXES.md) for implementation details.**
 
 **Summary:**
+
 - Use Capacitor to wrap existing web app (minimal code changes)
 - Native push via FCM (Android) and APNs (iOS)
 - Screenshot blocking via `@capacitor-community/privacy-screen`
 - GitHub Actions CI/CD for automated builds
 
 **Phase 3.5.1: Capacitor Setup & Polish** ✅
+
 - [x] Set up GitHub Actions workflows for Android builds
 - [x] Set up Capacitor project structure
 - [x] Configure deep linking for magic links (Android App Links)
@@ -1150,6 +1217,7 @@ The migration assigns random colors to all existing users so the column can be N
 - [x] Add PR builds to workflow
 
 **Phase 3.5.2: Push Notifications** (in progress)
+
 - [x] Firebase project setup
 - [x] Add `google-services.json` via GitHub secret (CI) or local copy
 - [x] Install `@capacitor/push-notifications` plugin
@@ -1161,15 +1229,18 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Test end-to-end notification flow (blocked on backend deploy)
 
 **Known issues (see MOBILE_FIXES.md for details):**
+
 - Push notifications not received yet (backend not deployed)
 - Auto-registration may not work if permission granted via settings (needs testing)
 
 **Also fixed in this branch:**
+
 - [x] HEIC image uploads on web (heic2any conversion)
 - [x] Native uploads failing (CapacitorHttp global patching)
 - [x] Notification bell hidden during loading
 
 **Phase 3.5.3: iOS & Distribution** (later)
+
 - [ ] Apple Developer account ($99/year)
 - [ ] iOS signing setup
 - [ ] iOS push (APNs) configuration
@@ -1178,6 +1249,7 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Submit to App Store / Play Store
 
 **Prerequisites:**
+
 - [ ] Apple Developer account ($99/year) — needed for iOS
 - [ ] Google Play Developer account ($25 one-time) — needed for Play Store release
 - [x] Firebase project — needed for Android push notifications
@@ -1214,6 +1286,7 @@ The migration assigns random colors to all existing users so the column can be N
 **Tools:** Vitest (unit), Playwright (E2E)
 
 **Unit tests (Vitest):**
+
 1. JWT generation/validation with group_id ✅
 2. Crypto utilities ✅
 3. Image compression utilities ✅
@@ -1222,6 +1295,7 @@ The migration assigns random colors to all existing users so the column can be N
 6. Owner role protection ✅
 
 **E2E tests (Playwright):**
+
 1. Admin workflow (login, upload, delete, invite) ✅
 2. Member workflow (view-only permissions) ✅
 3. Tenant isolation (critical security tests) ✅
@@ -1230,6 +1304,7 @@ The migration assigns random colors to all existing users so the column can be N
 6. Owner role (immutable, cannot be removed/changed) ✅
 
 **Running tests:**
+
 ```bash
 nix run .#test           # Unit tests
 nix run .#test-e2e       # E2E tests (starts servers automatically)
@@ -1237,6 +1312,7 @@ nix run .#test-e2e-ui    # E2E with Playwright UI
 ```
 
 **Manual checklist:**
+
 - [ ] Install PWA on iOS/Android
 - [ ] Photo upload from both platforms
 - [ ] Push notifications arrive
@@ -1248,6 +1324,7 @@ nix run .#test-e2e-ui    # E2E with Playwright UI
 Schema is defined in `backend/migrations/0001_initial_schema.sql`. For schema changes, update this file and reset local dev DB with `nix run .#teardown-dev && nix run .#dev`.
 
 **Current migrations:**
+
 - `0001_initial_schema.sql` - Core tables (groups, users, memberships, photos, etc.)
 - `0002_push_subscriptions.sql` - Push notification subscriptions
 - `0003_comments_and_reactions.sql` - Comments and reactions tables

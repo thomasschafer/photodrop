@@ -5,7 +5,7 @@ inputs:
   install-playwright:
     description: Whether to cache Playwright browsers
     required: false
-    default: "false"
+    default: 'false'
 
 runs:
   using: composite

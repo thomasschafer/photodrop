@@ -40,17 +40,17 @@ Then go to http://localhost:5173/login, enter `admin@test.com`, and copy the mag
 
 ## Available commands
 
-| Command | Description |
-|---------|-------------|
-| `nix run .#dev` | Start development servers |
-| `nix run .#create-group -- <name> <owner> <email>` | Create a new group |
-| `nix run .#db-seed` | Seed local DB with test users |
-| `nix run .#test` | Run unit tests |
-| `nix run .#test-e2e` | Run end-to-end tests |
-| `nix run .#setup-prod` | Create production Cloudflare resources |
-| `nix run .#deploy` | Deploy to production |
-| `nix run .#teardown-dev` | Clean local dev files |
-| `nix run .#teardown-prod` | Delete production Cloudflare resources |
+| Command                                            | Description                            |
+| -------------------------------------------------- | -------------------------------------- |
+| `nix run .#dev`                                    | Start development servers              |
+| `nix run .#create-group -- <name> <owner> <email>` | Create a new group                     |
+| `nix run .#db-seed`                                | Seed local DB with test users          |
+| `nix run .#test`                                   | Run unit tests                         |
+| `nix run .#test-e2e`                               | Run end-to-end tests                   |
+| `nix run .#setup-prod`                             | Create production Cloudflare resources |
+| `nix run .#deploy`                                 | Deploy to production                   |
+| `nix run .#teardown-dev`                           | Clean local dev files                  |
+| `nix run .#teardown-prod`                          | Delete production Cloudflare resources |
 
 ## Production deployment
 
@@ -67,6 +67,7 @@ nix run .#setup-prod
 ```
 
 The script will:
+
 1. Prompt for your domain (e.g., `photos.example.com`)
 2. Create D1 database and R2 bucket
 3. Generate secrets (JWT, VAPID keys)
@@ -74,6 +75,7 @@ The script will:
 5. Run database migrations
 
 Your app will be available at:
+
 - Frontend: `https://your-domain.com`
 - API: `https://api.your-domain.com`
 
@@ -108,10 +110,10 @@ For automatic deployments on push to `main`:
 
 1. Add **secrets** to GitHub (Settings → Secrets and variables → Actions):
    - `CLOUDFLARE_API_TOKEN` - Create at https://dash.cloudflare.com/profile/api-tokens with permissions:
-      - Account / Workers Scripts: Edit
-      - Account / D1: Edit
-      - Account / Cloudflare Pages: Edit
-      - Account / Account Settings: Read
+     - Account / Workers Scripts: Edit
+     - Account / D1: Edit
+     - Account / Cloudflare Pages: Edit
+     - Account / Account Settings: Read
    - `CLOUDFLARE_ACCOUNT_ID` - From `backend/.prod.vars`
    - `D1_DATABASE_ID` - From `backend/.prod.vars`
    - `JWT_SECRET` - From `backend/.prod.vars`
@@ -152,6 +154,7 @@ Email is required for magic link authentication. We use [Resend](https://resend.
    - Copy the key (you won't see it again)
 
 4. **Add to production**:
+
    ```bash
    # Add to your local .prod.vars
    echo 'RESEND_API_KEY="re_xxxxx"' >> backend/.prod.vars
@@ -173,12 +176,14 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 ### One-time setup (Android signing + deep links)
 
 > **Different domain?** Update these files before building:
+>
 > - `mobile/android/app/src/main/AndroidManifest.xml` (intent filter host)
 > - `mobile/capacitor.config.ts` (allowNavigation)
 > - `frontend/public/.well-known/assetlinks.json` (after generating keystore)
 > - `frontend/public/.well-known/apple-app-site-association` (with your Team ID)
 
 **1. Generate release keystore** (run once, keep safe forever):
+
 ```bash
 ./scripts/generate-android-keystore.sh
 ```
@@ -192,6 +197,7 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 | `ANDROID_KEY_PASSWORD` | Same as keystore password |
 
 **3. Update deep linking config** with SHA256 from script output:
+
 ```bash
 # Edit frontend/public/.well-known/assetlinks.json
 # Replace SHA256_FINGERPRINT_PLACEHOLDER with your fingerprint
@@ -200,6 +206,7 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 **4. Deploy frontend** to publish the assetlinks.json file.
 
 **5. (iOS only)** When you have an Apple Developer account:
+
 - Get your Team ID from developer.apple.com
 - Edit `frontend/public/.well-known/apple-app-site-association`
 - Replace `TEAM_ID` with your actual Team ID
@@ -209,6 +216,7 @@ See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 Native apps use Firebase Cloud Messaging for reliable push notifications. Without this setup, the app works but users won't receive notifications when photos are shared.
 
 **1. Create Firebase project and add apps**:
+
 - Go to https://console.firebase.google.com → Create project (or use existing)
 - Add Android app: Project settings → General → Add app → Android → Package name: `com.photodrop.app`
 - Download `google-services.json` when prompted
@@ -216,6 +224,7 @@ Native apps use Firebase Cloud Messaging for reliable push notifications. Withou
 - Download `GoogleService-Info.plist` when prompted
 
 **2. Configure iOS APNs** (required for iOS push):
+
 - Go to developer.apple.com → Certificates, Identifiers & Profiles → Keys
 - Create new key with "Apple Push Notifications service (APNs)" enabled
 - Download the `.p8` file and note the Key ID
@@ -229,6 +238,7 @@ Native apps use Firebase Cloud Messaging for reliable push notifications. Withou
 | `GOOGLE_SERVICE_INFO_PLIST` | Contents of `GoogleService-Info.plist` (iOS) |
 
 **4. Backend configuration**:
+
 ```bash
 # Generate service account key:
 # Firebase Console → Project settings → Service accounts → Generate new private key
