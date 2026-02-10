@@ -116,6 +116,7 @@ export interface Comment {
   photo_id: string;
   user_id: string | null;
   author_name: string;
+  user_name?: string | null;
   author_profile_color: ProfileColor | null;
   content: string;
   created_at: number;
@@ -894,7 +895,7 @@ export async function createComment(
 export async function getCommentsByPhotoId(db: D1Database, photoId: string): Promise<Comment[]> {
   const result = await db
     .prepare(
-      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.profile_color as author_profile_color, c.content, c.created_at, c.deleted_at
+      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.name as user_name, u.profile_color as author_profile_color, c.content, c.created_at, c.deleted_at
        FROM comments c
        LEFT JOIN users u ON c.user_id = u.id
        WHERE c.photo_id = ?
@@ -919,7 +920,9 @@ export async function deleteComment(db: D1Database, commentId: string): Promise<
   // Soft-delete: null out user_id and content but keep the row
   const now = Math.floor(Date.now() / 1000);
   const result = await db
-    .prepare("UPDATE comments SET user_id = NULL, content = '[deleted]', deleted_at = ? WHERE id = ?")
+    .prepare(
+      "UPDATE comments SET user_id = NULL, content = '[deleted]', deleted_at = ? WHERE id = ?"
+    )
     .bind(now, commentId)
     .run();
 

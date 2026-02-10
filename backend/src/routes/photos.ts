@@ -576,15 +576,23 @@ photos.get('/:id/comments', requireAuth, async (c) => {
     const comments = await getCommentsByPhotoId(c.env.DB, photoId);
 
     return c.json({
-      comments: comments.map((comment) => ({
-        id: comment.id,
-        userId: comment.user_id,
-        authorName: comment.author_name,
-        authorProfileColor: comment.author_profile_color,
-        content: comment.content,
-        createdAt: comment.created_at,
-        isDeleted: comment.deleted_at !== null,
-      })),
+      comments: comments.map((comment) => {
+        const isDeleted = comment.deleted_at !== null;
+        const isUserDeleted = !comment.user_id;
+        const authorName = isUserDeleted
+          ? 'Deleted user'
+          : (comment.user_name ?? comment.author_name);
+
+        return {
+          id: comment.id,
+          userId: comment.user_id,
+          authorName,
+          authorProfileColor: comment.author_profile_color,
+          content: comment.content,
+          createdAt: comment.created_at,
+          isDeleted,
+        };
+      }),
     });
   } catch (error) {
     console.error('Error fetching comments:', error);

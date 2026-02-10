@@ -243,7 +243,7 @@ test.describe('Reactions and comments', () => {
     await expect(dialog.getByText(uniqueCommentText)).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('comment from deleted author is labeled as former member', async ({ page, request }) => {
+  test('comment from deleted author shows deleted user label', async ({ page, request }) => {
     const member = createTestMember(testGroup.groupId, 'Former Member');
     const memberToken = member.magicLink.split('/auth/')[1];
 
@@ -290,7 +290,59 @@ test.describe('Reactions and comments', () => {
     await dialog.getByRole('button', { name: /expand comments/i }).click();
 
     await expect(dialog.getByText(uniqueCommentText)).toBeVisible();
-    await expect(dialog.getByText(`${member.name} (former member)`)).toBeVisible();
+    await expect(dialog.getByText('Deleted user')).toBeVisible();
+  });
+
+  test('comment reflects updated user name', async ({ page, request }) => {
+    const member = createTestMember(testGroup.groupId, 'Rename Me');
+    const memberToken = member.magicLink.split('/auth/')[1];
+
+    await request.post(`${API_BASE}/auth/verify-magic-link`, {
+      data: { token: memberToken, name: member.name },
+    });
+
+    const memberLoginLink = createFreshMagicLink(testGroup.groupId, member.email, 'login');
+    await loginWithMagicLink(page, memberLoginLink);
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+    await page.locator('article').first().click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /expand comments/i }).click();
+
+    const uniqueCommentText = `Rename comment ${Date.now()}`;
+    const commentInput = dialog.getByPlaceholder(/add a comment/i);
+    await commentInput.fill(uniqueCommentText);
+    await dialog.getByRole('button', { name: /post/i }).click();
+    await expect(dialog.getByText(uniqueCommentText)).toBeVisible();
+
+    const adminApiLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    const adminToken = adminApiLink.split('/auth/')[1];
+    const verifyResponse = await request.post(`${API_BASE}/auth/verify-magic-link`, {
+      data: { token: adminToken, name: 'Admin User' },
+    });
+    const verifyData = await verifyResponse.json();
+    const adminApi = createApiClient(request, verifyData.accessToken);
+    const userResponse = (await adminApi.getUsers()) as { users: { id: string; email: string }[] };
+    const memberRecord = userResponse.users.find((u) => u.email === member.email);
+    expect(memberRecord).toBeTruthy();
+
+    const nameSuffix = `Rename-${Date.now()}`;
+    const newName = `Renamed ${nameSuffix}`;
+    execSync(
+      `cd backend && npx wrangler d1 execute photodrop-db --local --command "UPDATE users SET name = '${newName}' WHERE id = '${memberRecord!.id}';"`,
+      { stdio: 'pipe' }
+    );
+
+    const adminUiLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, adminUiLink);
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+    await page.locator('article').first().click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /expand comments/i }).click();
+
+    await expect(dialog.getByText(uniqueCommentText)).toBeVisible();
+    await expect(dialog.getByText(newName)).toBeVisible();
   });
 
   test('collapse button returns to collapsed mode', async ({ page }) => {

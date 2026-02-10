@@ -171,25 +171,24 @@ export function CommentPanel({
                   const authorLabel = comment.isDeleted
                     ? `(deleted) ${comment.authorName}`
                     : isAuthorDeleted
-                      ? `${comment.authorName} (former member)`
+                      ? 'Deleted user'
                       : comment.authorName;
-                  const authorClass = comment.isDeleted || isAuthorDeleted
-                    ? 'font-medium text-text-muted'
-                    : 'font-medium text-text-primary';
+                  const authorClass =
+                    comment.isDeleted || isAuthorDeleted
+                      ? 'font-medium text-text-muted'
+                      : 'font-medium text-text-primary';
 
                   return (
                     <div key={comment.id} className="text-sm">
                       <div className="flex justify-between items-start gap-2">
                         <span className="flex items-center gap-1.5">
-                          {comment.authorProfileColor &&
-                            !comment.isDeleted &&
-                            !isAuthorDeleted && (
-                              <Avatar
-                                name={comment.authorName}
-                                color={comment.authorProfileColor}
-                                size="sm"
-                              />
-                            )}
+                          {comment.authorProfileColor && !comment.isDeleted && !isAuthorDeleted && (
+                            <Avatar
+                              name={comment.authorName}
+                              color={comment.authorProfileColor}
+                              size="sm"
+                            />
+                          )}
                           <span className={authorClass}>{authorLabel}</span>
                         </span>
                         {(comment.userId === currentUserId || isAdmin) && !comment.isDeleted && (
