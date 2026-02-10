@@ -43,7 +43,7 @@ describe('fileValidation', () => {
       }
     );
 
-    it('returns null for 11-byte buffer (just under HEIC minimum)', () => {
+    it('returns null for 11-byte buffer (HEIC detection requires 12 bytes: 4 bytes padding + 4 bytes "ftyp" + 4 bytes brand)', () => {
       const buffer = new Uint8Array([0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69]).buffer;
       expect(validateImageMagicBytes(buffer)).toBeNull();
     });
