@@ -23,7 +23,6 @@ import { verifyMagicLink } from '../lib/magic-links';
 import { sendInviteEmail, sendLoginLinkEmail } from '../lib/email';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { createRateLimitMiddleware, rateLimitKeys, getClientIP } from '../middleware/rateLimit';
-import { isValidEmail } from '../lib/validation';
 import {
   sendInviteSchema,
   sendLoginLinkSchema,

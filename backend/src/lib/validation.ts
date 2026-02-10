@@ -8,6 +8,9 @@ const EMAIL_REGEX =
 
 /**
  * Validate an email address with a proper regex (not just checking for @)
+ * 
+ * NOTE: This function is kept for compatibility but Zod schemas (lib/schemas.ts)
+ * are now the primary email validation method in route handlers.
  */
 export function isValidEmail(email: string): boolean {
   if (!email || typeof email !== 'string') return false;
