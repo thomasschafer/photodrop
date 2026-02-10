@@ -36,6 +36,8 @@ describe('checkRateLimit', () => {
 
   it('allows request at exact boundary (count === maxRequests)', async () => {
     const now = Math.floor(Date.now() / 1000);
+    // count=5 means we've just made the 5th request (post-increment)
+    // With maxRequests=5, this 5th request should still be allowed
     const db = createMockDb({ count: 5, window_start: now });
 
     const result = await checkRateLimit(db, 'test:key', 5, 3600);
