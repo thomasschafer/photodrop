@@ -17,6 +17,7 @@ import {
   getCommentsByPhotoId,
   getComment,
   deleteComment as dbDeleteComment,
+  getMembership,
 } from '../lib/db';
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -179,6 +180,11 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
     const photo = formData.get('photo') as File | null;
     const thumbnail = formData.get('thumbnail') as File | null;
     const caption = formData.get('caption') as string | null;
+
+    // Validate caption length
+    if (caption && Array.from(caption).length > 2000) {
+      return c.json({ error: 'Caption must be 2000 characters or less' }, 400);
+    }
 
     if (!photo) {
       return c.json({ error: 'Photo file is required' }, 400);
@@ -434,12 +440,19 @@ photos.delete('/:id', requireAdmin, async (c) => {
       return c.json({ error: 'Photo not found' }, 404);
     }
 
-    await c.env.PHOTOS.delete(photo.r2_key);
-    if (photo.thumbnail_r2_key) {
-      await c.env.PHOTOS.delete(photo.thumbnail_r2_key);
-    }
-
+    // Delete DB record first, then R2 files. If R2 cleanup fails,
+    // we have orphaned files (harmless) rather than DB rows pointing to missing files.
     await dbDeletePhoto(c.env.DB, photoId, user.groupId);
+
+    try {
+      await c.env.PHOTOS.delete(photo.r2_key);
+      if (photo.thumbnail_r2_key) {
+        await c.env.PHOTOS.delete(photo.thumbnail_r2_key);
+      }
+    } catch (r2Error) {
+      console.error('Failed to clean up R2 files after photo deletion:', r2Error);
+      // DB record already deleted, R2 orphans are harmless
+    }
 
     return c.json({ message: 'Photo deleted successfully' });
   } catch (error) {
@@ -643,12 +656,16 @@ photos.delete('/:id/comments/:commentId', requireAuth, async (c) => {
       return c.json({ error: 'Comment does not belong to this photo' }, 400);
     }
 
-    // Allow deletion if user is the author or an admin
+    // Allow deletion if user is the author
     const isAuthor = comment.user_id === currentUser.id;
-    const isAdmin = currentUser.role === 'admin';
 
-    if (!isAuthor && !isAdmin) {
-      return c.json({ error: 'Not authorized to delete this comment' }, 403);
+    if (!isAuthor) {
+      // Check actual admin role from database (not JWT) to prevent stale role exploitation
+      const membership = await getMembership(c.env.DB, currentUser.id, currentUser.groupId);
+      const isAdmin = membership?.role === 'admin';
+      if (!isAdmin) {
+        return c.json({ error: 'Not authorized to delete this comment' }, 403);
+      }
     }
 
     await dbDeleteComment(c.env.DB, commentId);
