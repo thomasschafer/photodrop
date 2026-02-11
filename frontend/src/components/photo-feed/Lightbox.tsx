@@ -116,6 +116,7 @@ export function Lightbox({
   const [loadingComments, setLoadingComments] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [confirmDeleteCommentId, setConfirmDeleteCommentId] = useState<string | null>(null);
   const [deleteCommentError, setDeleteCommentError] = useState<string | null>(null);
@@ -335,6 +336,7 @@ export function Lightbox({
     if (!newComment.trim() || submittingComment) return;
 
     setSubmittingComment(true);
+    setCommentError(null);
     try {
       const result = await api.photos.addComment(photo.id, newComment.trim());
       const newCommentObj: Comment = {
@@ -355,6 +357,7 @@ export function Lightbox({
       onPhotoUpdate({ id: photo.id, commentCount: photo.commentCount + 1 });
     } catch (err) {
       console.error('Failed to add comment:', err);
+      setCommentError('Failed to post comment. Please try again.');
     } finally {
       setSubmittingComment(false);
     }
@@ -583,6 +586,7 @@ export function Lightbox({
             onNewCommentChange={setNewComment}
             onSubmitComment={handleSubmitComment}
             submittingComment={submittingComment}
+            commentError={commentError}
           />
         </div>
       </div>

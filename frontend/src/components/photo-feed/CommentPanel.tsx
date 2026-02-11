@@ -29,6 +29,7 @@ export interface CommentPanelProps {
   onNewCommentChange: (value: string) => void;
   onSubmitComment: (e: React.FormEvent) => void;
   submittingComment: boolean;
+  commentError?: string | null;
 }
 
 export function CommentPanel({
@@ -50,6 +51,7 @@ export function CommentPanel({
   onNewCommentChange,
   onSubmitComment,
   submittingComment,
+  commentError,
 }: CommentPanelProps) {
   const sortedComments = useMemo(
     () =>
@@ -217,6 +219,9 @@ export function CommentPanel({
           </div>
 
           <form onSubmit={onSubmitComment} className="flex-shrink-0 p-3 border-t border-border">
+            {commentError && (
+              <p className="text-xs text-error mb-2">{commentError}</p>
+            )}
             <div className="flex gap-2">
               <input
                 ref={commentInputRef}
