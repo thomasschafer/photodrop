@@ -31,6 +31,7 @@ import {
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
 import { addReactionSchema, addCommentSchema } from '../lib/schemas';
+import { COMMENT_MAX_LENGTH } from '../../../common/limits';
 import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for comments: 30 per user per 15 minutes
@@ -609,7 +610,20 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
     const photoId = c.req.param('id');
     const currentUser = c.get('user');
     const body = await c.req.json();
-    const { content } = addCommentSchema.parse(body);
+    const parsed = addCommentSchema.safeParse(body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      let message = 'Invalid comment';
+      if (issue?.code === 'too_big') {
+        message = `Comment must be ${COMMENT_MAX_LENGTH} characters or less`;
+      } else if (issue?.code === 'too_small') {
+        message = 'Comment cannot be empty';
+      } else if (issue?.message) {
+        message = issue.message;
+      }
+      return c.json({ error: message }, 400);
+    }
+    const { content } = parsed.data;
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
