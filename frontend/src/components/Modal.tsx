@@ -66,7 +66,7 @@ export function Modal({ title, children, onClose, maxWidth = 'sm' }: ModalProps)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50" aria-hidden="true" onClick={onClose} />
       <div
         ref={modalRef}
         role="dialog"

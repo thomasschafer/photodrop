@@ -73,9 +73,9 @@
     --color-border-hover: #524c46;
     --color-border-strong: #6b635b;
 
-    /* Accent (terracotta, lighter for dark backgrounds) */
-    --color-accent: #d4895e;
-    --color-accent-hover: #c67d52;
+    /* Accent (terracotta, darkened for 4.5:1 contrast with white) */
+    --color-accent: #9a5e35;
+    --color-accent-hover: #84502d;
     --color-accent-light: rgba(217, 166, 142, 0.15);
 
     /* Surfaces */
