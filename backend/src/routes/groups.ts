@@ -87,7 +87,10 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
 
     // Reject owner role explicitly with a clear message
     if (body.role === 'owner') {
-      return c.json({ error: 'Cannot promote to owner — owner is set at group creation only' }, 400);
+      return c.json(
+        { error: 'Cannot promote to owner — owner is set at group creation only' },
+        400
+      );
     }
 
     const { role, name } = updateMemberSchema.parse(body);
