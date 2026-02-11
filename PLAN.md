@@ -1182,17 +1182,17 @@ The migration assigns random colors to all existing users so the column can be N
 
 #### 3.1: Bugs and reliability
 
-- [ ] Add React error boundary — any render error currently crashes entire app to blank white screen with no recovery
-- [ ] Add global Hono `app.onError()` handler — middleware errors currently leak stack traces to clients
-- [ ] Show error to user on comment submission failure — currently silently swallowed (`console.error` only)
-- [ ] Fix comment deletion admin check — uses JWT role instead of `requireAdmin` middleware, giving demoted admins a 15-minute window to delete others' comments
-- [ ] Add caption length validation — no limit at all currently (comments have 1000 chars, captions have none)
-- [ ] Fix non-atomic deletions — photo and group deletion delete R2 files before DB records; if DB delete fails, orphaned rows point to missing files. Reverse the order (DB first, then R2)
-- [ ] Don't leak R2 key paths in group deletion error responses
-- [ ] Hide emails from non-admin users — `GET /users/` returns `email` to all group members; should be admin-only
-- [ ] Fix `pickerRef` in ReactionPills — ref assigned to both outer wrapper and inner picker div, causing premature blur dismissal when focus moves within the wrapper
-- [ ] Verify D1 foreign key enforcement — SQLite has `PRAGMA foreign_keys` OFF by default; if D1 doesn't enable it, all `ON DELETE CASCADE` is silently ignored, risking orphaned data. Add a startup or migration check
-- [ ] Unit tests for `verify-magic-link` — most complex auth handler (150+ lines, multiple branches) with no unit tests; security-critical code path for user creation and token issuance
+- [x] Add React error boundary — any render error currently crashes entire app to blank white screen with no recovery
+- [x] Add global Hono `app.onError()` handler — middleware errors currently leak stack traces to clients (already existed, verified)
+- [x] Show error to user on comment submission failure — currently silently swallowed (`console.error` only)
+- [x] Fix comment deletion admin check — uses JWT role instead of `requireAdmin` middleware, giving demoted admins a 15-minute window to delete others' comments
+- [x] Add caption length validation — no limit at all currently (comments have 1000 chars, captions have none)
+- [x] Fix non-atomic deletions — photo and group deletion delete R2 files before DB records; if DB delete fails, orphaned rows point to missing files. Reverse the order (DB first, then R2)
+- [x] Don't leak R2 key paths in group deletion error responses
+- [x] Hide emails from non-admin users — `GET /users/` returns `email` to all group members; should be admin-only (already restricted via requireAdmin, verified)
+- [x] Fix `pickerRef` in ReactionPills — ref assigned to both outer wrapper and inner picker div, causing premature blur dismissal when focus moves within the wrapper
+- [x] Verify D1 foreign key enforcement — SQLite has `PRAGMA foreign_keys` OFF by default; if D1 doesn't enable it, all `ON DELETE CASCADE` is silently ignored, risking orphaned data. Add a startup or migration check
+- [x] Unit tests for `verify-magic-link` — most complex auth handler (150+ lines, multiple branches) with no unit tests; security-critical code path for user creation and token issuance
 
 #### 3.2: Accessibility
 
@@ -1247,11 +1247,10 @@ The migration assigns random colors to all existing users so the column can be N
 - [x] Backend: send to FCM on photo upload
 - [x] Test notification button (long-press bell)
 - [x] Debug info modal (tap bell when loading/error)
-- [ ] Test end-to-end notification flow (blocked on backend deploy)
+- [x] Test end-to-end notification flow
 
 **Known issues (see MOBILE_FIXES.md for details):**
 
-- Push notifications not received yet (backend not deployed)
 - Auto-registration may not work if permission granted via settings (needs testing)
 
 **Also fixed in this branch:**
