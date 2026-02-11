@@ -142,6 +142,8 @@ export function Lightbox({
     const cachedReactionDetails = reactionDetailsCache.current.get(photo.id);
     setComments(cachedComments ?? []);
     setReactionDetails(cachedReactionDetails ?? []);
+    setCommentError(null);
+    setDeleteCommentError(null);
     // Reset only on photo change, not on optimistic reaction updates
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);

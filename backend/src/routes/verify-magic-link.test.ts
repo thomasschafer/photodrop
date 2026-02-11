@@ -378,9 +378,7 @@ describe('verify-magic-link endpoint', () => {
     });
     mockGetMembership.mockResolvedValue(null);
     mockCreateMembership.mockResolvedValue(undefined);
-    mockGetUserMemberships.mockResolvedValue([
-      { ...defaultMembership, user_id: 'new-user-id' },
-    ]);
+    mockGetUserMemberships.mockResolvedValue([{ ...defaultMembership, user_id: 'new-user-id' }]);
     mockGetGroup.mockResolvedValue(defaultGroup);
     // markPending returns false (already pending), but name submission should still proceed
     mockMarkMagicLinkTokenPending.mockResolvedValue(false);

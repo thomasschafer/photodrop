@@ -173,8 +173,8 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
               className="input-field resize-none"
               placeholder="Add a caption..."
             />
-            {caption.length > 1900 && (
-              <p className="text-xs text-text-muted mt-1">{caption.length}/2000</p>
+            {Array.from(caption).length > 1900 && (
+              <p className="text-xs text-text-muted mt-1">{Array.from(caption).length}/2000</p>
             )}
           </div>
 
