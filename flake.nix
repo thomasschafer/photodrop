@@ -47,8 +47,7 @@
           fi
 
           # Install dependencies
-          (cd backend && npm install)
-          (cd frontend && npm install)
+          npm install
 
           # Run migrations
           echo "Running migrations..."
@@ -77,8 +76,7 @@
           echo "Running unit tests..."
           echo ""
 
-          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
-          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+          npm install
 
           cd backend
           npm run test:run
@@ -100,9 +98,7 @@
           echo "Running E2E tests..."
           echo ""
 
-          [ ! -d "node_modules" ] && npm install
-          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
-          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+          npm install
 
           if [ ! -f backend/.dev.vars ]; then
             echo "Generating dev secrets..."
@@ -130,8 +126,7 @@
           echo "Running lint and format checks..."
           echo ""
 
-          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
-          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+          npm install
 
           cd backend
           npm run format
@@ -155,8 +150,7 @@
           echo "Fixing lint and format issues..."
           echo ""
 
-          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
-          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+          npm install
 
           cd backend
           npm run format:fix
@@ -177,8 +171,7 @@
           export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
           set -e
 
-          [ ! -d "backend/node_modules" ] && (cd backend && npm install)
-          [ ! -d "frontend/node_modules" ] && (cd frontend && npm install)
+          npm install
 
           echo "Type-checking backend..."
           cd backend

@@ -13,8 +13,12 @@ echo "Photodrop Production Deployment"
 echo "================================"
 echo ""
 
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BACKEND_DIR="$ROOT_DIR/backend"
+FRONTEND_DIR="$ROOT_DIR/frontend"
+
 # Navigate to backend directory
-cd "$(dirname "$0")/../backend"
+cd "$BACKEND_DIR"
 
 # Load environment variables
 # Priority: 1) Already set (CI), 2) From .prod.vars (local)
@@ -84,8 +88,8 @@ echo "Generated wrangler.prod.toml"
 echo ""
 
 # Install dependencies if needed
-echo "Installing backend dependencies..."
-npm install
+echo "Installing workspace dependencies..."
+npm --prefix "$ROOT_DIR" install
 
 # Build backend to catch type errors
 echo "Building backend..."
@@ -145,10 +149,7 @@ fi
 
 # Build and deploy frontend
 echo "Building frontend..."
-cd ../frontend
-
-echo "Installing frontend dependencies..."
-npm install
+cd "$FRONTEND_DIR"
 
 # Build frontend (API URL is derived from hostname at runtime)
 if ! npm run build; then

@@ -2,7 +2,7 @@
  * Zod request validation schemas
  */
 import { z } from 'zod';
-import { COMMENT_MAX_LENGTH } from '../../../common/limits';
+import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 
 const EMOJI_VARIATION_SELECTOR = /\uFE0F/g;
 

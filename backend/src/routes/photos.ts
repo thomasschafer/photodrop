@@ -31,7 +31,7 @@ import {
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
 import { addReactionSchema, addCommentSchema } from '../lib/schemas';
-import { COMMENT_MAX_LENGTH } from '../../../common/limits';
+import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for comments: 30 per user per 15 minutes

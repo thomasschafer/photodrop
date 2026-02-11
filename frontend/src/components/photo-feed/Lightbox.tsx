@@ -11,7 +11,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { CommentPanel } from './CommentPanel';
 import type { Photo, Comment, ReactionSummary, ReactionWithUser } from './types';
 import { EMOJI_OPTIONS } from './types';
-import { COMMENT_MAX_LENGTH } from '../../../../common/limits';
+import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 
 function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
   const { imageProtection } = useAuth();
