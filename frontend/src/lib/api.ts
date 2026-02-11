@@ -44,14 +44,19 @@ interface GetMeResponse extends User {
 }
 
 function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) {
+    return envUrl;
+  }
+
   const hostname = window.location.hostname;
 
   // Local development or Capacitor native
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    if (isNative && import.meta.env.VITE_API_URL) {
-      return import.meta.env.VITE_API_URL;
+    if (isNative) {
+      return 'http://localhost:8787';
     }
-    return 'http://localhost:8787';
+    return '/api';
   }
 
   // Production web - API is at api.{domain}
@@ -113,6 +118,9 @@ async function fetchWithAuth(
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
+
+  // CSRF protection header
+  headers['X-Requested-With'] = 'XMLHttpRequest';
 
   // Use native HTTP for Capacitor, regular fetch for web
   // EXCEPT for FormData uploads - use regular fetch for those (CapacitorHttp handles it via plugin)
@@ -473,7 +481,7 @@ export const api = {
       }
       await fetch(`${API_BASE_URL}/push/unsubscribe`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({ endpoint, deletionToken }),
       });
       localStorage.removeItem(`push_deletion_token:${endpoint}`);

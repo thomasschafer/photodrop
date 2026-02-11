@@ -1077,14 +1077,16 @@ describe('Comment functions', () => {
   });
 
   describe('deleteComment', () => {
-    it('removes comment', async () => {
+    it('soft-deletes comment by nulling user_id and content', async () => {
       const db = createMockDb([]);
 
       const result = await deleteComment(db, 'comment-1');
 
       expect(result).toBe(true);
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith('DELETE FROM comments WHERE id = ?');
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('comment-1');
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE comments SET user_id = NULL')
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(expect.any(Number), 'comment-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
   });
@@ -1096,6 +1098,9 @@ describe('Comment functions', () => {
       const result = await getCommentCount(db, 'photo-1');
 
       expect(result).toBe(5);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('deleted_at IS NULL')
+      );
       expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
     });
 

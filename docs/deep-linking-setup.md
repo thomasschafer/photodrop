@@ -1,6 +1,7 @@
 # Deep Linking Setup
 
 Magic links need to open in the app instead of the browser. This requires:
+
 - **Android:** App Links with `assetlinks.json`
 - **iOS:** Universal Links with `apple-app-site-association`
 
@@ -9,11 +10,13 @@ Magic links need to open in the app instead of the browser. This requires:
 ### 1. Get SHA256 Fingerprint
 
 For **debug** builds (testing):
+
 ```bash
 keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android | grep SHA256
 ```
 
 For **release** builds (production):
+
 ```bash
 keytool -list -v -keystore your-release-key.keystore -alias your-alias | grep SHA256
 ```
@@ -23,22 +26,22 @@ keytool -list -v -keystore your-release-key.keystore -alias your-alias | grep SH
 Create `/.well-known/assetlinks.json` on your domain with:
 
 ```json
-[{
-  "relation": ["delegate_permission/common.handle_all_urls"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "com.photodrop.app",
-    "sha256_cert_fingerprints": [
-      "YOUR_DEBUG_SHA256_HERE",
-      "YOUR_RELEASE_SHA256_HERE"
-    ]
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.photodrop.app",
+      "sha256_cert_fingerprints": ["YOUR_DEBUG_SHA256_HERE", "YOUR_RELEASE_SHA256_HERE"]
+    }
   }
-}]
+]
 ```
 
 ### 3. Deploy to Cloudflare
 
 Since the site is on Cloudflare Pages, add the file to your frontend build:
+
 - Create `frontend/public/.well-known/assetlinks.json`
 - It will be deployed automatically with the frontend
 
@@ -56,10 +59,12 @@ Create `/.well-known/apple-app-site-association` (no file extension):
 {
   "applinks": {
     "apps": [],
-    "details": [{
-      "appID": "TEAM_ID.com.photodrop.app",
-      "paths": ["/auth/*"]
-    }]
+    "details": [
+      {
+        "appID": "TEAM_ID.com.photodrop.app",
+        "paths": ["/auth/*"]
+      }
+    ]
   }
 }
 ```
@@ -69,6 +74,7 @@ Replace `TEAM_ID` with your Apple Developer Team ID.
 ### 2. Configure Xcode
 
 In Xcode, add "Associated Domains" capability:
+
 - `applinks:YOUR_DOMAIN`
 
 ### 3. Deploy

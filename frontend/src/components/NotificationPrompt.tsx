@@ -34,7 +34,7 @@ export function NotificationPrompt() {
 
   const checkShouldShow = useCallback(async () => {
     // Check if push is supported
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    if (!navigator.serviceWorker || !window.PushManager) {
       setState('hidden');
       return;
     }

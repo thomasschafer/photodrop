@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
-import { createTestGroup, createFreshMagicLink, cleanupTestGroup, TestGroup } from './helpers/setup';
+import {
+  createTestGroup,
+  createFreshMagicLink,
+  cleanupTestGroup,
+  TestGroup,
+} from './helpers/setup';
 import { loginWithMagicLink, logout, expectLoggedIn, expectLoggedOut } from './helpers/auth';
 
 test.describe('Auth edge cases', () => {
@@ -115,6 +120,7 @@ test.describe('Auth edge cases', () => {
     const response = await request.get('http://localhost:8787/photos', {
       headers: {
         Authorization: 'Bearer invalid-token-here',
+        'X-Requested-With': 'XMLHttpRequest',
       },
     });
 

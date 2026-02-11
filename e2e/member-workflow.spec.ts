@@ -65,6 +65,17 @@ test.describe('Member workflow', () => {
     await expect(page.getByRole('button', { name: /upload/i })).not.toBeVisible();
   });
 
+  test('member cannot access members tab or page', async ({ page }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, memberEmail, 'login');
+    await loginWithMagicLink(page, magicLink);
+
+    await expect(page.getByRole('tab', { name: 'Group' })).not.toBeVisible();
+
+    await page.goto('http://localhost:5173/members');
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole('tab', { name: 'Group' })).not.toBeVisible();
+  });
+
   test('member cannot delete photos', async ({ page }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, memberEmail, 'login');
     await loginWithMagicLink(page, magicLink);
@@ -110,5 +121,25 @@ test.describe('Member workflow', () => {
     const photoId = (photos[0] as { id: string }).id;
     const deleteResponse = await api.deletePhoto(photoId);
     expect(deleteResponse.status()).toBe(403);
+  });
+
+  test('member cannot access members list via API', async ({ page, request }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, memberEmail, 'login');
+    await loginWithMagicLink(page, magicLink);
+
+    const token = await getAuthToken(page);
+    expect(token).toBeTruthy();
+
+    const response = await request.get(
+      `http://localhost:8787/groups/${testGroup.groupId}/members`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      }
+    );
+
+    expect(response.status()).toBe(403);
   });
 });

@@ -17,7 +17,6 @@ import {
   getCommentsByPhotoId,
   getComment,
   deleteComment as dbDeleteComment,
-  type MembershipRole,
 } from '../lib/db';
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -30,6 +29,15 @@ import {
   ALLOWED_MIME_TYPES,
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
+import { addReactionSchema, addCommentSchema } from '../lib/schemas';
+import type { Bindings, AppEnv } from '../types';
+
+// Rate limit for comments: 30 per user per 15 minutes
+const commentRateLimit = createRateLimitMiddleware({
+  maxRequests: 30,
+  windowSeconds: 15 * 60,
+  keyFn: rateLimitKeys.byUserId('comment'),
+});
 
 // Rate limit for photo uploads: 20 per user per hour
 const uploadRateLimit = createRateLimitMiddleware({
@@ -38,25 +46,7 @@ const uploadRateLimit = createRateLimitMiddleware({
   keyFn: rateLimitKeys.byUserId('upload'),
 });
 
-type Bindings = {
-  DB: D1Database;
-  PHOTOS: R2Bucket;
-  JWT_SECRET: string;
-  VAPID_PUBLIC_KEY: string;
-  VAPID_PRIVATE_KEY: string;
-  FRONTEND_URL: string;
-  FIREBASE_SERVICE_ACCOUNT?: string;
-};
-
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const photos = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const photos = new Hono<AppEnv>();
 
 // Send push notifications in background (non-blocking)
 async function sendPhotoUploadNotifications(
@@ -75,7 +65,10 @@ async function sendPhotoUploadNotifications(
   const groupName = group?.name || 'your group';
   const uploaderName = uploader?.name || 'Someone';
   const title = `New photo in ${groupName}`;
-  const body = caption || `${uploaderName} shared a new photo`;
+  // Sanitize caption to prevent injection in push notifications
+  // Push payloads are plain text (not rendered as HTML), so just truncate
+  const sanitizedCaption = caption ? Array.from(caption).slice(0, 200).join('') : null;
+  const body = sanitizedCaption || `${uploaderName} shared a new photo`;
 
   // Send web push notifications
   if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
@@ -493,22 +486,12 @@ photos.get('/:id/viewers', requireAdmin, async (c) => {
   }
 });
 
-const ALLOWED_EMOJIS = ['❤️', '😂', '😮', '😢', '👏', '🔥'];
-
 photos.post('/:id/react', requireAuth, async (c) => {
   try {
     const photoId = c.req.param('id');
     const currentUser = c.get('user');
     const body = await c.req.json();
-    const { emoji } = body;
-
-    if (!emoji || typeof emoji !== 'string') {
-      return c.json({ error: 'Emoji is required' }, 400);
-    }
-
-    if (!ALLOWED_EMOJIS.includes(emoji)) {
-      return c.json({ error: 'Invalid emoji' }, 400);
-    }
+    const { emoji } = addReactionSchema.parse(body);
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
@@ -517,7 +500,7 @@ photos.post('/:id/react', requireAuth, async (c) => {
 
     await addPhotoReaction(c.env.DB, photoId, currentUser.id, emoji);
 
-    return c.json({ message: 'Reaction added' });
+    return c.json({ message: 'Reaction added', emoji });
   } catch (error) {
     console.error('Error adding reaction:', error);
     return c.json({ error: 'Failed to add reaction' }, 500);
@@ -584,15 +567,23 @@ photos.get('/:id/comments', requireAuth, async (c) => {
     const comments = await getCommentsByPhotoId(c.env.DB, photoId);
 
     return c.json({
-      comments: comments.map((comment) => ({
-        id: comment.id,
-        userId: comment.user_id,
-        authorName: comment.author_name,
-        authorProfileColor: comment.author_profile_color,
-        content: comment.content,
-        createdAt: comment.created_at,
-        isDeleted: comment.user_id === null,
-      })),
+      comments: comments.map((comment) => {
+        const isDeleted = comment.deleted_at !== null;
+        const isUserDeleted = !comment.user_id;
+        const authorName = isUserDeleted
+          ? 'Deleted user'
+          : (comment.user_name ?? comment.author_name);
+
+        return {
+          id: comment.id,
+          userId: comment.user_id,
+          authorName,
+          authorProfileColor: comment.author_profile_color,
+          content: comment.content,
+          createdAt: comment.created_at,
+          isDeleted,
+        };
+      }),
     });
   } catch (error) {
     console.error('Error fetching comments:', error);
@@ -600,20 +591,12 @@ photos.get('/:id/comments', requireAuth, async (c) => {
   }
 });
 
-photos.post('/:id/comments', requireAuth, async (c) => {
+photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
   try {
     const photoId = c.req.param('id');
     const currentUser = c.get('user');
     const body = await c.req.json();
-    const { content } = body;
-
-    if (!content || typeof content !== 'string' || content.trim().length === 0) {
-      return c.json({ error: 'Comment content is required' }, 400);
-    }
-
-    if (content.trim().length > 1000) {
-      return c.json({ error: 'Comment is too long (max 1000 characters)' }, 400);
-    }
+    const { content } = addCommentSchema.parse(body);
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
@@ -625,13 +608,7 @@ photos.post('/:id/comments', requireAuth, async (c) => {
       return c.json({ error: 'User not found' }, 404);
     }
 
-    const commentId = await createComment(
-      c.env.DB,
-      photoId,
-      currentUser.id,
-      user.name,
-      content.trim()
-    );
+    const commentId = await createComment(c.env.DB, photoId, currentUser.id, user.name, content);
 
     return c.json(
       {
@@ -658,7 +635,7 @@ photos.delete('/:id/comments/:commentId', requireAuth, async (c) => {
     }
 
     const comment = await getComment(c.env.DB, commentId);
-    if (!comment) {
+    if (!comment || comment.deleted_at !== null) {
       return c.json({ error: 'Comment not found' }, 404);
     }
 

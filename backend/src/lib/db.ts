@@ -116,9 +116,11 @@ export interface Comment {
   photo_id: string;
   user_id: string | null;
   author_name: string;
+  user_name?: string | null;
   author_profile_color: ProfileColor | null;
   content: string;
   created_at: number;
+  deleted_at: number | null;
 }
 
 export interface ReactionSummary {
@@ -173,13 +175,14 @@ export async function createUser(db: D1Database, name: string, email: string): P
   const userId = generateId();
   const now = Math.floor(Date.now() / 1000);
   const profileColor = getRandomProfileColor();
+  const normalizedEmail = email.toLowerCase().trim();
 
   await db
     .prepare(
       `INSERT INTO users (id, name, email, profile_color, created_at)
        VALUES (?, ?, ?, ?, ?)`
     )
-    .bind(userId, name, email, profileColor, now)
+    .bind(userId, name, normalizedEmail, profileColor, now)
     .run();
 
   return userId;
@@ -304,7 +307,11 @@ export async function getUserById(db: D1Database, userId: string): Promise<User 
 }
 
 export async function getUserByEmail(db: D1Database, email: string): Promise<User | null> {
-  const result = await db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first<User>();
+  const normalizedEmail = email.toLowerCase().trim();
+  const result = await db
+    .prepare('SELECT * FROM users WHERE email = ?')
+    .bind(normalizedEmail)
+    .first<User>();
 
   return result;
 }
@@ -353,12 +360,14 @@ export async function createMagicLinkToken(
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 15 * 60; // 15 minutes
 
+  const normalizedEmail = email.toLowerCase().trim();
+
   await db
     .prepare(
       `INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(token, groupId, email, type, inviteRole || null, now, expiresAt)
+    .bind(token, groupId, normalizedEmail, type, inviteRole || null, now, expiresAt)
     .run();
 
   return token;
@@ -886,7 +895,7 @@ export async function createComment(
 export async function getCommentsByPhotoId(db: D1Database, photoId: string): Promise<Comment[]> {
   const result = await db
     .prepare(
-      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.profile_color as author_profile_color, c.content, c.created_at
+      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.name as user_name, u.profile_color as author_profile_color, c.content, c.created_at, c.deleted_at
        FROM comments c
        LEFT JOIN users u ON c.user_id = u.id
        WHERE c.photo_id = ?
@@ -908,14 +917,21 @@ export async function getComment(db: D1Database, commentId: string): Promise<Com
 }
 
 export async function deleteComment(db: D1Database, commentId: string): Promise<boolean> {
-  const result = await db.prepare('DELETE FROM comments WHERE id = ?').bind(commentId).run();
+  // Soft-delete: null out user_id, author_name, and content but keep the row
+  const now = Math.floor(Date.now() / 1000);
+  const result = await db
+    .prepare(
+      "UPDATE comments SET user_id = NULL, author_name = '[deleted]', content = '[deleted]', deleted_at = ? WHERE id = ?"
+    )
+    .bind(now, commentId)
+    .run();
 
   return result.success;
 }
 
 export async function getCommentCount(db: D1Database, photoId: string): Promise<number> {
   const result = await db
-    .prepare('SELECT COUNT(*) as count FROM comments WHERE photo_id = ?')
+    .prepare('SELECT COUNT(*) as count FROM comments WHERE photo_id = ? AND deleted_at IS NULL')
     .bind(photoId)
     .first<{ count: number }>();
 
@@ -1005,6 +1021,7 @@ export async function listPhotosWithCounts(
       LEFT JOIN (
         SELECT photo_id, COUNT(*) as comment_count
         FROM comments
+        WHERE deleted_at IS NULL
         GROUP BY photo_id
       ) c ON c.photo_id = p.id
       LEFT JOIN (

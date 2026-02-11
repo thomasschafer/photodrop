@@ -23,7 +23,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
         with:
-          install-playwright: "true"
+          install-playwright: 'true'
 
       - name: Run E2E tests
         run: nix run .#test-e2e

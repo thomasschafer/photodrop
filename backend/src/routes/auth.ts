@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { setCookie } from 'hono/cookie';
+import { getCookie, setCookie } from 'hono/cookie';
 import {
   createMagicLinkToken,
   getUserByEmail,
@@ -11,7 +11,6 @@ import {
   getUserMemberships,
   markMagicLinkTokenUsed,
   markMagicLinkTokenPending,
-  type MembershipRole,
 } from '../lib/db';
 import {
   generateAccessToken,
@@ -24,17 +23,16 @@ import { verifyMagicLink } from '../lib/magic-links';
 import { sendInviteEmail, sendLoginLinkEmail } from '../lib/email';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { createRateLimitMiddleware, rateLimitKeys, getClientIP } from '../middleware/rateLimit';
-import type { Bindings } from '../types';
+import {
+  sendInviteSchema,
+  sendLoginLinkSchema,
+  verifyMagicLinkSchema,
+  switchGroupSchema,
+  selectGroupSchema,
+} from '../lib/schemas';
+import type { AppEnv } from '../types';
 
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const auth = new Hono<AppEnv>();
 
 // Rate limit configurations
 const sendInviteRateLimit = createRateLimitMiddleware({
@@ -59,15 +57,7 @@ const verifyMagicLinkRateLimit = createRateLimitMiddleware({
 auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
   try {
     const body = await c.req.json();
-    const { email, role = 'member' } = body;
-
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
-      return c.json({ error: 'Valid email is required' }, 400);
-    }
-
-    if (role !== 'admin' && role !== 'member') {
-      return c.json({ error: 'Invalid role' }, 400);
-    }
+    const { email, role } = sendInviteSchema.parse(body);
 
     // Get admin's group from JWT
     const user = c.get('user');
@@ -114,11 +104,7 @@ auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
 auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
   try {
     const body = await c.req.json();
-    const { email } = body;
-
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
-      return c.json({ error: 'Valid email is required' }, 400);
-    }
+    const { email } = sendLoginLinkSchema.parse(body);
 
     // Get user by email
     const user = await getUserByEmail(c.env.DB, email);
@@ -154,14 +140,10 @@ auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
 auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
   try {
     const body = await c.req.json();
-    const { token, name } = body;
-
-    if (!token || typeof token !== 'string') {
-      return c.json({ error: 'Token is required' }, 400);
-    }
+    const { token, name } = verifyMagicLinkSchema.parse(body);
 
     // Check if this is a name submission (user providing their name after needsName response)
-    const isNameSubmission = !!(name && typeof name === 'string' && name.trim());
+    const isNameSubmission = !!(name && name.trim());
 
     // Verify token - allow pending state for name submissions since we set pending on first request
     const result = await verifyMagicLink(c.env.DB, token, isNameSubmission);
@@ -199,9 +181,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
         user = existingUser;
       } else {
         // New user - name must be provided in request
-        const userName = name && typeof name === 'string' ? name.trim() : null;
-
-        if (!userName) {
+        if (!name) {
           // Don't consume token yet - user needs to provide name
           // (Token is already marked pending at the start of this handler)
           return c.json({
@@ -211,10 +191,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
           });
         }
 
-        // Validate name length
-        if (userName.length > 100) {
-          return c.json({ error: 'Name is too long (max 100 characters)' }, 400);
-        }
+        const userName = name;
 
         // Create new user with name
         if (!magicToken.invite_role) {
@@ -271,7 +248,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
       setCookie(c, 'refreshToken', refreshToken, {
         httpOnly: true,
         secure: true,
-        sameSite: 'Strict',
+        sameSite: 'Lax',
         maxAge: 30 * 24 * 60 * 60,
         path: '/',
       });
@@ -348,7 +325,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
         setCookie(c, 'refreshToken', refreshToken, {
           httpOnly: true,
           secure: true,
-          sameSite: 'Strict',
+          sameSite: 'Lax',
           maxAge: 30 * 24 * 60 * 60,
           path: '/',
         });
@@ -410,11 +387,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
 auth.post('/switch-group', requireAuth, async (c) => {
   try {
     const body = await c.req.json();
-    const { groupId } = body;
-
-    if (!groupId || typeof groupId !== 'string') {
-      return c.json({ error: 'Group ID is required' }, 400);
-    }
+    const { groupId } = switchGroupSchema.parse(body);
 
     const currentUser = c.get('user');
 
@@ -453,7 +426,7 @@ auth.post('/switch-group', requireAuth, async (c) => {
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'Strict',
+      sameSite: 'Lax',
       maxAge: 30 * 24 * 60 * 60,
       path: '/',
     });
@@ -494,15 +467,7 @@ auth.post('/switch-group', requireAuth, async (c) => {
 auth.post('/select-group', async (c) => {
   try {
     const body = await c.req.json();
-    const { selectionToken, groupId } = body;
-
-    if (!selectionToken || typeof selectionToken !== 'string') {
-      return c.json({ error: 'Selection token is required' }, 400);
-    }
-
-    if (!groupId || typeof groupId !== 'string') {
-      return c.json({ error: 'Group ID is required' }, 400);
-    }
+    const { selectionToken, groupId } = selectGroupSchema.parse(body);
 
     // Verify the selection token and extract userId
     const tokenResult = await verifyGroupSelectionToken(selectionToken, c.env.JWT_SECRET);
@@ -547,7 +512,7 @@ auth.post('/select-group', async (c) => {
     setCookie(c, 'refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'Strict',
+      sameSite: 'Lax',
       maxAge: 30 * 24 * 60 * 60,
       path: '/',
     });
@@ -587,7 +552,7 @@ auth.post('/select-group', async (c) => {
 // Refresh access token
 auth.post('/refresh', async (c) => {
   try {
-    const refreshToken = c.req.header('Cookie')?.match(/refreshToken=([^;]+)/)?.[1];
+    const refreshToken = getCookie(c, 'refreshToken');
 
     if (!refreshToken) {
       return c.json({ error: 'No refresh token provided' }, 401);
@@ -661,7 +626,7 @@ auth.post('/refresh', async (c) => {
     setCookie(c, 'refreshToken', newRefreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'Strict',
+      sameSite: 'Lax',
       maxAge: 30 * 24 * 60 * 60,
       path: '/',
     });
@@ -701,7 +666,7 @@ auth.post('/logout', async (c) => {
   setCookie(c, 'refreshToken', '', {
     httpOnly: true,
     secure: true,
-    sameSite: 'Strict',
+    sameSite: 'Lax',
     maxAge: 0,
     path: '/',
   });

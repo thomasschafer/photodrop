@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ZodError } from 'zod';
 import {
   getUserMemberships,
   getGroupMembers,
@@ -11,25 +12,12 @@ import {
   getGroupPhotoCount,
   deleteGroup,
   updateMemberImageProtection,
-  type MembershipRole,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
+import { updateMemberSchema, imageProtectionSchema } from '../lib/schemas';
+import type { AppEnv } from '../types';
 
-type Bindings = {
-  DB: D1Database;
-  PHOTOS: R2Bucket;
-  JWT_SECRET: string;
-};
-
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const groups = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const groups = new Hono<AppEnv>();
 
 // Get all groups the current user is a member of
 groups.get('/', requireAuth, async (c) => {
@@ -96,7 +84,16 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
     }
 
     const body = await c.req.json();
-    const { role, name } = body;
+
+    // Reject owner role explicitly with a clear message
+    if (body.role === 'owner') {
+      return c.json(
+        { error: 'Cannot promote to owner — owner is set at group creation only' },
+        400
+      );
+    }
+
+    const { role, name } = updateMemberSchema.parse(body);
 
     // Check if membership exists
     const membership = await getMembership(c.env.DB, userId, groupId);
@@ -106,14 +103,8 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
 
     // Handle role update
     if (role !== undefined) {
-      // Cannot promote to owner - owner is set at group creation only
-      if (role === 'owner') {
-        return c.json({ error: 'Cannot promote to owner' }, 400);
-      }
-
-      if (role !== 'admin' && role !== 'member') {
-        return c.json({ error: 'Invalid role' }, 400);
-      }
+      // Note: Cannot promote to owner (owner is set at group creation only)
+      // This is enforced by the Zod schema which only allows 'admin' | 'member'
 
       const result = await updateMembershipRole(c.env.DB, userId, groupId, role);
       if (!result.success) {
@@ -126,19 +117,14 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
 
     // Handle name update
     if (name !== undefined) {
-      const trimmedName = name.trim();
-      if (trimmedName.length === 0) {
-        return c.json({ error: 'Name cannot be empty' }, 400);
-      }
-      if (trimmedName.length > 100) {
-        return c.json({ error: 'Name is too long' }, 400);
-      }
-
-      await updateUserName(c.env.DB, userId, trimmedName);
+      await updateUserName(c.env.DB, userId, name);
     }
 
     return c.json({ message: 'Member updated successfully' });
   } catch (error) {
+    if (error instanceof ZodError) {
+      return c.json({ error: error.issues.map((i) => i.message).join('; ') }, 400);
+    }
     console.error('Error updating member:', error);
     return c.json({ error: 'Failed to update member' }, 500);
   }
@@ -196,11 +182,7 @@ groups.patch('/:groupId/members/:userId/image-protection', requireAdmin, async (
     }
 
     const body = await c.req.json();
-    const { enabled } = body;
-
-    if (typeof enabled !== 'boolean') {
-      return c.json({ error: 'enabled must be a boolean' }, 400);
-    }
+    const { enabled } = imageProtectionSchema.parse(body);
 
     const success = await updateMemberImageProtection(c.env.DB, userId, groupId, enabled);
     if (!success) {
@@ -209,6 +191,9 @@ groups.patch('/:groupId/members/:userId/image-protection', requireAdmin, async (
 
     return c.json({ message: 'Image protection updated' });
   } catch (error) {
+    if (error instanceof ZodError) {
+      return c.json({ error: 'enabled must be a boolean' }, 400);
+    }
     console.error('Error updating image protection:', error);
     return c.json({ error: 'Failed to update image protection' }, 500);
   }
@@ -245,36 +230,42 @@ groups.delete('/:groupId', requireOwner, async (c) => {
     const photoKeys = await getGroupPhotoKeys(c.env.DB, groupId);
     const totalFiles = photoKeys.length + photoKeys.filter((p) => p.thumbnail_r2_key).length;
 
-    // Delete all R2 files - fail if any deletion fails
-    const r2Failures: Array<{ key: string; error: string }> = [];
+    // Collect all R2 keys to delete
+    const allKeys: string[] = [];
     for (const photo of photoKeys) {
-      try {
-        await c.env.PHOTOS.delete(photo.r2_key);
-      } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : 'Unknown error';
-        console.error(`Failed to delete R2 key: ${photo.r2_key}`, e);
-        r2Failures.push({ key: photo.r2_key, error: errorMsg });
-      }
+      allKeys.push(photo.r2_key);
       if (photo.thumbnail_r2_key) {
-        try {
-          await c.env.PHOTOS.delete(photo.thumbnail_r2_key);
-        } catch (e) {
-          const errorMsg = e instanceof Error ? e.message : 'Unknown error';
-          console.error(`Failed to delete R2 thumbnail: ${photo.thumbnail_r2_key}`, e);
-          r2Failures.push({ key: photo.thumbnail_r2_key, error: errorMsg });
-        }
+        allKeys.push(photo.thumbnail_r2_key);
       }
+    }
+
+    // Delete R2 files in parallel batches of 50
+    const BATCH_SIZE = 50;
+    const r2Failures: Array<{ key: string; error: string }> = [];
+
+    for (let i = 0; i < allKeys.length; i += BATCH_SIZE) {
+      const batch = allKeys.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(batch.map((key) => c.env.PHOTOS.delete(key)));
+
+      results.forEach((result, idx) => {
+        if (result.status === 'rejected') {
+          const errorMsg = result.reason instanceof Error ? result.reason.message : 'Unknown error';
+          console.error(`Failed to delete R2 key: ${batch[idx]}`, result.reason);
+          r2Failures.push({ key: batch[idx], error: errorMsg });
+        }
+      });
     }
 
     // If any R2 deletions failed, abort and return error
     if (r2Failures.length > 0) {
+      console.error('R2 deletion failures:', r2Failures.slice(0, 10));
       return c.json(
         {
           error: 'Failed to delete some photos from storage',
           details: {
             failedCount: r2Failures.length,
             totalFiles,
-            failures: r2Failures.slice(0, 5), // Limit to first 5 failures
+            // Note: failure details logged server-side only to avoid leaking internal paths
           },
         },
         500
@@ -293,8 +284,7 @@ groups.delete('/:groupId', requireOwner, async (c) => {
     });
   } catch (error) {
     console.error('Error deleting group:', error);
-    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    return c.json({ error: 'Failed to delete group', details: errorMsg }, 500);
+    return c.json({ error: 'Failed to delete group' }, 500);
   }
 });
 

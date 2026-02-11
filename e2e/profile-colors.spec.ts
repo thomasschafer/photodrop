@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { createTestGroup, createTestMember, createFreshMagicLink, cleanupTestGroup, TestGroup } from './helpers/setup';
+import {
+  createTestGroup,
+  createTestMember,
+  createFreshMagicLink,
+  cleanupTestGroup,
+  TestGroup,
+} from './helpers/setup';
 import { loginWithMagicLink } from './helpers/auth';
 
 test.describe('Profile colors', () => {

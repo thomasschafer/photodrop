@@ -14,6 +14,7 @@ export function createApiClient(request: APIRequestContext, token: string): ApiC
   const headers = {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
   };
 
   return {
@@ -90,6 +91,7 @@ export async function uploadPhotoViaApi(
   const response = await request.post(`${API_BASE}/photos`, {
     headers: {
       Authorization: `Bearer ${token}`,
+      'X-Requested-With': 'XMLHttpRequest',
     },
     multipart: {
       photo: {
@@ -127,6 +129,7 @@ export async function makeDirectApiCall(
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
       },
       ...(data !== undefined ? { data } : {}),
     }

@@ -25,14 +25,16 @@ export interface PushPayload {
   };
 }
 
-interface VapidConfig {
+export interface VapidConfig {
   publicKey: string;
   privateKey: string;
   subject: string;
 }
 
+/** @deprecated Use createVapidConfig() and pass config directly */
 let vapidConfig: VapidConfig | null = null;
 
+/** @deprecated Use createVapidConfig() and pass config directly */
 export function configureVapid(publicKey: string, privateKey: string, subject: string) {
   if (
     vapidConfig &&
@@ -45,12 +47,22 @@ export function configureVapid(publicKey: string, privateKey: string, subject: s
   vapidConfig = { publicKey, privateKey, subject };
 }
 
+export function createVapidConfig(
+  publicKey: string,
+  privateKey: string,
+  subject: string
+): VapidConfig {
+  return { publicKey, privateKey, subject };
+}
+
 export async function sendPushNotification(
   subscription: PushSubscription,
   payload: PushPayload,
-  db: D1Database
+  db: D1Database,
+  config?: VapidConfig
 ): Promise<{ success: boolean; removed?: boolean }> {
-  if (!vapidConfig) {
+  const effectiveConfig = config || vapidConfig;
+  if (!effectiveConfig) {
     throw new Error('VAPID not configured');
   }
 
@@ -80,14 +92,14 @@ export async function sendPushNotification(
       }
 
       const fetchOptions = await buildPushPayload(message, librarySubscription, {
-        subject: vapidConfig.subject,
-        publicKey: vapidConfig.publicKey,
-        privateKey: vapidConfig.privateKey,
+        subject: effectiveConfig.subject,
+        publicKey: effectiveConfig.publicKey,
+        privateKey: effectiveConfig.privateKey,
       });
 
       const response = await fetch(subscription.endpoint, fetchOptions);
 
-      if (response.ok || response.status === 201) {
+      if (response.ok) {
         if (attempt > 0) {
           console.log(`Push notification sent successfully after ${attempt} retries`);
         }
@@ -123,14 +135,15 @@ export async function sendPushNotification(
 export async function sendPushNotifications(
   subscriptions: PushSubscription[],
   payload: PushPayload,
-  db: D1Database
+  db: D1Database,
+  config?: VapidConfig
 ): Promise<{ sent: number; failed: number; removed: number }> {
   let sent = 0;
   let failed = 0;
   let removed = 0;
 
   const results = await Promise.allSettled(
-    subscriptions.map((sub) => sendPushNotification(sub, payload, db))
+    subscriptions.map((sub) => sendPushNotification(sub, payload, db, config))
   );
 
   for (const result of results) {

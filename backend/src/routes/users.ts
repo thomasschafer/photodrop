@@ -5,27 +5,14 @@ import {
   getGroupMembers,
   updateUserProfileColor,
   isProfileColor,
-  type MembershipRole,
 } from '../lib/db';
-import { requireAuth } from '../middleware/auth';
+import { requireAdmin, requireAuth } from '../middleware/auth';
+import { updateProfileSchema } from '../lib/schemas';
+import type { AppEnv } from '../types';
 
-type Bindings = {
-  DB: D1Database;
-  PHOTOS: R2Bucket;
-  JWT_SECRET: string;
-};
+const users = new Hono<AppEnv>();
 
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const users = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-
-users.get('/', requireAuth, async (c) => {
+users.get('/', requireAdmin, async (c) => {
   try {
     const currentUser = c.get('user');
     const { members } = await getGroupMembers(c.env.DB, currentUser.groupId);
@@ -95,11 +82,7 @@ users.patch('/me/profile', requireAuth, async (c) => {
   try {
     const currentUser = c.get('user');
     const body = await c.req.json();
-    const { profileColor } = body;
-
-    if (!profileColor || typeof profileColor !== 'string') {
-      return c.json({ error: 'profileColor is required' }, 400);
-    }
+    const { profileColor } = updateProfileSchema.parse(body);
 
     if (!isProfileColor(profileColor)) {
       return c.json({ error: 'Invalid profile color' }, 400);

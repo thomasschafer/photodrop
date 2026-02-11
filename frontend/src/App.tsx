@@ -1,10 +1,8 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, Link, useNavigate } from 'react-router-dom';
 import { DEEP_LINK_EVENT } from './lib/deepLink';
 import { useAuth } from './contexts/AuthContext';
 import { getNavDirection } from './lib/keyboard';
-import { PhotoFeed } from './components/PhotoFeed';
-import { MembersList } from './components/MembersList';
 import { Logo } from './components/Logo';
 import { ThemeToggle } from './components/ThemeToggle';
 import { GroupSwitcher } from './components/GroupSwitcher';
@@ -14,10 +12,19 @@ import { NotificationBell } from './components/NotificationBell';
 import { UserMenu } from './components/UserMenu';
 import { NotificationPrompt } from './components/NotificationPrompt';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { SwUpdatePrompt } from './components/SwUpdatePrompt';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
 import { GroupPickerPage } from './pages/GroupPickerPage';
+
+// Lazy-load heavy components
+const PhotoFeed = lazy(() =>
+  import('./components/PhotoFeed').then((m) => ({ default: m.PhotoFeed }))
+);
+const MembersList = lazy(() =>
+  import('./components/MembersList').then((m) => ({ default: m.MembersList }))
+);
 
 const tabs = [
   { id: 'feed' as const, path: '/', label: 'Photos' },
@@ -27,19 +34,21 @@ const tabs = [
 function MainApp() {
   const { user, currentGroup } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
   const isAdmin = currentGroup?.role === 'admin';
 
-  // Filter tabs based on role - only admins can see the Group tab
-  const visibleTabs = tabs.filter((tab) => {
-    if (tab.id === 'members') {
-      return isAdmin;
-    }
-    return true;
-  });
+  // Only admins can access the Group tab
+  const visibleTabs = isAdmin ? tabs : tabs.filter((tab) => tab.id === 'feed');
 
   const activeTab = visibleTabs.find((tab) => tab.path === location.pathname)?.id ?? 'feed';
+
+  useEffect(() => {
+    if (!isAdmin && location.pathname === '/members') {
+      navigate('/', { replace: true });
+    }
+  }, [isAdmin, location.pathname, navigate]);
 
   const focusTab = useCallback(
     (index: number) => {
@@ -105,7 +114,7 @@ function MainApp() {
             </div>
           </div>
 
-          {isAdmin && (
+          {visibleTabs.length > 1 && (
             <nav className="flex gap-8" role="tablist" aria-label="Main navigation">
               {visibleTabs.map((tab, index) => (
                 <Link
@@ -133,17 +142,26 @@ function MainApp() {
       </header>
 
       <OfflineIndicator />
+      <SwUpdatePrompt />
       <InstallPrompt />
       <NotificationPrompt />
 
       <main id="main-content" className="max-w-[900px] mx-auto py-8 px-6">
         <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-label={`${activeTab} content`}>
-          {activeTab === 'feed' && <PhotoFeed isAdmin={isAdmin} />}
-          {activeTab === 'members' && isAdmin && (
-            <div className="max-w-[600px] mx-auto">
-              <MembersList />
-            </div>
-          )}
+          <Suspense
+            fallback={
+              <div className="flex justify-center py-12">
+                <div className="spinner" />
+              </div>
+            }
+          >
+            {activeTab === 'feed' && <PhotoFeed isAdmin={isAdmin} />}
+            {activeTab === 'members' && (
+              <div className="max-w-[600px] mx-auto">
+                <MembersList />
+              </div>
+            )}
+          </Suspense>
         </div>
       </main>
     </div>

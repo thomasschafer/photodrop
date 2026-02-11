@@ -18,11 +18,7 @@ import { uploadPhotoViaApi } from './helpers/api';
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
 
-function addUserToGroup(
-  userId: string,
-  groupId: string,
-  role: 'admin' | 'member'
-): void {
+function addUserToGroup(userId: string, groupId: string, role: 'admin' | 'member'): void {
   const now = Math.floor(Date.now() / 1000);
   execSync(
     `cd backend && npx wrangler d1 execute photodrop-db --local --command "INSERT INTO memberships (user_id, group_id, role, joined_at) VALUES ('${userId}', '${groupId}', '${role}', ${now});"`,
@@ -64,7 +60,9 @@ test.describe('Multi-group login flow', () => {
     await expect(page.getByText('Choose a group')).not.toBeVisible();
 
     // Should see the group name in the group switcher button
-    await expect(page.getByRole('button', { name: 'Single Group Test', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Single Group Test', exact: true })
+    ).toBeVisible();
   });
 });
 
@@ -293,7 +291,10 @@ test.describe('Member management', () => {
 
     // Find the select that's a sibling of the remove button for this member
     // Each member has a unique remove button, and the select is in the same actions container
-    const promotableSelect = page.getByRole('button', { name: 'Remove Promotable Member from group' }).locator('..').locator('select');
+    const promotableSelect = page
+      .getByRole('button', { name: 'Remove Promotable Member from group' })
+      .locator('..')
+      .locator('select');
     await promotableSelect.selectOption('admin');
 
     // Confirm the role change
@@ -326,7 +327,10 @@ test.describe('Member management', () => {
     await page.getByRole('tab', { name: 'Group' }).click();
 
     // Demote the other admin - find select via the unique remove button
-    const otherAdminSelect = page.getByRole('button', { name: 'Remove Other Admin from group' }).locator('..').locator('select');
+    const otherAdminSelect = page
+      .getByRole('button', { name: 'Remove Other Admin from group' })
+      .locator('..')
+      .locator('select');
     await otherAdminSelect.selectOption('member');
 
     // Confirm the role change
@@ -374,7 +378,9 @@ test.describe('Member management', () => {
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
 
     // Member should be removed from list (use exact match to avoid matching modal text)
-    await expect(page.getByText('Removable Member', { exact: true })).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Removable Member', { exact: true })).not.toBeVisible({
+      timeout: 5000,
+    });
   });
 
   test('owner has no remove button', async ({ page }) => {
@@ -413,7 +419,9 @@ test.describe('Member management', () => {
     await page.getByRole('tab', { name: 'Group' }).click();
     await page.getByRole('button', { name: 'Remove Member To Remove from group' }).click();
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
-    await expect(page.getByText('Member To Remove', { exact: true })).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Member To Remove', { exact: true })).not.toBeVisible({
+      timeout: 5000,
+    });
 
     await logout(page);
 
@@ -450,6 +458,7 @@ test.describe('Member management', () => {
       {
         headers: {
           Authorization: `Bearer ${token}`,
+          'X-Requested-With': 'XMLHttpRequest',
           'Content-Type': 'application/json',
         },
         data: { role: 'member' },
@@ -459,7 +468,7 @@ test.describe('Member management', () => {
     // Should return 403
     expect(response.status()).toBe(403);
     const body = await response.json();
-    expect(body.error).toContain("owner");
+    expect(body.error).toContain('owner');
   });
 
   test('API rejects removing owner (403)', async ({ page, request }) => {
@@ -481,6 +490,7 @@ test.describe('Member management', () => {
       {
         headers: {
           Authorization: `Bearer ${token}`,
+          'X-Requested-With': 'XMLHttpRequest',
         },
       }
     );
@@ -488,7 +498,7 @@ test.describe('Member management', () => {
     // Should return 403
     expect(response.status()).toBe(403);
     const body = await response.json();
-    expect(body.error).toContain("owner");
+    expect(body.error).toContain('owner');
   });
 
   test('API rejects promoting to owner (400)', async ({ page, request }) => {
@@ -515,6 +525,7 @@ test.describe('Member management', () => {
       {
         headers: {
           Authorization: `Bearer ${token}`,
+          'X-Requested-With': 'XMLHttpRequest',
           'Content-Type': 'application/json',
         },
         data: { role: 'owner' },
@@ -524,7 +535,7 @@ test.describe('Member management', () => {
     // Should return 400
     expect(response.status()).toBe(400);
     const body = await response.json();
-    expect(body.error).toContain("owner");
+    expect(body.error).toContain('owner');
   });
 });
 
@@ -548,9 +559,7 @@ test.describe('Empty state', () => {
     await loginWithMagicLinkExpectEmpty(page, loginLink);
 
     // Verify the empty state content
-    await expect(
-      page.getByText("You're not a member of any groups yet")
-    ).toBeVisible();
+    await expect(page.getByText("You're not a member of any groups yet")).toBeVisible();
 
     cleanupTestGroup(dummyGroup.groupId);
 

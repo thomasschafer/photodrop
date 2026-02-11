@@ -8,32 +8,24 @@ import {
   deleteDeviceToken,
   getDeviceToken,
   countUserDeviceTokensSince,
-  type MembershipRole,
   type DevicePlatform,
 } from '../lib/db';
 import { configureFcm, isFcmConfigured, sendFcmNotification } from '../lib/fcm';
 import { requireAuth } from '../middleware/auth';
-import type { Bindings } from '../types';
+import type { AppEnv } from '../types';
 
 // Rate limit: max new device token registrations per user per hour
 const DEVICE_REGISTRATION_LIMIT = 10;
 const DEVICE_REGISTRATION_WINDOW_SECONDS = 60 * 60; // 1 hour
 
-type Variables = {
-  user: {
-    id: string;
-    groupId: string;
-    role: MembershipRole;
-  };
-};
-
-const push = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const push = new Hono<AppEnv>();
 
 push.get('/vapid-public-key', (c) => {
   const publicKey = c.env.VAPID_PUBLIC_KEY;
   if (!publicKey) {
     return c.json({ error: 'Push notifications not configured' }, 500);
   }
+  c.header('Cache-Control', 'public, max-age=86400');
   return c.json({ publicKey });
 });
 

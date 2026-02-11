@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { createTestGroup, cleanupTestGroup, createFreshMagicLink, TestGroup } from './helpers/setup';
+import {
+  createTestGroup,
+  cleanupTestGroup,
+  createFreshMagicLink,
+  TestGroup,
+} from './helpers/setup';
 import { loginWithMagicLink, getAuthToken } from './helpers/auth';
 import { uploadPhotoViaApi } from './helpers/api';
 
@@ -63,11 +68,9 @@ test.describe('Infinite scroll pagination', () => {
 
     // Scroll to bottom to load all photos
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForFunction(
-      () => document.querySelectorAll('article').length >= 25,
-      undefined,
-      { timeout: 10000 }
-    );
+    await page.waitForFunction(() => document.querySelectorAll('article').length >= 25, undefined, {
+      timeout: 10000,
+    });
 
     // Click on the last article (a photo that was loaded via infinite scroll)
     const lastPhoto = page.locator('article').last();
