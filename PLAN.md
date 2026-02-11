@@ -19,18 +19,10 @@
 - ✅ Phase 2.6 (Production hardening): Complete - rate limiting, security headers, file validation, auth fixes
 - ✅ Phase 2.7 (Performance optimizations): Complete - N+1 query fix, infinite scroll, non-blocking notifications
 - ✅ Phase 2.8 (Codebase improvements): Complete - security hardening, Zod validation, component splits, mobile fixes
-- ❌ Phase 3 (Polish): Not started - UX improvements, video, accessibility
+- 🔶 Phase 3 (Polish): Partially complete - admin UIs, keyboard nav, image protection done; pre-launch hardening not yet started (error handling, accessibility, performance, security)
+- 🔶 Phase 3.5 (Native mobile): In progress - Capacitor setup, Android builds, deep linking, pull-to-refresh done; native push code complete but not deployed; iOS not started
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
-
-### Deferred from Phase 2.8
-
-- **Token revocation** — Add ability to invalidate refresh tokens (token version or blocklist in D1). Needs schema design thought.
-- **Frontend component tests** — Unit tests for AuthContext, PhotoFeed, MembersList, NotificationBell, useAuthenticatedImage, useVirtualCarousel. Needs test infrastructure (mocking providers, API).
-- **Token refresh integration test** — Test valid/expired/revoked refresh flows end-to-end.
-- **E2e upload flow test** — Full upload → notification → view receipt test.
-- **Eliminate double image fetch** — useAuthenticatedImage fetches URL endpoint then image. Could fetch directly with auth header or use R2 signed URLs.
-- **Move rate limiting to KV/RateLimit binding** — Currently uses D1 for every check, adding latency.
-- **Smart image preloading** — Preload based on scroll direction and connection speed via navigator.connection.
+- ❌ Phase 5 (Post-launch): Not started - token revocation, structured logging, UX improvements, deeper test coverage
 
 ---
 
@@ -177,7 +169,7 @@ CREATE TABLE photos (
   FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
--- Plus: photo_views, photo_reactions tables (push_subscriptions will be added in Phase 2)
+-- Plus: photo_views, photo_reactions, push_subscriptions, device_tokens tables
 ```
 
 **Critical:** All queries MUST filter by group_id (from JWT) to prevent cross-group access.
@@ -1180,16 +1172,45 @@ The migration assigns random colors to all existing users so the column can be N
 
 ### Phase 3: Polish
 
+**Misc.:**
+
 - [x] Admin photo deletion UI
 - [x] Admin user management UI (role promotion, user removal) - moved to Phase 1.7
 - [x] Keyboard navigation (lightbox, group switcher, theme toggle, photo feed)
-- [ ] Improve production setup and deployment flow - automate or improve things further
-- [ ] Photo view tracking UI for admins (backend API already exists)
-- [ ] Video upload
-- [ ] Add emails as an alternative to notifications
-- [ ] Make it harder for users to download or save images/videos (web)
-- [ ] Multi-device testing
-- [ ] Accessibility review (screen readers, ARIA improvements)
+- [x] Improve production setup and deployment flow - automated deploy.sh, setup.sh, health checks
+- [x] Make it harder for users to download or save images/videos (ProtectedImage component, per-user toggle, privacy screen on native)
+
+#### 3.1: Bugs and reliability
+
+- [ ] Add React error boundary — any render error currently crashes entire app to blank white screen with no recovery
+- [ ] Add global Hono `app.onError()` handler — middleware errors currently leak stack traces to clients
+- [ ] Show error to user on comment submission failure — currently silently swallowed (`console.error` only)
+- [ ] Fix comment deletion admin check — uses JWT role instead of `requireAdmin` middleware, giving demoted admins a 15-minute window to delete others' comments
+- [ ] Add caption length validation — no limit at all currently (comments have 1000 chars, captions have none)
+- [ ] Fix non-atomic deletions — photo and group deletion delete R2 files before DB records; if DB delete fails, orphaned rows point to missing files. Reverse the order (DB first, then R2)
+- [ ] Don't leak R2 key paths in group deletion error responses
+- [ ] Hide emails from non-admin users — `GET /users/` returns `email` to all group members; should be admin-only
+- [ ] Fix `pickerRef` in ReactionPills — ref assigned to both outer wrapper and inner picker div, causing premature blur dismissal when focus moves within the wrapper
+- [ ] Verify D1 foreign key enforcement — SQLite has `PRAGMA foreign_keys` OFF by default; if D1 doesn't enable it, all `ON DELETE CASCADE` is silently ignored, risking orphaned data. Add a startup or migration check
+- [ ] Unit tests for `verify-magic-link` — most complex auth handler (150+ lines, multiple branches) with no unit tests; security-critical code path for user creation and token issuance
+
+#### 3.2: Accessibility
+
+- [ ] Fix `--color-text-muted` contrast ratio — fails WCAG AA in both light (3.2:1) and dark (3.5:1) mode. Important given target audience of older users
+- [ ] Fix accent color contrast — `#b56a4a` on light surfaces is 3.6:1, below WCAG AA 4.5:1 minimum
+- [ ] Add missing `role="alert"` on error messages — feed errors, auth verify name errors, members list errors not announced to screen readers
+- [ ] Increase undersized touch targets to 44x44px minimum — feed/comment delete buttons, upload cancel button (32x32), modal close button all too small
+- [ ] Add `role="status"` to success messages (e.g., "Photo uploaded successfully")
+
+#### 3.3: Performance
+
+- [ ] Dynamic import `heic2any` — ~1.5MB WASM currently eagerly loaded in main bundle for all users; only needed when admins upload HEIC files
+- [ ] Dynamic import `browser-image-compression` — ~80KB, only needed for uploads (admin-only)
+- [ ] Add eviction to image cache — `useAuthenticatedImage` stores blob URLs in an unbounded global Map; scrolling hundreds of photos accumulates significant memory. Use bounded LRU cache
+
+#### 3.4: Security (pre-launch)
+
+- [ ] Rate limit comments — authenticated users can currently spam unlimited comments. Add limit (e.g., 30 per 15 minutes per user)
 
 ### Phase 3.5: Native Mobile Apps
 
@@ -1259,7 +1280,44 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Final documentation review (README, PLAN)
 - [ ] Beta testing with 2-3 real users
 - [ ] Collect feedback and fix critical issues
+- [ ] Multi-device testing (iOS Safari, Android Chrome, desktop browsers)
 - [ ] Full launch
+
+### Phase 5: Post-launch improvements
+
+#### 5.1: Security and resilience
+
+- [ ] Refresh token rotation/revocation — stolen refresh tokens remain valid for full 30-day lifetime. Add token version or blocklist in D1
+- [ ] Automatic 401 retry with token refresh — if access token expires between refresh intervals (device sleep, unstable connection), API calls fail with no retry
+- [ ] Rate limit token refresh and group switching endpoints
+
+#### 5.2: Observability
+
+- [ ] Structured logging with request IDs — currently plain `console.error` everywhere, difficult to trace requests or correlate errors
+- [ ] Health check should verify D1/R2 connectivity — currently returns `{ status: 'ok' }` without checking bindings
+
+#### 5.3: Code quality
+
+- [ ] DRY up Bindings/Variables types — three route files define their own `Bindings` type instead of importing from `types.ts`; `Variables` type duplicated in every route file
+- [ ] Extract shared auth response mapping helper — membership-to-response-shape mapping repeated ~8 times in `auth.ts`
+- [ ] Unit tests for rate limiting, push notification delivery, file validation magic bytes, email sending
+- [ ] Frontend component tests — unit tests for AuthContext, PhotoFeed, MembersList, NotificationBell, useAuthenticatedImage
+- [ ] Token refresh integration test — test valid/expired/revoked refresh flows end-to-end
+- [ ] E2E upload flow test — full upload → notification → view receipt test
+- [ ] Paginate comments endpoint — currently returns all comments unbounded
+- [ ] Eliminate double image fetch — useAuthenticatedImage fetches URL endpoint then image; could fetch directly with auth header or use R2 signed URLs
+- [ ] Move rate limiting to KV/RateLimit binding — currently uses D1 for every check, adding latency
+- [ ] Smart image preloading — preload based on scroll direction and connection speed via navigator.connection
+
+#### 5.4: UX improvements
+
+- [ ] Edit captions after upload — currently requires deleting and re-uploading the entire photo
+- [ ] Sign-out confirmation — important for target audience since re-login requires magic link email flow
+- [ ] User self-service name editing — only admins can currently change member names
+- [ ] Photo view tracking UI for admins (backend API already exists)
+- [ ] Video upload
+- [ ] Add emails as an alternative to push notifications
+- [ ] Accessibility review (deeper screen reader testing, ARIA improvements beyond the pre-launch fixes)
 
 ## Technical debt / TODO
 
@@ -1271,15 +1329,11 @@ The migration assigns random colors to all existing users so the column can be N
 
 **Nice-to-haves:** Batch upload, albums, ownership transfer (allow owner to transfer ownership to another member)
 
-**Technical:** Progressive image loading, CDN optimization, accessibility improvements
+**Technical:** Progressive image loading, CDN optimization
 
 **Mobile app (Capacitor):** See `MOBILE_PLAN.md` on mobile branch for native app wrapper details
 
 **Security consideration:** Mobile CORS origins (`http://localhost`, `capacitor://localhost`) are currently always allowed. For tighter production control, consider adding `ENABLE_MOBILE_CORS` environment variable to gate these origins when no mobile app is deployed.
-
-**Local dev:** Notifications working locally
-
-**Note:** Photo view tracking has backend API support but no frontend UI yet. This is planned for Phase 3. Reactions UI is planned for Phase 2.5.
 
 ## Testing strategy
 
@@ -1322,18 +1376,6 @@ nix run .#test-e2e-ui    # E2E with Playwright UI
 ## Database migrations
 
 Schema is defined in `backend/migrations/0001_initial_schema.sql`. For schema changes, update this file and reset local dev DB with `nix run .#teardown-dev && nix run .#dev`.
-
-**Current migrations:**
-
-- `0001_initial_schema.sql` - Core tables (groups, users, memberships, photos, etc.)
-- `0002_push_subscriptions.sql` - Push notification subscriptions
-- `0003_comments_and_reactions.sql` - Comments and reactions tables
-- `0004_remove_comments_enabled.sql` - Schema cleanup
-- `0005_push_subscriptions_multi_group.sql` - Multi-group push support
-- `0006_add_performance_indexes.sql` - Performance indexes
-- `0007_add_user_profile_color.sql` - User profile colors
-- `0008_rate_limits.sql` - Rate limiting table
-- `0009_magic_link_pending.sql` - Magic link pending state for race condition fix
 
 ## Monitoring
 
