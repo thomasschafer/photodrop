@@ -29,7 +29,7 @@ import {
   ALLOWED_MIME_TYPES,
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
-import { canonicalizeEmoji, addReactionSchema, addCommentSchema } from '../lib/schemas';
+import { addReactionSchema, addCommentSchema } from '../lib/schemas';
 import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for comments: 30 per user per 15 minutes

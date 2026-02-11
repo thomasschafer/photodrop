@@ -6,7 +6,7 @@ import {
   updateUserProfileColor,
   isProfileColor,
 } from '../lib/db';
-import { requireAdmin, requireAuth } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 import { updateProfileSchema } from '../lib/schemas';
 import type { AppEnv } from '../types';
 

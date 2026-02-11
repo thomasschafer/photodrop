@@ -84,6 +84,12 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
     }
 
     const body = await c.req.json();
+
+    // Reject owner role explicitly with a clear message
+    if (body.role === 'owner') {
+      return c.json({ error: 'Cannot promote to owner — owner is set at group creation only' }, 400);
+    }
+
     const { role, name } = updateMemberSchema.parse(body);
 
     // Check if membership exists
@@ -113,6 +119,9 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
 
     return c.json({ message: 'Member updated successfully' });
   } catch (error) {
+    if (error instanceof ZodError) {
+      return c.json({ error: error.issues.map((i) => i.message).join('; ') }, 400);
+    }
     console.error('Error updating member:', error);
     return c.json({ error: 'Failed to update member' }, 500);
   }
