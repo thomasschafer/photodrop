@@ -136,7 +136,7 @@ function LoginForm({
 
 function SuccessState({ email, onReset }: { email: string; onReset: () => void }) {
   return (
-    <div className="card text-center">
+    <div className="card text-center" role="status">
       <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-accent-light flex items-center justify-center">
         <svg
           width="24"

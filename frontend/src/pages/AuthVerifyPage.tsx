@@ -203,7 +203,11 @@ function NameInputContent({
             autoComplete="name"
             autoFocus
           />
-          {nameError && <p className="mt-2 text-sm text-error">{nameError}</p>}
+          {nameError && (
+            <p className="mt-2 text-sm text-error" role="alert">
+              {nameError}
+            </p>
+          )}
         </div>
         <button type="submit" disabled={isSubmitting} className="btn-primary w-full">
           {isSubmitting ? (

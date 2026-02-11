@@ -80,7 +80,7 @@ export function Modal({ title, children, onClose, maxWidth = 'sm' }: ModalProps)
           </h3>
           <button
             onClick={onClose}
-            className="p-1 text-text-tertiary hover:text-text-primary transition-colors cursor-pointer"
+            className="p-2.5 -m-1.5 text-text-tertiary hover:text-text-primary transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Close"
           >
             <svg

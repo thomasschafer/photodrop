@@ -64,7 +64,10 @@ export function InviteForm({ onInviteSent, isModal = false }: InviteFormProps) {
       )}
 
       {status === 'success' && (
-        <div className="mb-4 p-3 bg-accent-light border border-accent rounded-lg text-sm text-accent">
+        <div
+          className="mb-4 p-3 bg-accent-light border border-accent rounded-lg text-sm text-accent"
+          role="status"
+        >
           Invite sent to <strong>{successEmail}</strong>
         </div>
       )}

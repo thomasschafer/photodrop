@@ -141,7 +141,7 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
             {!uploading && (
               <button
                 onClick={handleCancel}
-                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white cursor-pointer"
+                className="absolute top-2 right-2 w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white cursor-pointer"
               >
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path

@@ -197,7 +197,7 @@ export function CommentPanel({
                           <button
                             onClick={() => onDeleteComment(comment.id)}
                             disabled={deletingCommentId === comment.id}
-                            className="text-xs text-text-muted hover:text-error transition-colors cursor-pointer flex-shrink-0"
+                            className="text-xs text-text-muted hover:text-error transition-colors cursor-pointer flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
                           >
                             {deletingCommentId === comment.id ? '...' : 'Delete'}
                           </button>

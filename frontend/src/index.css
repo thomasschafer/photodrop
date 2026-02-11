@@ -14,7 +14,7 @@
     /* Text */
     --color-text-primary: #3a3632;
     --color-text-secondary: #6b635b;
-    --color-text-muted: #857d76;
+    --color-text-muted: #746b63;
 
     /* Borders */
     --color-border: #cfc7bf;
@@ -22,8 +22,8 @@
     --color-border-strong: #b8afa5;
 
     /* Accent (terracotta) */
-    --color-accent: #b56a4a;
-    --color-accent-hover: #a55d3d;
+    --color-accent: #9a5434;
+    --color-accent-hover: #874829;
     --color-accent-light: rgba(198, 125, 90, 0.15);
 
     /* Surfaces */
@@ -66,16 +66,16 @@
     /* Text */
     --color-text-primary: #f0ebe6;
     --color-text-secondary: #b8afa5;
-    --color-text-muted: #8a8078;
+    --color-text-muted: #a89e95;
 
     /* Borders */
     --color-border: #3a3632;
     --color-border-hover: #524c46;
     --color-border-strong: #6b635b;
 
-    /* Accent (same as light mode) */
-    --color-accent: #b56a4a;
-    --color-accent-hover: #a55d3d;
+    /* Accent (terracotta, lighter for dark backgrounds) */
+    --color-accent: #d4895e;
+    --color-accent-hover: #c67d52;
     --color-accent-light: rgba(217, 166, 142, 0.15);
 
     /* Surfaces */

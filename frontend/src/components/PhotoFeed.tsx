@@ -391,7 +391,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   if (error) {
     return (
       <div className="text-center py-12">
-        <p className="text-text-secondary mb-4">{error}</p>
+        <p className="text-text-secondary mb-4" role="alert">
+          {error}
+        </p>
         <button onClick={loadPhotos} className="btn-primary">
           Try again
         </button>
@@ -455,7 +457,10 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           </div>
         )}
         {successMessage && (
-          <div className="mb-4 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-sm">
+          <div
+            className="mb-4 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-sm"
+            role="status"
+          >
             {successMessage}
           </div>
         )}
@@ -540,7 +545,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                       }}
                       onClick={(e) => handleDeleteClick(photo.id, e)}
                       disabled={deleting === photo.id}
-                      className={`text-xs text-error bg-transparent border-none py-1 px-2 rounded transition-colors ${
+                      className={`text-xs text-error bg-transparent border-none py-2.5 px-3 rounded transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${
                         deleting === photo.id
                           ? 'cursor-not-allowed opacity-50'
                           : 'cursor-pointer hover:bg-error/10'
