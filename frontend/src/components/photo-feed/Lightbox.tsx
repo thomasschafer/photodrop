@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { getNavDirection, isHorizontalNavKey } from '../../lib/keyboard';
 import { useDropdown } from '../../lib/useDropdown';
 import { useIsPortrait } from '../../lib/useIsPortrait';
@@ -11,6 +11,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { CommentPanel } from './CommentPanel';
 import type { Photo, Comment, ReactionSummary, ReactionWithUser } from './types';
 import { EMOJI_OPTIONS } from './types';
+import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 
 function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
   const { imageProtection } = useAuth();
@@ -116,6 +117,7 @@ export function Lightbox({
   const [loadingComments, setLoadingComments] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [confirmDeleteCommentId, setConfirmDeleteCommentId] = useState<string | null>(null);
   const [deleteCommentError, setDeleteCommentError] = useState<string | null>(null);
@@ -141,6 +143,8 @@ export function Lightbox({
     const cachedReactionDetails = reactionDetailsCache.current.get(photo.id);
     setComments(cachedComments ?? []);
     setReactionDetails(cachedReactionDetails ?? []);
+    setCommentError(null);
+    setDeleteCommentError(null);
     // Reset only on photo change, not on optimistic reaction updates
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
@@ -332,17 +336,24 @@ export function Lightbox({
 
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim() || submittingComment) return;
+    const trimmedComment = newComment.trim();
+    if (!trimmedComment || submittingComment) return;
+
+    if (trimmedComment.length > COMMENT_MAX_LENGTH) {
+      setCommentError(`Comment must be ${COMMENT_MAX_LENGTH} characters or less.`);
+      return;
+    }
 
     setSubmittingComment(true);
+    setCommentError(null);
     try {
-      const result = await api.photos.addComment(photo.id, newComment.trim());
+      const result = await api.photos.addComment(photo.id, trimmedComment);
       const newCommentObj: Comment = {
         id: result.id,
         userId: user?.id ?? null,
         authorName: user?.name ?? 'You',
         authorProfileColor: user?.profileColor ?? null,
-        content: newComment.trim(),
+        content: trimmedComment,
         createdAt: Math.floor(Date.now() / 1000),
         isDeleted: false,
       };
@@ -355,6 +366,11 @@ export function Lightbox({
       onPhotoUpdate({ id: photo.id, commentCount: photo.commentCount + 1 });
     } catch (err) {
       console.error('Failed to add comment:', err);
+      if (err instanceof ApiError) {
+        setCommentError(err.message || 'Failed to post comment. Please try again.');
+      } else {
+        setCommentError('Failed to post comment. Please try again.');
+      }
     } finally {
       setSubmittingComment(false);
     }
@@ -583,6 +599,7 @@ export function Lightbox({
             onNewCommentChange={setNewComment}
             onSubmitComment={handleSubmitComment}
             submittingComment={submittingComment}
+            commentError={commentError}
           />
         </div>
       </div>

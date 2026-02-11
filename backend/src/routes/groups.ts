@@ -239,48 +239,37 @@ groups.delete('/:groupId', requireOwner, async (c) => {
       }
     }
 
-    // Delete R2 files in parallel batches of 50
-    const BATCH_SIZE = 50;
-    const r2Failures: Array<{ key: string; error: string }> = [];
-
-    for (let i = 0; i < allKeys.length; i += BATCH_SIZE) {
-      const batch = allKeys.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(batch.map((key) => c.env.PHOTOS.delete(key)));
-
-      results.forEach((result, idx) => {
-        if (result.status === 'rejected') {
-          const errorMsg = result.reason instanceof Error ? result.reason.message : 'Unknown error';
-          console.error(`Failed to delete R2 key: ${batch[idx]}`, result.reason);
-          r2Failures.push({ key: batch[idx], error: errorMsg });
-        }
-      });
-    }
-
-    // If any R2 deletions failed, abort and return error
-    if (r2Failures.length > 0) {
-      console.error('R2 deletion failures:', r2Failures.slice(0, 10));
-      return c.json(
-        {
-          error: 'Failed to delete some photos from storage',
-          details: {
-            failedCount: r2Failures.length,
-            totalFiles,
-            // Note: failure details logged server-side only to avoid leaking internal paths
-          },
-        },
-        500
-      );
-    }
-
-    // All R2 files deleted successfully, now delete from database
+    // Delete DB records first, then R2 files. If R2 cleanup fails,
+    // we have orphaned files (harmless) rather than DB rows pointing to missing files.
     const success = await deleteGroup(c.env.DB, groupId);
     if (!success) {
       return c.json({ error: 'Failed to delete group from database' }, 500);
     }
 
+    // Clean up R2 files in parallel batches of 50 (best-effort)
+    const BATCH_SIZE = 50;
+    let r2FailureCount = 0;
+
+    for (let i = 0; i < allKeys.length; i += BATCH_SIZE) {
+      const batch = allKeys.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(batch.map((key) => c.env.PHOTOS.delete(key)));
+
+      results.forEach((result) => {
+        if (result.status === 'rejected') {
+          r2FailureCount++;
+        }
+      });
+    }
+
+    if (r2FailureCount > 0) {
+      console.error(
+        `Group ${groupId} deleted but ${r2FailureCount}/${totalFiles} R2 files failed to clean up`
+      );
+    }
+
     return c.json({
       message: 'Group deleted successfully',
-      deletedFiles: totalFiles,
+      deletedFiles: totalFiles - r2FailureCount,
     });
   } catch (error) {
     console.error('Error deleting group:', error);

@@ -2,6 +2,7 @@
  * Zod request validation schemas
  */
 import { z } from 'zod';
+import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 
 const EMOJI_VARIATION_SELECTOR = /\uFE0F/g;
 
@@ -61,7 +62,7 @@ export const addReactionSchema = z.object({
 });
 
 export const addCommentSchema = z.object({
-  content: z.string().trim().min(1).max(1000),
+  content: z.string().trim().min(1).max(COMMENT_MAX_LENGTH),
 });
 
 // Push schemas

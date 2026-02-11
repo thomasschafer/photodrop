@@ -280,11 +280,24 @@ export function ReactionPills({
     }
   }, [showNames, onLoadReactionDetails]);
 
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Use a custom blur handler that checks the wrapper ref (not the pickerRef which
+  // gets reassigned to the inner picker div, causing premature blur dismissal)
+  const handleWrapperBlur = useCallback(
+    (e: React.FocusEvent) => {
+      if (!wrapperRef.current?.contains(e.relatedTarget as Node)) {
+        onPickerBlur?.(e);
+      }
+    },
+    [onPickerBlur]
+  );
+
   return (
     <div
       className="flex gap-1.5 flex-wrap items-center relative"
-      ref={showPicker ? pickerRef : undefined}
-      onBlur={showPicker ? onPickerBlur : undefined}
+      ref={wrapperRef}
+      onBlur={showPicker ? handleWrapperBlur : undefined}
       onMouseEnter={handleMouseEnter}
     >
       {displayReactions.map(({ emoji, count }) => {

@@ -1,0 +1,13 @@
+{
+  "name": "@photodrop/common",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./limits": {
+      "types": "./limits.ts",
+      "default": "./limits.ts"
+    }
+  }
+}

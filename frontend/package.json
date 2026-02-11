@@ -20,6 +20,7 @@
     "@capacitor/core": "^8.0.2",
     "@capacitor/push-notifications": "^8.0.0",
     "@capacitor/status-bar": "^8.0.0",
+    "@photodrop/common": "0.0.0",
     "browser-image-compression": "^2.0.2",
     "heic2any": "^0.0.4",
     "react": "^19.2.0",

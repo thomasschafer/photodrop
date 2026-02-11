@@ -169,9 +169,13 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
               onChange={(e) => setCaption(e.target.value)}
               disabled={uploading}
               rows={2}
+              maxLength={2000}
               className="input-field resize-none"
               placeholder="Add a caption..."
             />
+            {Array.from(caption).length > 1900 && (
+              <p className="text-xs text-text-muted mt-1">{Array.from(caption).length}/2000</p>
+            )}
           </div>
 
           {error && (

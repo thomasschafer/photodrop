@@ -161,7 +161,7 @@ describe('DELETE /groups/:groupId', () => {
     expect(mockDeleteGroup).toHaveBeenCalled();
   });
 
-  it('fails deletion if R2 delete fails', async () => {
+  it('succeeds even if R2 delete fails (DB first, R2 best-effort)', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     mockVerifyJWT.mockResolvedValue({
@@ -185,11 +185,12 @@ describe('DELETE /groups/:groupId', () => {
       headers: { Authorization: 'Bearer valid-token' },
     });
 
-    expect(res.status).toBe(500);
-    const json = (await res.json()) as { error: string; details: { failedCount: number } };
-    expect(json.error).toBe('Failed to delete some photos from storage');
-    expect(json.details.failedCount).toBe(1);
-    expect(mockDeleteGroup).not.toHaveBeenCalled();
+    // DB deletion succeeds, R2 failure is logged but doesn't block
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { message: string; deletedFiles: number };
+    expect(json.message).toBe('Group deleted successfully');
+    expect(json.deletedFiles).toBe(0); // 1 total - 1 failed = 0
+    expect(mockDeleteGroup).toHaveBeenCalled();
 
     consoleSpy.mockRestore();
   });
