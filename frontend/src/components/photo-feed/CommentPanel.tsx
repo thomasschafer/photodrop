@@ -119,7 +119,7 @@ export function CommentPanel({
       {!commentsExpanded && (
         <span className="relative text-xl" aria-hidden="true">
           💬
-          <span className="absolute -top-2 -right-2.5 min-w-[1.25rem] h-[1.25rem] px-1 flex items-center justify-center text-xs font-semibold bg-accent text-white rounded-full shadow-sm">
+          <span className="absolute -top-2 -right-2.5 min-w-[1.25rem] h-[1.25rem] px-1 flex items-center justify-center text-xs font-semibold bg-accent-solid text-white rounded-full shadow-sm">
             {commentCount}
           </span>
         </span>
@@ -167,7 +167,7 @@ export function CommentPanel({
             ) : sortedComments.length === 0 ? (
               <p className="text-sm text-text-muted text-center py-4">No comments yet</p>
             ) : (
-              <div className="space-y-3">
+              <div className="divide-y divide-border">
                 {sortedComments.map((comment) => {
                   const isAuthorDeleted = !comment.isDeleted && !comment.userId;
                   const authorLabel = comment.isDeleted
@@ -181,8 +181,8 @@ export function CommentPanel({
                       : 'font-medium text-text-primary';
 
                   return (
-                    <div key={comment.id} className="text-sm">
-                      <div className="flex justify-between items-start gap-2">
+                    <div key={comment.id} className="text-sm py-3 first:pt-0 last:pb-0">
+                      <div className="flex justify-between items-center gap-2">
                         <span className="flex items-center gap-1.5">
                           {comment.authorProfileColor && !comment.isDeleted && !isAuthorDeleted && (
                             <Avatar
@@ -197,7 +197,7 @@ export function CommentPanel({
                           <button
                             onClick={() => onDeleteComment(comment.id)}
                             disabled={deletingCommentId === comment.id}
-                            className="text-xs text-text-muted hover:text-error transition-colors cursor-pointer flex-shrink-0"
+                            className="text-xs text-text-muted hover:text-error transition-colors cursor-pointer flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center -my-2"
                           >
                             {deletingCommentId === comment.id ? '...' : 'Delete'}
                           </button>
