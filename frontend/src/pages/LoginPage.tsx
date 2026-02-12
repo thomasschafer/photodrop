@@ -136,7 +136,7 @@ function LoginForm({
 
 function SuccessState({ email, onReset }: { email: string; onReset: () => void }) {
   return (
-    <div className="card text-center">
+    <div className="card text-center" role="status">
       <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-accent-light flex items-center justify-center">
         <svg
           width="24"
@@ -155,9 +155,7 @@ function SuccessState({ email, onReset }: { email: string; onReset: () => void }
         </svg>
       </div>
 
-      <h2 className="text-lg font-medium text-text-primary mb-2" role="status">
-        Check your email
-      </h2>
+      <h2 className="text-lg font-medium text-text-primary mb-2">Check your email</h2>
       <p className="text-sm text-text-secondary mb-4">
         If <strong className="text-text-primary">{email}</strong> has an account, we've sent a
         sign-in link.

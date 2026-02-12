@@ -79,7 +79,9 @@ export function ConfirmModal({
   }, [onCancel, getFocusableElements]);
 
   const confirmButtonClasses =
-    variant === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-accent hover:bg-accent-hover';
+    variant === 'danger'
+      ? 'bg-red-600 hover:bg-red-700'
+      : 'bg-accent-solid hover:bg-accent-solid-hover';
 
   return (
     <div

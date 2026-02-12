@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { getNavDirection, isHorizontalNavKey } from '../../lib/keyboard';
 import { useDropdown } from '../../lib/useDropdown';
@@ -64,7 +65,8 @@ export function Lightbox({
 }) {
   const { user } = useAuth();
 
-  const [commentsExpanded, setCommentsExpanded] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const commentsExpanded = searchParams.get('comments') === 'open';
   const isPortrait = useIsPortrait();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
@@ -590,7 +592,19 @@ export function Lightbox({
             }}
             commentSortOrder={commentSortOrder}
             onSortOrderChange={setCommentSortOrder}
-            onToggleExpanded={() => setCommentsExpanded(!commentsExpanded)}
+            onToggleExpanded={() => {
+              setSearchParams(
+                (prev) => {
+                  if (commentsExpanded) {
+                    prev.delete('comments');
+                  } else {
+                    prev.set('comments', 'open');
+                  }
+                  return prev;
+                },
+                { replace: true }
+              );
+            }}
             onDeleteComment={handleDeleteComment}
             deletingCommentId={deletingCommentId}
             loadingComments={loadingComments}

@@ -504,7 +504,7 @@ ${
                   await subscribeWeb();
                 }
               }}
-              className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium"
+              className="w-full py-3 px-4 bg-accent-solid text-white rounded-lg font-medium"
             >
               Try subscribe (resets crash guard)
             </button>
@@ -533,7 +533,7 @@ ${
             <button
               onClick={sendTestNotification}
               disabled={isSendingTest || !getCurrentToken()}
-              className="w-full py-3 px-4 bg-accent text-white rounded-lg font-medium disabled:opacity-50"
+              className="w-full py-3 px-4 bg-accent-solid text-white rounded-lg font-medium disabled:opacity-50"
             >
               {isSendingTest ? 'Sending...' : 'Send test notification'}
             </button>

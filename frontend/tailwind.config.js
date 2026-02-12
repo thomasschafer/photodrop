@@ -38,6 +38,8 @@ export default {
           DEFAULT: 'var(--color-accent)',
           hover: 'var(--color-accent-hover)',
           light: 'var(--color-accent-light)',
+          solid: 'var(--color-accent-solid)',
+          'solid-hover': 'var(--color-accent-solid-hover)',
         },
         error: 'var(--color-error)',
         success: 'var(--color-success)',

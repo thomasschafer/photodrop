@@ -1197,7 +1197,7 @@ The migration assigns random colors to all existing users so the column can be N
 #### 3.2: Accessibility
 
 - [x] Fix `--color-text-muted` contrast ratio — light mode #746b63 (4.7:1), dark mode #a89e95 (4.6:1)
-- [x] Fix accent color contrast — light mode #9a5434 (5.4:1), dark mode #d4895e (4.6:1)
+- [x] Fix accent color contrast — light mode #9a5434 (5.4:1); dark mode split: text #d4895e (4.6:1 on surfaces), solid bg #9a5e35 (4.8:1 with white text)
 - [x] Add missing `role="alert"` on error messages — feed errors, auth verify name errors, members list errors
 - [x] Increase undersized touch targets to 44x44px minimum — feed/comment delete buttons, upload cancel button, modal close button
 - [x] Add `role="status"` to success messages (photo upload, invite sent, login success)
