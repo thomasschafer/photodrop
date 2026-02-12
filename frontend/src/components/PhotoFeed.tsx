@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatRelativeTime } from '../lib/dateFormat';
 import { useFocusRestore } from '../lib/hooks';
@@ -13,7 +13,6 @@ import { ProtectedImage } from './ProtectedImage';
 import { useAuth } from '../contexts/AuthContext';
 import {
   ReactionPills,
-  Lightbox,
   EMOJI_OPTIONS,
   type Photo,
   type ReactionSummary,
@@ -74,7 +73,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const feedReactionOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const { photoId } = useParams<{ photoId: string }>();
 
   const loadFeedReactionDetails = useCallback(
     async (photoId: string) => {
@@ -128,10 +126,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   }, [feedReactionPickerPhotoId, photos]);
 
-  const selectedPhotoIndex = photoId ? photos.findIndex((p) => p.id === photoId) : null;
-  const selectedPhoto =
-    selectedPhotoIndex !== null && selectedPhotoIndex >= 0 ? photos[selectedPhotoIndex] : null;
-
   const loadPhotos = async () => {
     try {
       setLoading(true);
@@ -183,12 +177,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     return () => observer.disconnect();
   }, [hasMore, loading, loadingMore, loadMorePhotos]);
 
-  useEffect(() => {
-    if (!loading && photoId && photos.length > 0 && selectedPhotoIndex === -1) {
-      navigate('/', { replace: true });
-    }
-  }, [loading, photoId, photos.length, selectedPhotoIndex, navigate]);
-
   const focusPhoto = useCallback(
     (index: number) => {
       const clampedIndex = Math.max(0, Math.min(index, photos.length - 1));
@@ -214,18 +202,10 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     } else if (e.key === 'Enter' || e.key === ' ') {
       if (e.target === e.currentTarget) {
         e.preventDefault();
-        navigate(`/photo/${photos[index].id}`);
+        navigate(`/photo/${photos[index].id}`, { state: { photos, photoIndex: index } });
       }
     }
   };
-
-  const handleLightboxClose = useCallback(() => {
-    const indexToFocus = selectedPhotoIndex;
-    navigate('/');
-    if (indexToFocus !== null && indexToFocus >= 0) {
-      setTimeout(() => focusPhoto(indexToFocus), 0);
-    }
-  }, [selectedPhotoIndex, focusPhoto, navigate]);
 
   const handleDeleteClick = (photoId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -466,7 +446,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               ref={(el) => {
                 photoRefs.current[index] = el;
               }}
-              onClick={() => navigate(`/photo/${photo.id}`)}
+              onClick={() => navigate(`/photo/${photo.id}`, { state: { photos, photoIndex: index } })}
               onKeyDown={(e) => handlePhotoKeyDown(e, index)}
               tabIndex={0}
               role="listitem"
@@ -563,23 +543,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           </div>
         )}
       </PullToRefresh>
-
-      {selectedPhoto && selectedPhotoIndex !== null && selectedPhotoIndex >= 0 && (
-        <Lightbox
-          photos={photos}
-          initialIndex={selectedPhotoIndex}
-          onClose={handleLightboxClose}
-          onIndexChange={(index) => {
-            navigate(`/photo/${photos[index].id}`, { replace: true });
-          }}
-          isAdmin={isAdmin}
-          onPhotoUpdate={(updatedPhoto) => {
-            setPhotos((prev) =>
-              prev.map((p) => (p.id === updatedPhoto.id ? { ...p, ...updatedPhoto } : p))
-            );
-          }}
-        />
-      )}
 
       {confirmDelete && (
         <ConfirmModal

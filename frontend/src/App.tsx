@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, Link, useNavigate } from 'react-router-dom';
+
 import { DEEP_LINK_EVENT } from './lib/deepLink';
 import { useAuth } from './contexts/AuthContext';
 import { getNavDirection } from './lib/keyboard';
@@ -24,6 +25,9 @@ const PhotoFeed = lazy(() =>
 );
 const MembersList = lazy(() =>
   import('./components/MembersList').then((m) => ({ default: m.MembersList }))
+);
+const LightboxPage = lazy(() =>
+  import('./pages/LightboxPage').then((m) => ({ default: m.LightboxPage }))
 );
 
 const tabs = [
@@ -207,9 +211,22 @@ function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/:token" element={<AuthVerifyPage />} />
+      <Route
+        path="/photo/:photoId"
+        element={
+          <Suspense
+            fallback={
+              <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+                <div className="spinner" />
+              </div>
+            }
+          >
+            <LightboxPage />
+          </Suspense>
+        }
+      />
       <Route path="/" element={<MainApp />}>
         <Route index element={null} />
-        <Route path="photo/:photoId" element={null} />
         <Route path="members" element={null} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
