@@ -34,7 +34,7 @@ import { addReactionSchema, addCommentSchema } from '../lib/schemas';
 import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 import type { Bindings, AppEnv } from '../types';
 
-// Rate limit for comments: 30 per user per 15 minutes
+// Rate limit for comments: 100 per user per 15 minutes
 const commentRateLimit = createRateLimitMiddleware({
   maxRequests: 100,
   windowSeconds: 15 * 60,

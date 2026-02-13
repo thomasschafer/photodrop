@@ -164,10 +164,10 @@ describe('useAuthenticatedImage', () => {
   });
 
   describe('LRUImageCache', () => {
-    let revokeObjectURL: ReturnType<typeof vi.fn>;
+    let revokeObjectURL: (url: string) => void;
 
     beforeEach(() => {
-      revokeObjectURL = vi.fn();
+      revokeObjectURL = vi.fn() as unknown as (url: string) => void;
       global.URL.revokeObjectURL = revokeObjectURL;
     });
 
@@ -244,7 +244,7 @@ describe('useAuthenticatedImage', () => {
 
       expect(cache.get('a')).toBe('blob:a2');
       expect(cache.has('b')).toBe(true);
-      expect(revokeObjectURL).not.toHaveBeenCalled();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:a1');
     });
   });
 

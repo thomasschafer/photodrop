@@ -24,6 +24,8 @@ export class LRUImageCache {
 
   set(key: string, value: string): void {
     if (this.map.has(key)) {
+      const oldUrl = this.map.get(key)!;
+      URL.revokeObjectURL(oldUrl);
       this.map.delete(key);
     } else if (this.map.size >= this.maxSize) {
       // Evict oldest (first entry)
