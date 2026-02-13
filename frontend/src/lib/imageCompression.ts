@@ -1,6 +1,3 @@
-import imageCompression from 'browser-image-compression';
-import heic2any from 'heic2any';
-
 export interface CompressionResult {
   fullSize: File;
   thumbnail: File;
@@ -21,6 +18,7 @@ export function isHeicFile(file: File): boolean {
  * Convert HEIC file to JPEG
  */
 export async function convertHeicToJpeg(file: File): Promise<File> {
+  const { default: heic2any } = await import('heic2any');
   const blob = await heic2any({
     blob: file,
     toType: 'image/jpeg',
@@ -40,6 +38,7 @@ export async function convertHeicToJpeg(file: File): Promise<File> {
 }
 
 export async function compressImage(file: File): Promise<CompressionResult> {
+  const { default: imageCompression } = await import('browser-image-compression');
   // Convert HEIC to JPEG first (browsers can't process HEIC natively)
   let processableFile = file;
   if (isHeicFile(file)) {

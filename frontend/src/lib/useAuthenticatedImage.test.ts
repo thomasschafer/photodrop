@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { useAuthenticatedImage, clearImageCache } from './useAuthenticatedImage';
+import { useAuthenticatedImage, clearImageCache, LRUImageCache } from './useAuthenticatedImage';
 
 // Declare global for Node.js environment in tests
 declare const global: typeof globalThis;
@@ -160,6 +160,91 @@ describe('useAuthenticatedImage', () => {
 
       expect(result.current.src).toBe('blob:test-url');
       expect(URL.createObjectURL).toHaveBeenCalled();
+    });
+  });
+
+  describe('LRUImageCache', () => {
+    let revokeObjectURL: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      revokeObjectURL = vi.fn();
+      global.URL.revokeObjectURL = revokeObjectURL;
+    });
+
+    it('basic get/set/has', () => {
+      const cache = new LRUImageCache(3);
+      expect(cache.has('a')).toBe(false);
+      expect(cache.get('a')).toBeUndefined();
+
+      cache.set('a', 'blob:a');
+      expect(cache.has('a')).toBe(true);
+      expect(cache.get('a')).toBe('blob:a');
+    });
+
+    it('evicts oldest entry when full', () => {
+      const cache = new LRUImageCache(3);
+      cache.set('a', 'blob:a');
+      cache.set('b', 'blob:b');
+      cache.set('c', 'blob:c');
+
+      // Adding a 4th should evict 'a'
+      cache.set('d', 'blob:d');
+
+      expect(cache.has('a')).toBe(false);
+      expect(cache.has('b')).toBe(true);
+      expect(cache.has('d')).toBe(true);
+    });
+
+    it('revokes blob URL on eviction', () => {
+      const cache = new LRUImageCache(2);
+      cache.set('a', 'blob:a');
+      cache.set('b', 'blob:b');
+      cache.set('c', 'blob:c'); // evicts 'a'
+
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:a');
+    });
+
+    it('moves accessed entry to most-recent position', () => {
+      const cache = new LRUImageCache(3);
+      cache.set('a', 'blob:a');
+      cache.set('b', 'blob:b');
+      cache.set('c', 'blob:c');
+
+      // Access 'a' to move it to most-recent
+      cache.get('a');
+
+      // Adding two more should evict 'b' and 'c', but not 'a'
+      cache.set('d', 'blob:d');
+      cache.set('e', 'blob:e');
+
+      expect(cache.has('a')).toBe(true);
+      expect(cache.has('b')).toBe(false);
+      expect(cache.has('c')).toBe(false);
+    });
+
+    it('clear() revokes all URLs', () => {
+      const cache = new LRUImageCache(5);
+      cache.set('a', 'blob:a');
+      cache.set('b', 'blob:b');
+      cache.set('c', 'blob:c');
+
+      cache.clear();
+
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:a');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:b');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:c');
+      expect(cache.has('a')).toBe(false);
+    });
+
+    it('overwrites existing key without eviction', () => {
+      const cache = new LRUImageCache(2);
+      cache.set('a', 'blob:a1');
+      cache.set('b', 'blob:b');
+      cache.set('a', 'blob:a2'); // overwrite, should not evict 'b'
+
+      expect(cache.get('a')).toBe('blob:a2');
+      expect(cache.has('b')).toBe(true);
+      expect(revokeObjectURL).not.toHaveBeenCalled();
     });
   });
 
