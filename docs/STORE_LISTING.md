@@ -50,7 +50,7 @@ When completing the IARC content rating questionnaire, select the following:
 
 - **Violence:** None
 - **Sexuality:** None
-- **Language:** None (no user-generated text content beyond photo uploads)
+- **Language:** User-generated text is present (comments and captions) but not moderated for profanity — select accordingly
 - **Controlled substances:** None
 - **User interaction:** Yes — users share photos within private groups
 - **Users can share their location:** No

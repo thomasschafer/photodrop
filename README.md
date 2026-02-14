@@ -290,7 +290,19 @@ Push to `main` to trigger a CI build. Download the AAB/APK from **Actions → wo
 - With signing secrets configured: signed release AAB (ready for Play Store) + APK (for testing)
 - Without signing secrets: debug APK (for testing)
 
-### Releasing to Google Play Store
+### Google Play Store
+
+#### First-time setup
+
+1. Sign up for a [Google Play Developer account](https://play.google.com/console) ($25 one-time)
+2. Create app → enter name, default language, app type (App), free/paid
+3. Fill out the store listing (see [docs/STORE_LISTING.md](docs/STORE_LISTING.md) for draft copy)
+4. Complete the content rating questionnaire and data safety form
+5. Upload screenshots and feature graphic (sizes in STORE_LISTING.md)
+6. Set the privacy policy URL to `https://your-domain.com/privacy.html`
+7. Create a production release → upload the signed AAB → submit for review
+
+#### Releasing updates
 
 1. Bump the version in `VERSION`
 2. Push/merge to `main` — CI builds the signed AAB automatically

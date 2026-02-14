@@ -79,8 +79,10 @@ jobs:
       # Check if signing secrets are configured
       - name: Check for signing secrets
         id: check-secrets
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
         run: |
-          if [ -n "${{ secrets.ANDROID_KEYSTORE }}" ]; then
+          if [ -n "$ANDROID_KEYSTORE" ]; then
             echo "has_signing=true" >> $GITHUB_OUTPUT
           else
             echo "has_signing=false" >> $GITHUB_OUTPUT
@@ -94,20 +96,10 @@ jobs:
         run: |
           echo "$ANDROID_KEYSTORE" | base64 -d > mobile/android/app/release.keystore
 
-      - name: Build release APK
+      - name: Build release APK & AAB
         if: steps.check-secrets.outputs.has_signing == 'true'
         working-directory: mobile/android
-        run: ./gradlew assembleRelease
-        env:
-          KEYSTORE_FILE: release.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
-      - name: Build release AAB (for Play Store)
-        if: steps.check-secrets.outputs.has_signing == 'true'
-        working-directory: mobile/android
-        run: ./gradlew bundleRelease
+        run: ./gradlew assembleRelease bundleRelease
         env:
           KEYSTORE_FILE: release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
