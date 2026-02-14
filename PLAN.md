@@ -19,7 +19,7 @@
 - ✅ Phase 2.6 (Production hardening): Complete - rate limiting, security headers, file validation, auth fixes
 - ✅ Phase 2.7 (Performance optimizations): Complete - N+1 query fix, infinite scroll, non-blocking notifications
 - ✅ Phase 2.8 (Codebase improvements): Complete - security hardening, Zod validation, component splits, mobile fixes
-- 🔶 Phase 3 (Polish): Partially complete - admin UIs, keyboard nav, image protection done; pre-launch hardening not yet started (error handling, accessibility, performance, security)
+- 🔶 Phase 3 (Polish): Partially complete - admin UIs, keyboard nav, image protection, bugs/reliability, accessibility, performance, security done; ready for launch
 - 🔶 Phase 3.5 (Native mobile): In progress - Capacitor setup, Android builds, deep linking, pull-to-refresh done; native push code complete but not deployed; iOS not started
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 - ❌ Phase 5 (Post-launch): Not started - token revocation, structured logging, UX improvements, deeper test coverage
@@ -1202,15 +1202,15 @@ The migration assigns random colors to all existing users so the column can be N
 - [x] Increase undersized touch targets to 44x44px minimum — feed/comment delete buttons, upload cancel button, modal close button
 - [x] Add `role="status"` to success messages (photo upload, invite sent, login success)
 
-#### 3.3: Performance
+#### 3.3: Performance ✅
 
-- [ ] Dynamic import `heic2any` — ~1.5MB WASM currently eagerly loaded in main bundle for all users; only needed when admins upload HEIC files
-- [ ] Dynamic import `browser-image-compression` — ~80KB, only needed for uploads (admin-only)
-- [ ] Add eviction to image cache — `useAuthenticatedImage` stores blob URLs in an unbounded global Map; scrolling hundreds of photos accumulates significant memory. Use bounded LRU cache
+- [x] Dynamic import `heic2any` — ~1.5MB WASM now lazy-loaded only when admins upload HEIC files
+- [x] Dynamic import `browser-image-compression` — ~80KB, now lazy-loaded only on photo upload
+- [x] Add eviction to image cache — `useAuthenticatedImage` now uses bounded LRU cache (max 200 entries) with proper blob URL revocation on eviction
 
-#### 3.4: Security (pre-launch)
+#### 3.4: Security (pre-launch) ✅
 
-- [ ] Rate limit comments — authenticated users can currently spam unlimited comments. Add limit (e.g., 30 per 15 minutes per user)
+- [x] Rate limit comments — already implemented, increased to 100/15min per user
 
 ### Phase 3.5: Native Mobile Apps
 

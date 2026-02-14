@@ -3,13 +3,55 @@ import { Capacitor } from '@capacitor/core';
 import { CapacitorHttp } from '@capacitor/core';
 import { API_BASE_URL } from './api';
 
-// Simple in-memory cache for blob URLs
+// LRU cache for blob URLs with bounded size and proper cleanup
+export class LRUImageCache {
+  private map = new Map<string, string>();
+  private readonly maxSize: number;
+
+  constructor(maxSize: number) {
+    this.maxSize = maxSize;
+  }
+
+  get(key: string): string | undefined {
+    const value = this.map.get(key);
+    if (value !== undefined) {
+      // Move to end (most recently used)
+      this.map.delete(key);
+      this.map.set(key, value);
+    }
+    return value;
+  }
+
+  set(key: string, value: string): void {
+    if (this.map.has(key)) {
+      const oldUrl = this.map.get(key)!;
+      URL.revokeObjectURL(oldUrl);
+      this.map.delete(key);
+    } else if (this.map.size >= this.maxSize) {
+      // Evict oldest (first entry)
+      const oldest = this.map.keys().next().value!;
+      const oldUrl = this.map.get(oldest)!;
+      URL.revokeObjectURL(oldUrl);
+      this.map.delete(oldest);
+    }
+    this.map.set(key, value);
+  }
+
+  has(key: string): boolean {
+    return this.map.has(key);
+  }
+
+  clear(): void {
+    this.map.forEach((url) => URL.revokeObjectURL(url));
+    this.map.clear();
+  }
+}
+
 // Key: `${photoId}:${type}`, Value: blob URL
-const imageCache = new Map<string, string>();
+const imageCache = new LRUImageCache(200);
 
 // Clear cache on logout/group switch (call from auth context)
 export function clearImageCache() {
-  imageCache.forEach((url) => URL.revokeObjectURL(url));
   imageCache.clear();
 }
 
