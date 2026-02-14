@@ -1,11 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Privacy Policy — Photodrop</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #fdf6f0;
@@ -15,24 +21,38 @@
       max-width: 640px;
       margin: 0 auto;
     }
+
     h1 {
       color: #c4704b;
       font-size: 1.75rem;
       margin-bottom: 0.25rem;
     }
+
     .subtitle {
       color: #a0826d;
       margin-bottom: 2rem;
       font-size: 0.9rem;
     }
+
     h2 {
       color: #c4704b;
       font-size: 1.15rem;
       margin: 1.5rem 0 0.5rem;
     }
-    p, li { margin-bottom: 0.5rem; }
-    ul { padding-left: 1.25rem; }
-    a { color: #c4704b; }
+
+    p,
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    ul {
+      padding-left: 1.25rem;
+    }
+
+    a {
+      color: #c4704b;
+    }
+
     .footer {
       margin-top: 2.5rem;
       padding-top: 1rem;
@@ -42,47 +62,88 @@
     }
   </style>
 </head>
+
 <body>
   <h1>Privacy Policy</h1>
   <p class="subtitle">Last updated: 14 February 2026</p>
 
-  <p>Photodrop is a private photo-sharing app. We collect only what's needed to make the app work and nothing more.</p>
+  <p>Photodrop is a private photo-sharing app. This policy explains what we collect, why we collect it, where it is
+    processed, and your choices.</p>
 
-  <h2>What we collect</h2>
+  <h2>Data we collect</h2>
   <ul>
-    <li><strong>Email address</strong> — used for authentication via magic links. We don't send marketing emails.</li>
-    <li><strong>Photos</strong> — uploaded by group admins and stored in Cloudflare R2. Photos are only visible to members of the same group.</li>
-    <li><strong>Push notification tokens</strong> — if you enable notifications, we store a device token to deliver photo alerts.</li>
-    <li><strong>Profile colour preference</strong> — your chosen avatar colour, stored with your account.</li>
+    <li><strong>Account data:</strong> name, email address, profile color, account creation timestamp, and
+      last-seen timestamp.</li>
+    <li><strong>Group data:</strong> group name, membership, role (admin/member), join timestamp, and image-protection
+      preference.</li>
+    <li><strong>Photo data:</strong> uploaded photos and thumbnails (stored in Cloudflare R2), captions, uploader ID,
+      and upload timestamps.</li>
+    <li><strong>Interaction data:</strong> comments, emoji reactions, and photo view timestamps.</li>
+    <li><strong>Authentication and security data:</strong> magic-link tokens (with status and expiry fields),
+      refresh-token cookie, and short-lived access/session tokens.</li>
+    <li><strong>Notification data:</strong> web push subscription data (endpoint and keys), native push device tokens
+      (iOS/Android), and related registration timestamps.</li>
+    <li><strong>Anti-abuse data:</strong> rate-limit records keyed by user ID, email, and/or IP address.</li>
   </ul>
 
-  <h2>What we don't do</h2>
+  <h2>How we use data</h2>
   <ul>
-    <li>No tracking or analytics</li>
-    <li>No third-party advertising</li>
-    <li>No selling or sharing of data with third parties</li>
+    <li>To authenticate users and keep accounts secure.</li>
+    <li>To provide core features (private group photo sharing, comments, reactions, and member management).</li>
+    <li>To send notifications when new photos are shared (if enabled).</li>
+    <li>To prevent abuse, spam, and unauthorized access.</li>
+    <li>To debug reliability and security issues.</li>
+  </ul>
+
+  <h2>Who can see your data in the app</h2>
+  <ul>
+    <li>Group members can see photos, captions, comments, reactions, and member names within their group.</li>
+    <li>Group admins can also see member email addresses for their group to manage invitations and membership.</li>
+  </ul>
+
+  <h2>Data processors and infrastructure</h2>
+  <ul>
+    <li><strong>Cloudflare</strong> (Workers, D1, and R2) to run the app and store data/files.</li>
+    <li><strong>Resend</strong> to send login and invite emails.</li>
+    <li><strong>Firebase Cloud Messaging (Google)</strong> and platform push providers (Apple/Google) for mobile push
+      delivery.</li>
+  </ul>
+
+  <h2>What we do not do</h2>
+  <ul>
+    <li>No tracking or analytics.</li>
+    <li>No third-party advertising.</li>
+    <li>No selling of personal data.</li>
   </ul>
 
   <h2>Where data is stored</h2>
-  <p>All data is stored securely using trusted third-party infrastructure providers. Data may be distributed across multiple regions to ensure reliability and performance.</p>
+  <p>Application data is processed using Cloudflare services and may be stored or cached in multiple regions for
+    reliability and performance.</p>
+
+  <h2>Device storage</h2>
+  <p>On your device, Photodrop stores local app data including an access token, app preferences (such as theme and
+    install-prompt state), and push-related local state. A secure, HTTP-only refresh-token cookie is also used for
+    session renewal.</p>
 
   <h2>Server logs</h2>
-  <p>Our hosting infrastructure may collect basic server logs including IP addresses and timestamps. These are used solely for security monitoring and debugging, and are not linked to your account.</p>
+  <p>Our infrastructure and app logs may include IP address, timestamps, request metadata, and error details. We use
+    this information for security, abuse prevention, and debugging.</p>
 
   <h2>Data retention</h2>
-  <p>Your data is kept as long as your account exists. Group admins can delete photos at any time. If you'd like your account removed, contact us and we'll delete it.</p>
+  <p>Account and group data are retained while your account is active. Group admins can delete photos. Some technical
+    and security records (for example token and rate-limit records) are retained based on operational and security
+    needs. If you want your account data deleted, contact us.</p>
 
   <h2>Children's privacy</h2>
-  <p>Photodrop is not directed at children under 13. We do not knowingly collect personal information from children. If you believe a child has provided us with their data, please contact us and we will remove it.</p>
+  <p>Photodrop is not directed at children under 13. We do not knowingly collect personal information from children. If
+    you believe a child has provided us with their data, please contact us and we will remove it.</p>
 
   <h2>Changes to this policy</h2>
-  <p>If we make material changes to this policy, we'll update the date at the top of this page. We encourage you to review this policy periodically.</p>
+  <p>If we make material changes to this policy, we'll update the date at the top of this page. We encourage you to
+    review this policy periodically.</p>
 
   <h2>Contact</h2>
   <p>Questions about this policy? Contact us through the developer email listed on our Google Play Store page.</p>
-
-  <div class="footer">
-    <p>&copy; Photodrop</p>
-  </div>
 </body>
+
 </html>
