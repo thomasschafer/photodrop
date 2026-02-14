@@ -1264,7 +1264,7 @@ The migration assigns random colors to all existing users so the column can be N
 - [ ] Apple Developer account ($99/year)
 - [ ] iOS signing setup
 - [ ] iOS push (APNs) configuration
-- [ ] Screenshot protection plugin
+- [x] Screenshot protection plugin (`@capacitor-community/privacy-screen` — working on Android)
 - [ ] Test on physical iOS device
 - [ ] Submit to App Store / Play Store
 

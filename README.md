@@ -285,10 +285,17 @@ If you need to build locally instead of using GitHub Actions:
 
 ### Building
 
-Push to `main` or `feat/mobile-capacitor` to trigger a CI build. Download the APK from **Actions → workflow run → Artifacts**.
+Push to `main` to trigger a CI build. Download the AAB/APK from **Actions → workflow run → Artifacts**.
 
-- With signing secrets configured: signed release APK (ready for Play Store)
+- With signing secrets configured: signed release AAB (ready for Play Store) + APK (for testing)
 - Without signing secrets: debug APK (for testing)
+
+### Releasing to Google Play Store
+
+1. Bump the version in `VERSION`
+2. Push/merge to `main` — CI builds the signed AAB automatically
+3. Download the AAB artifact from **Actions → workflow run → Artifacts**
+4. Upload to [Google Play Console](https://play.google.com/console) → your app → Production → Create new release
 
 ## Architecture
 
