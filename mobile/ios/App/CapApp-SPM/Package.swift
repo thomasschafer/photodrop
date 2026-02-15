@@ -1,7 +1,9 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// DO NOT MODIFY THIS FILE - managed by Capacitor CLI commands
+// NOTE: Firebase dependency added manually for FCM token support on iOS.
+// If `npx cap sync` regenerates this file, re-add the firebase-ios-sdk
+// dependency and FirebaseMessaging product below.
 let package = Package(
     name: "CapApp-SPM",
     platforms: [.iOS(.v15)],
@@ -15,7 +17,8 @@ let package = Package(
         .package(name: "CapacitorApp", path: "../../../node_modules/@capacitor/app"),
         .package(name: "CapacitorPushNotifications", path: "../../../node_modules/@capacitor/push-notifications"),
         .package(name: "CapacitorStatusBar", path: "../../../node_modules/@capacitor/status-bar"),
-        .package(name: "CapacitorCommunityPrivacyScreen", path: "../../../node_modules/@capacitor-community/privacy-screen")
+        .package(name: "CapacitorCommunityPrivacyScreen", path: "../../../node_modules/@capacitor-community/privacy-screen"),
+        .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "11.0.0")
     ],
     targets: [
         .target(
@@ -26,7 +29,8 @@ let package = Package(
                 .product(name: "CapacitorApp", package: "CapacitorApp"),
                 .product(name: "CapacitorPushNotifications", package: "CapacitorPushNotifications"),
                 .product(name: "CapacitorStatusBar", package: "CapacitorStatusBar"),
-                .product(name: "CapacitorCommunityPrivacyScreen", package: "CapacitorCommunityPrivacyScreen")
+                .product(name: "CapacitorCommunityPrivacyScreen", package: "CapacitorCommunityPrivacyScreen"),
+                .product(name: "FirebaseMessaging", package: "firebase-ios-sdk")
             ]
         )
     ]
