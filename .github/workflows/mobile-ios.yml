@@ -25,6 +25,18 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Check signing availability
+        id: signing
+        env:
+          CERT: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+        run: |
+          if [ -n "$CERT" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Apple signing secrets not configured — running simulator build only"
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -74,6 +86,25 @@ jobs:
         working-directory: mobile
         run: npx cap sync ios
 
+      - name: Patch Package.swift with Firebase dependency
+        run: |
+          # cap sync overwrites Package.swift, removing our Firebase dependency.
+          # Patch it back in rather than restoring from git (cap sync adjusts paths).
+          PKG=mobile/ios/App/CapApp-SPM/Package.swift
+
+          # Add firebase-ios-sdk to dependencies array (BSD sed on macOS needs -i '')
+          sed -i '' '/.package(url: "https:\/\/github.com\/ionic-team\/capacitor-swift-pm.git"/a\
+                .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "11.0.0"),
+          ' "$PKG"
+
+          # Add FirebaseMessaging to target dependencies
+          sed -i '' '/.product(name: "Cordova", package: "capacitor-swift-pm")/a\
+                        .product(name: "FirebaseMessaging", package: "firebase-ios-sdk"),
+          ' "$PKG"
+
+          echo "Patched Package.swift:"
+          cat "$PKG"
+
       - name: Install GoogleService-Info.plist
         env:
           GOOGLE_SERVICE_INFO_BASE64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_BASE64 }}
@@ -92,6 +123,7 @@ jobs:
           agvtool new-version -all "${{ steps.version.outputs.build }}"
 
       - name: Install Apple certificate and provisioning profile
+        if: steps.signing.outputs.available == 'true'
         env:
           CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
@@ -123,12 +155,33 @@ jobs:
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$PP_UUID.mobileprovision
           echo "Installed provisioning profile: $PP_UUID"
 
+      - name: Resolve SPM dependencies
+        working-directory: mobile/ios/App
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project App.xcodeproj \
+            -scheme App
+
+      # When signing secrets aren't configured, just verify the project compiles
+      - name: Verify iOS project compiles (no signing)
+        if: steps.signing.outputs.available == 'false'
+        working-directory: mobile/ios/App
+        run: |
+          xcodebuild -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            build \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Signed build + distribution (only when secrets are configured)
       - name: Build iOS archive
+        if: steps.signing.outputs.available == 'true'
         working-directory: mobile/ios/App
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcodebuild -workspace App.xcworkspace \
+          xcodebuild -project App.xcodeproj \
             -scheme App \
             -sdk iphoneos \
             -configuration Release \
@@ -141,10 +194,10 @@ jobs:
             archive
 
       - name: Export IPA
+        if: steps.signing.outputs.available == 'true'
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Substitute team ID in export options
           sed "s/\$(APPLE_TEAM_ID)/$APPLE_TEAM_ID/g" \
             mobile/ios/ExportOptions-appstore.plist > $RUNNER_TEMP/ExportOptions.plist
 
@@ -154,26 +207,23 @@ jobs:
             -exportPath $RUNNER_TEMP/export
 
       - name: Upload IPA artifact
+        if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: photodrop-ios-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}
           path: ${{ runner.temp }}/export/*.ipa
           retention-days: 30
 
-      # Upload to TestFlight on main branch pushes
       - name: Upload to TestFlight
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: ${{ steps.signing.outputs.available == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
         run: |
-          # Decode API key
           mkdir -p ~/private_keys
           echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > ~/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8
 
-          # Upload using xcrun altool
-          xcrun notarytool --help > /dev/null 2>&1 || true
           IPA_PATH=$(find $RUNNER_TEMP/export -name "*.ipa" -print -quit)
 
           xcrun altool --upload-app \

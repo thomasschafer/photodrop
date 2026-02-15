@@ -290,7 +290,7 @@ test.describe('Reactions and comments', () => {
     await dialog.getByRole('button', { name: /expand comments/i }).click();
 
     await expect(dialog.getByText(uniqueCommentText)).toBeVisible();
-    await expect(dialog.getByText('Deleted user')).toBeVisible();
+    await expect(dialog.getByText('(deleted) Deleted user')).toBeVisible();
   });
 
   test('comment reflects updated user name', async ({ page, request }) => {
