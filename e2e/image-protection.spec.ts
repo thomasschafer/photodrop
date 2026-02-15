@@ -6,7 +6,7 @@ import {
   cleanupTestGroup,
   TestGroup,
 } from './helpers/setup';
-import { loginWithMagicLink, getAuthToken } from './helpers/auth';
+import { loginWithMagicLink, getAuthToken, getUserIdFromToken } from './helpers/auth';
 import { uploadPhotoViaApi, makeDirectApiCall } from './helpers/api';
 
 test.describe('Image protection', () => {
@@ -106,6 +106,60 @@ test.describe('Image protection', () => {
     expect(result.status).toBe(403);
   });
 
+  test('disabling own image protection removes CSS protection from images', async ({
+    page,
+    request,
+  }) => {
+    // Login as admin (who has protection enabled by default)
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
+
+    // Wait for photo to load
+    await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
+
+    // Verify images ARE protected initially
+    const img = page.locator('article img').first();
+    await expect(img).toBeVisible();
+    let userSelect = await img.evaluate((el) => getComputedStyle(el).userSelect);
+    expect(userSelect).toBe('none');
+
+    // Disable image protection for admin (self) via API
+    const token = await getAuthToken(page);
+    expect(token).toBeTruthy();
+    const adminId = await getUserIdFromToken(page);
+    expect(adminId).toBeTruthy();
+
+    const disableResult = await makeDirectApiCall(
+      request,
+      'PATCH',
+      `/groups/${testGroup.groupId}/members/${adminId}/image-protection`,
+      token!,
+      { enabled: false }
+    );
+    expect(disableResult.status).toBe(200);
+
+    try {
+      // Refresh the page to pick up the new protection state via auth
+      await page.reload();
+      await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
+
+      // Verify images are NO LONGER protected
+      const imgAfter = page.locator('article img').first();
+      await expect(imgAfter).toBeVisible();
+      userSelect = await imgAfter.evaluate((el) => getComputedStyle(el).userSelect);
+      expect(userSelect).not.toBe('none');
+    } finally {
+      // Restore protection state for subsequent tests
+      await makeDirectApiCall(
+        request,
+        'PATCH',
+        `/groups/${testGroup.groupId}/members/${adminId}/image-protection`,
+        token!,
+        { enabled: true }
+      );
+    }
+  });
+
   test('admin can see and toggle image protection in members list', async ({ page }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
@@ -127,5 +181,124 @@ test.describe('Image protection', () => {
 
     // Should show success message
     await expect(page.getByText(/image protection disabled/i)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('toggling own protection via UI updates images live without reload', async ({
+    page,
+    request,
+  }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
+
+    // Ensure admin's own protection is enabled first
+    const token = await getAuthToken(page);
+    const adminId = await getUserIdFromToken(page);
+    expect(token).toBeTruthy();
+    expect(adminId).toBeTruthy();
+    await makeDirectApiCall(
+      request,
+      'PATCH',
+      `/groups/${testGroup.groupId}/members/${adminId}/image-protection`,
+      token!,
+      { enabled: true }
+    );
+    await page.reload();
+
+    // Wait for photo and verify protection is on
+    await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
+    const img = page.locator('article img').first();
+    await expect(img).toBeVisible();
+    expect(await img.evaluate((el) => getComputedStyle(el).userSelect)).toBe('none');
+
+    // Navigate to Group tab and toggle own protection off via UI
+    await page.getByRole('tab', { name: 'Group' }).click();
+    const adminButton = page.getByRole('button', {
+      name: /image protection for.*Owner/i,
+    });
+    await expect(adminButton).toBeVisible({ timeout: 5000 });
+    await adminButton.click();
+    await expect(page.getByText(/image protection disabled/i)).toBeVisible({ timeout: 5000 });
+
+    // Navigate back to Photos — images should be unprotected without reload
+    await page.getByRole('tab', { name: 'Photos' }).click();
+    await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
+    const imgAfter = page.locator('article img').first();
+    await expect(imgAfter).toBeVisible();
+    expect(await imgAfter.evaluate((el) => getComputedStyle(el).userSelect)).not.toBe('none');
+
+    // Re-enable via UI and verify protection is restored
+    await page.getByRole('tab', { name: 'Group' }).click();
+    const enableButton = page.getByRole('button', {
+      name: /image protection for.*Owner/i,
+    });
+    await expect(enableButton).toBeVisible({ timeout: 5000 });
+    await enableButton.click();
+    await expect(page.getByText(/image protection enabled/i)).toBeVisible({ timeout: 5000 });
+
+    await page.getByRole('tab', { name: 'Photos' }).click();
+    await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
+    const imgRestored = page.locator('article img').first();
+    await expect(imgRestored).toBeVisible();
+    expect(await imgRestored.evaluate((el) => getComputedStyle(el).userSelect)).toBe('none');
+  });
+
+  test('lightbox images respect protection toggle', async ({ page, request }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
+
+    // Ensure protection is on
+    const token = await getAuthToken(page);
+    const adminId = await getUserIdFromToken(page);
+    expect(token).toBeTruthy();
+    expect(adminId).toBeTruthy();
+    await makeDirectApiCall(
+      request,
+      'PATCH',
+      `/groups/${testGroup.groupId}/members/${adminId}/image-protection`,
+      token!,
+      { enabled: true }
+    );
+    await page.reload();
+
+    // Wait for photo and open lightbox
+    await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
+    await page.locator('article').first().click();
+
+    // Lightbox should open — check protection on lightbox images
+    const lightboxImg = page.locator('[role="dialog"] img').first();
+    await expect(lightboxImg).toBeVisible({ timeout: 5000 });
+    expect(await lightboxImg.evaluate((el) => getComputedStyle(el).userSelect)).toBe('none');
+
+    // Close lightbox, disable protection, reopen
+    await page.getByRole('button', { name: 'Close' }).click();
+
+    await makeDirectApiCall(
+      request,
+      'PATCH',
+      `/groups/${testGroup.groupId}/members/${adminId}/image-protection`,
+      token!,
+      { enabled: false }
+    );
+
+    try {
+      await page.reload();
+      await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
+      await page.locator('article').first().click();
+
+      const lightboxImgAfter = page.locator('[role="dialog"] img').first();
+      await expect(lightboxImgAfter).toBeVisible({ timeout: 5000 });
+      expect(await lightboxImgAfter.evaluate((el) => getComputedStyle(el).userSelect)).not.toBe(
+        'none'
+      );
+    } finally {
+      // Restore
+      await makeDirectApiCall(
+        request,
+        'PATCH',
+        `/groups/${testGroup.groupId}/members/${adminId}/image-protection`,
+        token!,
+        { enabled: true }
+      );
+    }
   });
 });
