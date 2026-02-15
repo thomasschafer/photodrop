@@ -47,6 +47,22 @@ export async function getAuthToken(page: Page): Promise<string | null> {
   });
 }
 
+/** Extract the user ID from the stored JWT access token. */
+export async function getUserIdFromToken(page: Page): Promise<string | null> {
+  return await page.evaluate(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) return null;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const id = payload.userId ?? payload.sub ?? payload.id ?? null;
+      if (!id) throw new Error(`No user ID found in JWT payload: ${JSON.stringify(payload)}`);
+      return id as string;
+    } catch {
+      return null;
+    }
+  });
+}
+
 export async function logout(page: Page): Promise<void> {
   // Open user menu and click sign out
   await page.locator(USER_MENU_BUTTON).click();

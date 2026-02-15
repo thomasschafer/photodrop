@@ -123,6 +123,8 @@ export function MembersList() {
       console.error('Failed to update image protection:', err);
       if (err instanceof ApiError) {
         setError(err.message);
+      } else if (err instanceof Error) {
+        setError(`Failed to update image protection: ${err.message}`);
       } else {
         setError('Failed to update image protection');
       }

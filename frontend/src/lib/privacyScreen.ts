@@ -1,4 +1,14 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
+interface PrivacyScreenPlugin {
+  enable(): Promise<void>;
+  disable(): Promise<void>;
+}
+
+// Register the plugin via Capacitor's bridge — no need to bundle the
+// community package because the native side is already linked by
+// mobile/node_modules.  On web this is never called (guarded below).
+const PrivacyScreen = registerPlugin<PrivacyScreenPlugin>('PrivacyScreen');
 
 /**
  * Enable/disable OS-level screenshot protection on native platforms (iOS/Android).
@@ -8,11 +18,6 @@ import { Capacitor } from '@capacitor/core';
  */
 export async function setNativeScreenshotProtection(enabled: boolean): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
-
-  // Dynamic import: the package only exists in the native Capacitor build (mobile/).
-  // Use a variable to prevent Vite from statically analyzing the import.
-  const pkg = '@capacitor-community/privacy-screen';
-  const { PrivacyScreen } = await import(/* @vite-ignore */ pkg);
 
   if (enabled) {
     await PrivacyScreen.enable();
