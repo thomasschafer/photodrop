@@ -17,6 +17,7 @@ import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
 import { GroupPickerPage } from './pages/GroupPickerPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 
 // Lazy-load heavy components
 const PhotoFeed = lazy(() =>
@@ -212,7 +213,7 @@ function App() {
         <Route path="photo/:photoId" element={null} />
         <Route path="members" element={null} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }
