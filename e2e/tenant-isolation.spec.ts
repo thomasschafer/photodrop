@@ -1,3 +1,4 @@
+import { API_BASE } from './helpers/ports';
 import { test, expect } from '@playwright/test';
 import {
   createTestGroup,
@@ -21,12 +22,12 @@ test.describe('Tenant isolation', () => {
     groupB = createTestGroup('Group B - Tenant Isolation');
 
     // Consume invite links via API to create users and get tokens
-    const groupALoginResponse = await request.post('http://localhost:8787/auth/verify-magic-link', {
+    const groupALoginResponse = await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: groupA.magicLink.split('/auth/')[1] },
     });
     const groupAAuth = await groupALoginResponse.json();
 
-    const groupBLoginResponse = await request.post('http://localhost:8787/auth/verify-magic-link', {
+    const groupBLoginResponse = await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: groupB.magicLink.split('/auth/')[1] },
     });
     const groupBAuth = await groupBLoginResponse.json();
@@ -139,7 +140,7 @@ test.describe('Tenant isolation', () => {
     const member = createTestMember(groupA.groupId, 'Group A Member');
 
     // Consume the invite link to create the member user (with name)
-    await request.post('http://localhost:8787/auth/verify-magic-link', {
+    await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: member.magicLink.split('/auth/')[1], name: member.name },
     });
 

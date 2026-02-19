@@ -10,7 +10,7 @@ import {
 import { loginWithMagicLink, getAuthToken } from './helpers/auth';
 import { uploadPhotoViaApi, createApiClient } from './helpers/api';
 
-const API_BASE = 'http://localhost:8787';
+import { API_BASE, FRONTEND_BASE } from './helpers/ports';
 
 test.describe('Reactions and comments', () => {
   let testGroup: TestGroup;

@@ -1,6 +1,5 @@
 import { APIRequestContext } from '@playwright/test';
-
-const API_BASE = 'http://localhost:8787';
+import { API_BASE } from './ports';
 
 export interface ApiClient {
   getPhotos(): Promise<{ photos: unknown[]; total: number }>;

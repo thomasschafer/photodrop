@@ -1,3 +1,4 @@
+import { API_BASE, FRONTEND_BASE } from './helpers/ports';
 import { test, expect } from '@playwright/test';
 import {
   createTestGroup,
@@ -22,13 +23,13 @@ test.describe('Member workflow', () => {
 
     // Consume the member's invite link via API to create the user (with name)
     const memberInviteToken = member.magicLink.split('/auth/')[1];
-    await request.post('http://localhost:8787/auth/verify-magic-link', {
+    await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: memberInviteToken, name: member.name },
     });
 
     // Get admin token via API (owner already exists, just logging in)
     const adminLoginToken = testGroup.magicLink.split('/auth/')[1];
-    const adminLoginResponse = await request.post('http://localhost:8787/auth/verify-magic-link', {
+    const adminLoginResponse = await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: adminLoginToken },
     });
     const adminAuth = await adminLoginResponse.json();
@@ -71,7 +72,7 @@ test.describe('Member workflow', () => {
 
     await expect(page.getByRole('tab', { name: 'Group' })).not.toBeVisible();
 
-    await page.goto('http://localhost:5173/members');
+    await page.goto(`${FRONTEND_BASE}/members`);
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('tab', { name: 'Group' })).not.toBeVisible();
   });
@@ -130,15 +131,12 @@ test.describe('Member workflow', () => {
     const token = await getAuthToken(page);
     expect(token).toBeTruthy();
 
-    const response = await request.get(
-      `http://localhost:8787/groups/${testGroup.groupId}/members`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-      }
-    );
+    const response = await request.get(`${API_BASE}/groups/${testGroup.groupId}/members`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    });
 
     expect(response.status()).toBe(403);
   });

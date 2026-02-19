@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
+import { FRONTEND_BASE } from './ports';
 
 export interface TestGroup {
   groupId: string;
@@ -49,7 +50,7 @@ export function createTestGroup(name: string): TestGroup {
     ownerId,
     ownerEmail,
     ownerName,
-    magicLink: `http://localhost:5173/auth/${token}`,
+    magicLink: `${FRONTEND_BASE}/auth/${token}`,
     // Aliases for backwards compatibility
     adminEmail: ownerEmail,
     adminName: ownerName,
@@ -74,7 +75,7 @@ export function createTestMember(
     { stdio: 'pipe' }
   );
 
-  return { email, name, magicLink: `http://localhost:5173/auth/${token}` };
+  return { email, name, magicLink: `${FRONTEND_BASE}/auth/${token}` };
 }
 
 export function createTestAdmin(
@@ -95,7 +96,7 @@ export function createTestAdmin(
     { stdio: 'pipe' }
   );
 
-  return { email, name, magicLink: `http://localhost:5173/auth/${token}` };
+  return { email, name, magicLink: `${FRONTEND_BASE}/auth/${token}` };
 }
 
 export function createFreshMagicLink(
@@ -114,7 +115,7 @@ export function createFreshMagicLink(
     { stdio: 'pipe' }
   );
 
-  return `http://localhost:5173/auth/${token}`;
+  return `${FRONTEND_BASE}/auth/${token}`;
 }
 
 export function cleanupTestGroup(groupId: string): void {
