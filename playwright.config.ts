@@ -34,7 +34,7 @@ export default defineConfig({
       url: `http://localhost:${E2E_FRONTEND_PORT}`,
       reuseExistingServer: false,
       env: {
-        VITE_API_PORT: String(E2E_BACKEND_PORT),
+        API_PORT: String(E2E_BACKEND_PORT),
       },
       timeout: 30000,
     },

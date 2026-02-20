@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-const backendPort = process.env.VITE_API_PORT || '8787';
+const backendPort = process.env.API_PORT || '8787';
 
 // https://vite.dev/config/
 export default defineConfig({
