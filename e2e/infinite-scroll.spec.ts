@@ -1,3 +1,4 @@
+import { API_BASE } from './helpers/ports';
 import { test, expect } from '@playwright/test';
 import {
   createTestGroup,
@@ -15,7 +16,7 @@ test.describe('Infinite scroll pagination', () => {
     testGroup = createTestGroup('Infinite Scroll Test Group');
 
     // Login to get token for uploading
-    const verifyResponse = await request.post('http://localhost:8787/auth/verify-magic-link', {
+    const verifyResponse = await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: testGroup.magicLink.split('/auth/')[1], name: testGroup.ownerName },
     });
     const { accessToken } = await verifyResponse.json();

@@ -1,3 +1,4 @@
+import { API_BASE, FRONTEND_BASE } from './helpers/ports';
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
@@ -17,7 +18,7 @@ test.describe('Auth edge cases', () => {
 
     // Consume the admin invite link via API to create the user
     const inviteToken = testGroup.magicLink.split('/auth/')[1];
-    await request.post('http://localhost:8787/auth/verify-magic-link', {
+    await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: inviteToken },
     });
   });
@@ -38,7 +39,7 @@ test.describe('Auth edge cases', () => {
     );
 
     // Try to use expired token
-    await page.goto(`http://localhost:5173/auth/${token}`);
+    await page.goto(`${FRONTEND_BASE}/auth/${token}`);
 
     // Should show error message
     await expect(page.getByText(/expired|invalid/i)).toBeVisible({ timeout: 5000 });
@@ -69,7 +70,7 @@ test.describe('Auth edge cases', () => {
   test('invalid token redirects or shows error', async ({ page }) => {
     const invalidToken = randomBytes(32).toString('hex');
 
-    await page.goto(`http://localhost:5173/auth/${invalidToken}`);
+    await page.goto(`${FRONTEND_BASE}/auth/${invalidToken}`);
 
     // Should show error message
     await expect(page.getByText(/invalid|not found|expired/i)).toBeVisible({ timeout: 5000 });
@@ -93,8 +94,8 @@ test.describe('Auth edge cases', () => {
     await expectLoggedIn(page);
 
     // Navigate away and back
-    await page.goto('http://localhost:5173/login');
-    await page.goto('http://localhost:5173/');
+    await page.goto(`${FRONTEND_BASE}/login`);
+    await page.goto(`${FRONTEND_BASE}/`);
 
     // Should still be logged in
     await expectLoggedIn(page);
@@ -117,7 +118,7 @@ test.describe('Auth edge cases', () => {
   });
 
   test('API request with invalid token returns 401', async ({ request }) => {
-    const response = await request.get('http://localhost:8787/photos', {
+    const response = await request.get(`${API_BASE}/photos`, {
       headers: {
         Authorization: 'Bearer invalid-token-here',
         'X-Requested-With': 'XMLHttpRequest',
@@ -128,7 +129,7 @@ test.describe('Auth edge cases', () => {
   });
 
   test('API request without token returns 401', async ({ request }) => {
-    const response = await request.get('http://localhost:8787/photos');
+    const response = await request.get(`${API_BASE}/photos`);
 
     expect(response.status()).toBe(401);
   });

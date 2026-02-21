@@ -1,3 +1,4 @@
+import { API_BASE } from './helpers/ports';
 import { test, expect } from '@playwright/test';
 import {
   createTestGroup,
@@ -23,7 +24,7 @@ test.describe('Image protection', () => {
 
     // Consume the member's invite link to create the user
     const memberInviteToken = member.magicLink.split('/auth/')[1];
-    const memberResponse = await request.post('http://localhost:8787/auth/verify-magic-link', {
+    const memberResponse = await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: memberInviteToken, name: member.name },
     });
     const memberAuth = await memberResponse.json();
@@ -31,7 +32,7 @@ test.describe('Image protection', () => {
 
     // Upload a photo as admin
     const adminLoginToken = testGroup.magicLink.split('/auth/')[1];
-    const adminLoginResponse = await request.post('http://localhost:8787/auth/verify-magic-link', {
+    const adminLoginResponse = await request.post(`${API_BASE}/auth/verify-magic-link`, {
       data: { token: adminLoginToken },
     });
     const adminAuth = await adminLoginResponse.json();

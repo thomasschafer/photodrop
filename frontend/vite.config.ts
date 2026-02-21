@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const backendPort = process.env.API_PORT || '8787';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -54,7 +56,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:8787',
+        target: `http://localhost:${backendPort}`,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

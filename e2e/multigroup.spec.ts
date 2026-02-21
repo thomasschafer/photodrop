@@ -1,3 +1,4 @@
+import { API_BASE } from './helpers/ports';
 import { test, expect } from '@playwright/test';
 import {
   createTestGroup,
@@ -454,7 +455,7 @@ test.describe('Member management', () => {
 
     // Try to change owner's role via API
     const response = await request.patch(
-      `http://localhost:8787/groups/${testGroup.groupId}/members/${ownerId}`,
+      `${API_BASE}/groups/${testGroup.groupId}/members/${ownerId}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -486,7 +487,7 @@ test.describe('Member management', () => {
 
     // Try to remove owner via API
     const response = await request.delete(
-      `http://localhost:8787/groups/${testGroup.groupId}/members/${ownerId}`,
+      `${API_BASE}/groups/${testGroup.groupId}/members/${ownerId}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -521,7 +522,7 @@ test.describe('Member management', () => {
 
     // Try to promote member to owner via API
     const response = await request.patch(
-      `http://localhost:8787/groups/${testGroup.groupId}/members/${memberId}`,
+      `${API_BASE}/groups/${testGroup.groupId}/members/${memberId}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
