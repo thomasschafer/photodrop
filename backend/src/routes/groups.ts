@@ -19,9 +19,18 @@ import type { AppEnv } from '../types';
 
 const groups = new Hono<AppEnv>();
 
+class BadRequestError extends Error {
+  readonly statusCode = 400 as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'BadRequestError';
+  }
+}
+
 function requireParam(value: string | undefined, name: string): string {
   if (!value) {
-    throw new Error(`Missing route parameter: ${name}`);
+    throw new BadRequestError(`Missing route parameter: ${name}`);
   }
 
   return value;
@@ -43,6 +52,10 @@ groups.get('/', requireAuth, async (c) => {
       })),
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error fetching groups:', error);
     return c.json({ error: 'Failed to fetch groups' }, 500);
   }
@@ -74,6 +87,10 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
       })),
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error fetching members:', error);
     return c.json({ error: 'Failed to fetch members' }, 500);
   }
@@ -133,6 +150,11 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
     if (error instanceof ZodError) {
       return c.json({ error: error.issues.map((i) => i.message).join('; ') }, 400);
     }
+
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error updating member:', error);
     return c.json({ error: 'Failed to update member' }, 500);
   }
@@ -168,6 +190,10 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
 
     return c.json({ message: 'Member removed successfully' });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error removing member:', error);
     return c.json({ error: 'Failed to remove member' }, 500);
   }
@@ -202,6 +228,11 @@ groups.patch('/:groupId/members/:userId/image-protection', requireAdmin, async (
     if (error instanceof ZodError) {
       return c.json({ error: 'enabled must be a boolean' }, 400);
     }
+
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error updating image protection:', error);
     return c.json({ error: 'Failed to update image protection' }, 500);
   }
@@ -220,6 +251,10 @@ groups.get('/:groupId/photo-count', requireOwner, async (c) => {
     const count = await getGroupPhotoCount(c.env.DB, groupId);
     return c.json({ count });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error getting photo count:', error);
     return c.json({ error: 'Failed to get photo count' }, 500);
   }
@@ -280,6 +315,10 @@ groups.delete('/:groupId', requireOwner, async (c) => {
       deletedFiles: totalFiles - r2FailureCount,
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error deleting group:', error);
     return c.json({ error: 'Failed to delete group' }, 500);
   }
