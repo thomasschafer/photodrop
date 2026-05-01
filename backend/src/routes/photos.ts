@@ -50,6 +50,14 @@ const uploadRateLimit = createRateLimitMiddleware({
 
 const photos = new Hono<AppEnv>();
 
+function requireParam(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new Error(`Missing route parameter: ${name}`);
+  }
+
+  return value;
+}
+
 // Send push notifications in background (non-blocking)
 async function sendPhotoUploadNotifications(
   env: Bindings,
@@ -306,7 +314,7 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
 
 photos.get('/:id', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -328,7 +336,7 @@ photos.get('/:id', requireAuth, async (c) => {
 
 photos.get('/:id/url', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -356,7 +364,7 @@ photos.get('/:id/url', requireAuth, async (c) => {
 
 photos.get('/:id/download', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -383,7 +391,7 @@ photos.get('/:id/download', requireAuth, async (c) => {
 
 photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -406,7 +414,7 @@ photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
 
 photos.get('/:id/thumbnail', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -433,7 +441,7 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
 
 photos.delete('/:id', requireAdmin, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -464,7 +472,7 @@ photos.delete('/:id', requireAdmin, async (c) => {
 
 photos.post('/:id/view', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
@@ -483,7 +491,7 @@ photos.post('/:id/view', requireAuth, async (c) => {
 
 photos.get('/:id/viewers', requireAdmin, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
@@ -502,7 +510,7 @@ photos.get('/:id/viewers', requireAdmin, async (c) => {
 
 photos.post('/:id/react', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
     const body = await c.req.json();
     const { emoji } = addReactionSchema.parse(body);
@@ -523,7 +531,7 @@ photos.post('/:id/react', requireAuth, async (c) => {
 
 photos.delete('/:id/react', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
@@ -542,7 +550,7 @@ photos.delete('/:id/react', requireAuth, async (c) => {
 
 photos.get('/:id/reactions', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
@@ -570,7 +578,7 @@ photos.get('/:id/reactions', requireAuth, async (c) => {
 // Comment endpoints
 photos.get('/:id/comments', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
@@ -607,7 +615,7 @@ photos.get('/:id/comments', requireAuth, async (c) => {
 
 photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
     const body = await c.req.json();
     const parsed = addCommentSchema.safeParse(body);
@@ -652,8 +660,8 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
 
 photos.delete('/:id/comments/:commentId', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
-    const commentId = c.req.param('commentId');
+    const photoId = requireParam(c.req.param('id'), 'id');
+    const commentId = requireParam(c.req.param('commentId'), 'commentId');
     const currentUser = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);

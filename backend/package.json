@@ -18,17 +18,17 @@
   "dependencies": {
     "@block65/webcrypto-web-push": "^1.0.2",
     "@photodrop/common": "0.0.0",
-    "hono": "^4.6.18",
-    "zod": "^4.3.6"
+    "hono": "^4.12.16",
+    "zod": "^4.4.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250103.0",
-    "@typescript-eslint/eslint-plugin": "^8.52.0",
-    "@typescript-eslint/parser": "^8.52.0",
+    "@cloudflare/workers-types": "^4.20260501.1",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
     "eslint": "^9.39.2",
     "prettier": "^3.7.4",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.16",
-    "wrangler": "^3.100.0"
+    "vitest": "^4.1.5",
+    "wrangler": "^4.87.0"
   }
 }

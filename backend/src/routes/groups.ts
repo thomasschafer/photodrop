@@ -19,6 +19,14 @@ import type { AppEnv } from '../types';
 
 const groups = new Hono<AppEnv>();
 
+function requireParam(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new Error(`Missing route parameter: ${name}`);
+  }
+
+  return value;
+}
+
 // Get all groups the current user is a member of
 groups.get('/', requireAuth, async (c) => {
   try {
@@ -43,7 +51,7 @@ groups.get('/', requireAuth, async (c) => {
 // Get members of the current group (admin only)
 groups.get('/:groupId/members', requireAdmin, async (c) => {
   try {
-    const groupId = c.req.param('groupId');
+    const groupId = requireParam(c.req.param('groupId'), 'groupId');
     const user = c.get('user');
 
     // Ensure the requested group matches the user's current group context
@@ -74,8 +82,8 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
 // Update a member's role, name, or preferences (admin only)
 groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
   try {
-    const groupId = c.req.param('groupId');
-    const userId = c.req.param('userId');
+    const groupId = requireParam(c.req.param('groupId'), 'groupId');
+    const userId = requireParam(c.req.param('userId'), 'userId');
     const user = c.get('user');
 
     // Ensure the requested group matches the user's current group context
@@ -133,8 +141,8 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
 // Remove a member from the group (admin only)
 groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
   try {
-    const groupId = c.req.param('groupId');
-    const userId = c.req.param('userId');
+    const groupId = requireParam(c.req.param('groupId'), 'groupId');
+    const userId = requireParam(c.req.param('userId'), 'userId');
     const user = c.get('user');
 
     // Ensure the requested group matches the user's current group context
@@ -168,8 +176,8 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
 // Update a member's image protection (admin only)
 groups.patch('/:groupId/members/:userId/image-protection', requireAdmin, async (c) => {
   try {
-    const groupId = c.req.param('groupId');
-    const userId = c.req.param('userId');
+    const groupId = requireParam(c.req.param('groupId'), 'groupId');
+    const userId = requireParam(c.req.param('userId'), 'userId');
     const user = c.get('user');
 
     if (groupId !== user.groupId) {
@@ -202,7 +210,7 @@ groups.patch('/:groupId/members/:userId/image-protection', requireAdmin, async (
 // Get photo count for a group (owner only - used for deletion confirmation)
 groups.get('/:groupId/photo-count', requireOwner, async (c) => {
   try {
-    const groupId = c.req.param('groupId');
+    const groupId = requireParam(c.req.param('groupId'), 'groupId');
     const user = c.get('user');
 
     if (groupId !== user.groupId) {
@@ -220,7 +228,7 @@ groups.get('/:groupId/photo-count', requireOwner, async (c) => {
 // Delete the entire group (owner only)
 groups.delete('/:groupId', requireOwner, async (c) => {
   try {
-    const groupId = c.req.param('groupId');
+    const groupId = requireParam(c.req.param('groupId'), 'groupId');
     const user = c.get('user');
 
     if (groupId !== user.groupId) {
