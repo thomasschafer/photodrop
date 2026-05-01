@@ -50,6 +50,23 @@ const uploadRateLimit = createRateLimitMiddleware({
 
 const photos = new Hono<AppEnv>();
 
+class BadRequestError extends Error {
+  readonly statusCode = 400 as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'BadRequestError';
+  }
+}
+
+function requireParam(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new BadRequestError(`Missing route parameter: ${name}`);
+  }
+
+  return value;
+}
+
 // Send push notifications in background (non-blocking)
 async function sendPhotoUploadNotifications(
   env: Bindings,
@@ -167,6 +184,10 @@ photos.get('/', requireAuth, async (c) => {
       hasMore,
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error listing photos:', error);
     return c.json({ error: 'Failed to list photos' }, 500);
   }
@@ -306,7 +327,7 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
 
 photos.get('/:id', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -321,6 +342,10 @@ photos.get('/:id', requireAuth, async (c) => {
       uploadedAt: photo.uploaded_at,
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error fetching photo:', error);
     return c.json({ error: 'Failed to fetch photo' }, 500);
   }
@@ -328,7 +353,7 @@ photos.get('/:id', requireAuth, async (c) => {
 
 photos.get('/:id/url', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -349,6 +374,10 @@ photos.get('/:id/url', requireAuth, async (c) => {
       expiresIn: 3600,
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error generating photo URL:', error);
     return c.json({ error: 'Failed to generate photo URL' }, 500);
   }
@@ -356,7 +385,7 @@ photos.get('/:id/url', requireAuth, async (c) => {
 
 photos.get('/:id/download', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -376,6 +405,10 @@ photos.get('/:id/download', requireAuth, async (c) => {
       },
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error downloading photo:', error);
     return c.json({ error: 'Failed to download photo' }, 500);
   }
@@ -383,7 +416,7 @@ photos.get('/:id/download', requireAuth, async (c) => {
 
 photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -399,6 +432,10 @@ photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
       expiresIn: 3600,
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error generating thumbnail URL:', error);
     return c.json({ error: 'Failed to generate thumbnail URL' }, 500);
   }
@@ -406,7 +443,7 @@ photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
 
 photos.get('/:id/thumbnail', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -426,6 +463,10 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
       },
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error downloading thumbnail:', error);
     return c.json({ error: 'Failed to download thumbnail' }, 500);
   }
@@ -433,7 +474,7 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
 
 photos.delete('/:id', requireAdmin, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
 
@@ -457,6 +498,10 @@ photos.delete('/:id', requireAdmin, async (c) => {
 
     return c.json({ message: 'Photo deleted successfully' });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error deleting photo:', error);
     return c.json({ error: 'Failed to delete photo' }, 500);
   }
@@ -464,7 +509,7 @@ photos.delete('/:id', requireAdmin, async (c) => {
 
 photos.post('/:id/view', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
@@ -476,6 +521,10 @@ photos.post('/:id/view', requireAuth, async (c) => {
 
     return c.json({ message: 'View recorded' });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error recording view:', error);
     return c.json({ error: 'Failed to record view' }, 500);
   }
@@ -483,7 +532,7 @@ photos.post('/:id/view', requireAuth, async (c) => {
 
 photos.get('/:id/viewers', requireAdmin, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
@@ -495,6 +544,10 @@ photos.get('/:id/viewers', requireAdmin, async (c) => {
 
     return c.json({ viewers });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error fetching viewers:', error);
     return c.json({ error: 'Failed to fetch viewers' }, 500);
   }
@@ -502,7 +555,7 @@ photos.get('/:id/viewers', requireAdmin, async (c) => {
 
 photos.post('/:id/react', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
     const body = await c.req.json();
     const { emoji } = addReactionSchema.parse(body);
@@ -516,6 +569,10 @@ photos.post('/:id/react', requireAuth, async (c) => {
 
     return c.json({ message: 'Reaction added', emoji });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error adding reaction:', error);
     return c.json({ error: 'Failed to add reaction' }, 500);
   }
@@ -523,7 +580,7 @@ photos.post('/:id/react', requireAuth, async (c) => {
 
 photos.delete('/:id/react', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
@@ -535,6 +592,10 @@ photos.delete('/:id/react', requireAuth, async (c) => {
 
     return c.json({ message: 'Reaction removed' });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error removing reaction:', error);
     return c.json({ error: 'Failed to remove reaction' }, 500);
   }
@@ -542,7 +603,7 @@ photos.delete('/:id/react', requireAuth, async (c) => {
 
 photos.get('/:id/reactions', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
@@ -562,6 +623,10 @@ photos.get('/:id/reactions', requireAuth, async (c) => {
       })),
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error fetching reactions:', error);
     return c.json({ error: 'Failed to fetch reactions' }, 500);
   }
@@ -570,7 +635,7 @@ photos.get('/:id/reactions', requireAuth, async (c) => {
 // Comment endpoints
 photos.get('/:id/comments', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const user = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, user.groupId);
@@ -600,6 +665,10 @@ photos.get('/:id/comments', requireAuth, async (c) => {
       }),
     });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error fetching comments:', error);
     return c.json({ error: 'Failed to fetch comments' }, 500);
   }
@@ -607,7 +676,7 @@ photos.get('/:id/comments', requireAuth, async (c) => {
 
 photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
   try {
-    const photoId = c.req.param('id');
+    const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
     const body = await c.req.json();
     const parsed = addCommentSchema.safeParse(body);
@@ -645,6 +714,10 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
       201
     );
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error adding comment:', error);
     return c.json({ error: 'Failed to add comment' }, 500);
   }
@@ -652,8 +725,8 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
 
 photos.delete('/:id/comments/:commentId', requireAuth, async (c) => {
   try {
-    const photoId = c.req.param('id');
-    const commentId = c.req.param('commentId');
+    const photoId = requireParam(c.req.param('id'), 'id');
+    const commentId = requireParam(c.req.param('commentId'), 'commentId');
     const currentUser = c.get('user');
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
@@ -686,6 +759,10 @@ photos.delete('/:id/comments/:commentId', requireAuth, async (c) => {
 
     return c.json({ message: 'Comment deleted' });
   } catch (error) {
+    if (error instanceof BadRequestError) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+
     console.error('Error deleting comment:', error);
     return c.json({ error: 'Failed to delete comment' }, 500);
   }
