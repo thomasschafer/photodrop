@@ -62,12 +62,12 @@ if [ "$IS_PROD" = true ]; then
         # shellcheck source=/dev/null
         source .prod.vars
         FRONTEND_URL="${FRONTEND_URL:-https://photodrop.pages.dev}"
-        if [ -z "${EMAIL_FROM:-}" ] && [ -n "${DOMAIN:-}" ]; then
-            EMAIL_FROM="photodrop <noreply@$DOMAIN>"
-        fi
     else
         FRONTEND_URL="https://photodrop.pages.dev"
         echo "Warning: .prod.vars not found, using default URL"
+    fi
+    if [ -z "${EMAIL_FROM:-}" ] && [ -n "${DOMAIN:-}" ]; then
+        EMAIL_FROM="photodrop <noreply@$DOMAIN>"
     fi
 else
     FRONTEND_URL="http://localhost:5173"

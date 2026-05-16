@@ -80,8 +80,9 @@ Your app will be available at:
 - Frontend: `https://your-domain.com`
 - API: `https://api.your-domain.com`
 
-Note: If you want the frontend to call the API through the same origin (e.g. for SW caching),
-set `VITE_API_URL=/api` at build time and configure your Pages/edge to proxy `/api` to the API worker.
+Production deploys set `VITE_API_URL=https://$API_DOMAIN` at build time. If you want the
+frontend to call the API through the same origin (e.g. for SW caching), set
+`VITE_API_URL=/api` at build time and configure your Pages/edge to proxy `/api` to the API worker.
 
 ### Deploy
 
