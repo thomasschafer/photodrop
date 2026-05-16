@@ -62,6 +62,9 @@ if [ "$IS_PROD" = true ]; then
         # shellcheck source=/dev/null
         source .prod.vars
         FRONTEND_URL="${FRONTEND_URL:-https://photodrop.pages.dev}"
+        if [ -z "${EMAIL_FROM:-}" ] && [ -n "${DOMAIN:-}" ]; then
+            EMAIL_FROM="photodrop <noreply@$DOMAIN>"
+        fi
     else
         FRONTEND_URL="https://photodrop.pages.dev"
         echo "Warning: .prod.vars not found, using default URL"
@@ -116,18 +119,19 @@ MAGIC_LINK="$FRONTEND_URL/auth/$TOKEN"
 
 # In production, send email via Resend API
 EMAIL_SENT=false
-if [ "$IS_PROD" = true ] && [ -n "${RESEND_API_KEY:-}" ] && [ -n "${DOMAIN:-}" ]; then
+if [ "$IS_PROD" = true ] && [ -n "${RESEND_API_KEY:-}" ] && [ -n "${EMAIL_FROM:-}" ]; then
     echo "Sending invite email..."
 
     # Escape special characters for JSON
     JSON_GROUP_NAME=$(echo "$1" | sed 's/"/\\"/g')
     JSON_OWNER_NAME=$(echo "$2" | sed 's/"/\\"/g')
+    JSON_EMAIL_FROM=$(echo "$EMAIL_FROM" | sed 's/"/\\"/g')
 
     EMAIL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.resend.com/emails" \
         -H "Authorization: Bearer $RESEND_API_KEY" \
         -H "Content-Type: application/json" \
         -d "{
-            \"from\": \"photodrop <noreply@$DOMAIN>\",
+            \"from\": \"$JSON_EMAIL_FROM\",
             \"to\": \"$3\",
             \"subject\": \"Welcome to $JSON_GROUP_NAME!\",
             \"html\": \"<h1>Welcome to photodrop!</h1><p>Hi $JSON_OWNER_NAME!</p><p>Your group <strong>$JSON_GROUP_NAME</strong> has been created.</p><p>Click the link below to get started (expires in 15 minutes):</p><p><a href='$MAGIC_LINK'>$MAGIC_LINK</a></p>\"

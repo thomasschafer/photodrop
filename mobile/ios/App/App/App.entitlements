@@ -4,7 +4,7 @@
 <dict>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:perryschafer.com</string>
+		<string>applinks:photos.perryschafer.com</string>
 	</array>
 	<key>aps-environment</key>
 	<string>production</string>
