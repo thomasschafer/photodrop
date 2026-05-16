@@ -119,6 +119,9 @@ For automatic deployments on push to `main`:
      - Account / D1: Edit
      - Account / Cloudflare Pages: Edit
      - Account / Account Settings: Read
+     - Zone / Workers Routes: Edit
+     - Zone / Zone: Read
+     - Include zone resource: your root zone (e.g., `example.com`)
    - `CLOUDFLARE_ACCOUNT_ID` - From `backend/.prod.vars`
    - `D1_DATABASE_ID` - From `backend/.prod.vars`
    - `JWT_SECRET` - From `backend/.prod.vars`
