@@ -36,6 +36,7 @@ REQUIRED_VARS=(
     "VAPID_PRIVATE_KEY"
     "DOMAIN"
     "API_DOMAIN"
+    "ZONE_NAME"
 )
 
 for var in "${REQUIRED_VARS[@]}"; do
@@ -55,9 +56,15 @@ if [ -f .prod.vars ] && [ -z "${RESEND_API_KEY:-}" ]; then
     exit 1
 fi
 
+EMAIL_FROM="${EMAIL_FROM:-photodrop <noreply@$DOMAIN>}"
+ESCAPED_EMAIL_FROM="${EMAIL_FROM//\\/\\\\}"
+ESCAPED_EMAIL_FROM="${ESCAPED_EMAIL_FROM//\"/\\\"}"
+
 echo "Configuration loaded"
 echo "  Frontend: https://$DOMAIN"
 echo "  API:      https://$API_DOMAIN"
+echo "  Zone:     $ZONE_NAME"
+echo "  Email:    configured"
 echo ""
 
 # Generate production wrangler config (separate from dev config)
@@ -68,11 +75,15 @@ main = "src/index.ts"
 compatibility_date = "2025-01-04"
 compatibility_flags = ["nodejs_compat"]
 
+routes = [
+  { pattern = "$API_DOMAIN/*", zone_name = "$ZONE_NAME" }
+]
+
 # Environment variables (non-secret)
 [vars]
 FRONTEND_URL = "https://$DOMAIN"
 ENVIRONMENT = "production"
-EMAIL_FROM = "photodrop <noreply@$DOMAIN>"
+EMAIL_FROM = "$ESCAPED_EMAIL_FROM"
 
 [[d1_databases]]
 binding = "DB"
@@ -151,7 +162,8 @@ fi
 echo "Building frontend..."
 cd "$FRONTEND_DIR"
 
-# Build frontend (API URL is derived from hostname at runtime)
+# Build frontend against the configured API domain.
+export VITE_API_URL="${VITE_API_URL:-https://$API_DOMAIN}"
 if ! npm run build; then
     echo "Error: Frontend build failed"
     exit 1

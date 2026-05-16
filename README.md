@@ -80,8 +80,9 @@ Your app will be available at:
 - Frontend: `https://your-domain.com`
 - API: `https://api.your-domain.com`
 
-Note: If you want the frontend to call the API through the same origin (e.g. for SW caching),
-set `VITE_API_URL=/api` at build time and configure your Pages/edge to proxy `/api` to the API worker.
+Production deploys set `VITE_API_URL=https://$API_DOMAIN` at build time. If you want the
+frontend to call the API through the same origin (e.g. for SW caching), set
+`VITE_API_URL=/api` at build time and configure your Pages/edge to proxy `/api` to the API worker.
 
 ### Deploy
 
@@ -128,6 +129,8 @@ For automatic deployments on push to `main`:
 2. Add **variables** to GitHub (Settings → Secrets and variables → Actions → Variables):
    - `DOMAIN` - Your frontend domain (e.g., `photos.example.com`)
    - `API_DOMAIN` - Your API domain (e.g., `api.photos.example.com`)
+   - `ZONE_NAME` - Your Cloudflare zone/root domain (e.g., `example.com`)
+   - `EMAIL_FROM` - Sender address for Resend (e.g., `photodrop <noreply@example.com>`)
    - `PAGES_PROJECT` - `photodrop` (optional, defaults to `photodrop`)
 
 ### Creating groups in production
@@ -169,7 +172,8 @@ Email is required for magic link authentication. We use [Resend](https://resend.
 
 5. **Test**: Create a group with your real email address and verify the invite email arrives.
 
-Emails are sent from `noreply@your-domain.com` (configured automatically from your `DOMAIN` setting).
+Emails are sent from `EMAIL_FROM` when configured, otherwise `noreply@your-domain.com`
+based on your `DOMAIN` setting.
 
 ## Mobile app (Capacitor)
 

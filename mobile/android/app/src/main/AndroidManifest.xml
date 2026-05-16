@@ -30,7 +30,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="perryschafer.com"
+                    android:host="photos.perryschafer.com"
                     android:pathPrefix="/auth" />
             </intent-filter>
 
