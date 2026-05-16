@@ -59,7 +59,13 @@ function getApiBaseUrl(): string {
     return '/api';
   }
 
-  // Production web - API is at api.{domain}
+  // Production web fallback. For apex domains use api.example.com; for app
+  // subdomains use app-api.example.com to stay within Cloudflare Universal SSL.
+  const parts = hostname.split('.');
+  if (parts.length > 2) {
+    const [subdomain, ...rootParts] = parts;
+    return `https://${subdomain}-api.${rootParts.join('.')}`;
+  }
   return `https://api.${hostname}`;
 }
 

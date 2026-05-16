@@ -128,11 +128,11 @@ read -rp "Subdomain (optional): " SUBDOMAIN
 
 if [ -n "$SUBDOMAIN" ]; then
     DOMAIN="${SUBDOMAIN}.${ZONE_NAME}"
+    API_DOMAIN="${SUBDOMAIN}-api.${ZONE_NAME}"
 else
     DOMAIN="$ZONE_NAME"
+    API_DOMAIN="api.$DOMAIN"
 fi
-
-API_DOMAIN="api.$DOMAIN"
 
 echo ""
 echo "Frontend will be at: https://$DOMAIN"
