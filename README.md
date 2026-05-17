@@ -77,9 +77,13 @@ The script will:
 
 Your app will be available at:
 
-- Frontend: `https://your-domain.com`
+- Frontend: `https://your-domain.com` or `https://photos.example.com`
 - API: `https://api.your-domain.com` for apex domains, or `https://photos-api.example.com`
   when the frontend uses a subdomain like `photos.example.com`
+
+Avoid nested API hostnames like `api.photos.example.com` unless you have custom SSL
+coverage for that nested name. Cloudflare Universal SSL covers `*.example.com`, not
+`*.*.example.com`.
 
 Production deploys set `VITE_API_URL=https://$API_DOMAIN` at build time. If you want the
 frontend to call the API through the same origin (e.g. for SW caching), set
@@ -95,7 +99,9 @@ After the first deploy, set up DNS and custom domains:
 
 1. **Add API subdomain DNS record** (required for Worker routes):
    - Go to Cloudflare dashboard → your domain → DNS
-   - Add record: Type `AAAA`, Name `api`, IPv6 address `100::`, Proxy status: Proxied (orange cloud)
+   - Add record: Type `AAAA`, Name matching `API_DOMAIN`, IPv6 address `100::`, Proxy status: Proxied (orange cloud)
+   - Example for `API_DOMAIN=photos-api.example.com`: Name `photos-api`
+   - Example for `API_DOMAIN=api.example.com`: Name `api`
    - The actual IP doesn't matter - Cloudflare routes traffic to your Worker
 
 2. **Add Pages custom domain**:
