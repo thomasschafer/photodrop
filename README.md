@@ -191,12 +191,16 @@ The mobile app wraps the PWA for native iOS/Android with reliable push notificat
 
 See [MOBILE_PLAN.md](MOBILE_PLAN.md) for detailed implementation status.
 
+Production mobile builds package the frontend with `VITE_API_URL=https://$API_DOMAIN`.
+The GitHub mobile workflows set this from the `API_DOMAIN` repository variable.
+
 ### One-time setup (Android signing + deep links)
 
 > **Different domain?** Update these files before building:
 >
 > - `mobile/android/app/src/main/AndroidManifest.xml` (intent filter host)
-> - `mobile/capacitor.config.ts` (allowNavigation)
+> - `mobile/capacitor.config.ts` (allowNavigation for your frontend/API hosts)
+> - `mobile/android/app/src/main/res/xml/network_security_config.xml` (allowed HTTPS domains)
 > - `frontend/public/.well-known/assetlinks.json` (after generating keystore)
 > - `frontend/public/.well-known/apple-app-site-association` (with your Team ID)
 
@@ -282,7 +286,7 @@ If you need to build locally instead of using GitHub Actions:
    ```
 4. Build Android:
    ```bash
-   cd frontend && npm run build
+   cd frontend && VITE_API_URL=https://<your-api-domain> npm run build
    cd ../mobile && npm install
    cp -r ../frontend/dist ./dist
    npx cap sync android
@@ -291,7 +295,11 @@ If you need to build locally instead of using GitHub Actions:
    ```
 5. Build iOS:
    ```bash
-   cd mobile && npx cap open ios
+   cd frontend && VITE_API_URL=https://<your-api-domain> npm run build
+   cd ../mobile && npm install
+   cp -r ../frontend/dist ./dist
+   npx cap sync ios
+   npx cap open ios
    # Build and sign in Xcode
    ```
 

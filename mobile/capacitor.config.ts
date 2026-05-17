@@ -7,8 +7,8 @@ const config: CapacitorConfig = {
 
   // Server/network config
   server: {
-    // Allow navigation to our API domain
-    allowNavigation: ['*.perryschafer.com'],
+    // Allow the packaged app to reach the production frontend and API hosts.
+    allowNavigation: ['photos.perryschafer.com', 'photos-api.perryschafer.com'],
     // For development with live reload, uncomment and set your IP:
     // url: 'http://YOUR_IP:5173',
     // cleartext: true,

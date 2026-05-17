@@ -7,9 +7,10 @@
         </trust-anchors>
     </base-config>
     
-    <!-- Explicitly allow our API domain -->
+    <!-- Explicitly allow production app/API domains. -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">perryschafer.com</domain>
+        <domain>photos.perryschafer.com</domain>
+        <domain>photos-api.perryschafer.com</domain>
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
