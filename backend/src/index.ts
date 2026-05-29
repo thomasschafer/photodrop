@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { ZodError } from 'zod';
-import { logger } from './lib/logger';
+import { errorHandler } from './lib/errorHandler';
 import auth from './routes/auth';
 import users from './routes/users';
 import photos from './routes/photos';
@@ -82,15 +81,7 @@ app.route('/photos', photos);
 app.route('/groups', groups);
 app.route('/push', push);
 
-// Global error handler
-app.onError((err, c) => {
-  if (err instanceof ZodError) {
-    const messages = err.issues.map((e) => `${e.path.join('.')}: ${e.message}`);
-    return c.json({ error: 'Validation error', details: messages }, 400);
-  }
-
-  logger.error('Unhandled error', { error: err instanceof Error ? err.message : String(err) });
-  return c.json({ error: 'Internal server error' }, 500);
-});
+// Global error handler (shared with route tests via lib/errorHandler)
+app.onError(errorHandler);
 
 export default app;

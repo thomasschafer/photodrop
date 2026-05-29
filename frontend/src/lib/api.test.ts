@@ -36,6 +36,7 @@ describe('fetchWithAuth refresh-on-401', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('refreshes the token and retries the request once on a 401', async () => {
@@ -91,6 +92,27 @@ describe('fetchWithAuth refresh-on-401', () => {
     await expect(api.photos.list()).rejects.toBeInstanceOf(ApiError);
     expect(expired).toBe(true);
     expect(localStorage.getItem('accessToken')).toBeNull();
+
+    window.removeEventListener('auth:session-expired', onExpired);
+  });
+
+  it('does not attempt a refresh for unauthenticated (includeAuth=false) endpoints', async () => {
+    let expired = false;
+    const onExpired = () => {
+      expired = true;
+    };
+    window.addEventListener('auth:session-expired', onExpired);
+
+    const fetchMock = vi.fn(async () => jsonResponse({ error: 'Unauthorized' }, 401));
+    vi.stubGlobal('fetch', fetchMock);
+
+    // send-login-link is a public endpoint (includeAuth=false): a 401 must
+    // surface directly and never recurse into /auth/refresh.
+    await expect(api.auth.sendLoginLink('someone@example.com')).rejects.toBeInstanceOf(ApiError);
+
+    // Exactly one request — the original. No refresh retry was attempted.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(expired).toBe(false);
 
     window.removeEventListener('auth:session-expired', onExpired);
   });
