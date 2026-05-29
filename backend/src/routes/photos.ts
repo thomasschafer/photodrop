@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ZodError } from 'zod';
 import {
   createPhoto,
   getPhoto,
@@ -566,6 +567,10 @@ photos.post('/:id/react', requireAuth, async (c) => {
   } catch (error) {
     if (error instanceof BadRequestError) {
       return c.json({ error: error.message }, error.statusCode);
+    }
+
+    if (error instanceof ZodError) {
+      throw error;
     }
 
     console.error('Error adding reaction:', error);

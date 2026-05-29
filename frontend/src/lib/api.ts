@@ -328,21 +328,6 @@ export const api = {
       return response.json();
     },
 
-    updateRole: async (userId: string, role: 'admin' | 'viewer') => {
-      const response = await fetchWithAuth(`/users/${userId}/role`, {
-        method: 'PATCH',
-        body: JSON.stringify({ role }),
-      });
-      return response.json();
-    },
-
-    delete: async (userId: string) => {
-      const response = await fetchWithAuth(`/users/${userId}`, {
-        method: 'DELETE',
-      });
-      return response.json();
-    },
-
     updateProfile: async (profileColor: ProfileColor) => {
       const response = await fetchWithAuth('/users/me/profile', {
         method: 'PATCH',

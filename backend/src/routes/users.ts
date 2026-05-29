@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ZodError } from 'zod';
 import {
   getUserById,
   getUserMemberships,
@@ -96,6 +97,10 @@ users.patch('/me/profile', requireAuth, async (c) => {
 
     return c.json({ message: 'Profile updated', profileColor });
   } catch (error) {
+    if (error instanceof ZodError) {
+      throw error;
+    }
+
     console.error('Error updating profile:', error);
     return c.json({ error: 'Failed to update profile' }, 500);
   }

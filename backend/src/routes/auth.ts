@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ZodError } from 'zod';
 import { getCookie, setCookie } from 'hono/cookie';
 import {
   createMagicLinkToken,
@@ -95,6 +96,9 @@ auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
       existingUser: !!existingUser,
     });
   } catch (error) {
+    if (error instanceof ZodError) {
+      throw error;
+    }
     console.error('Error sending invite:', error);
     return c.json({ error: 'Failed to send invite' }, 500);
   }
@@ -131,6 +135,9 @@ auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
 
     return c.json({ message: 'If that email exists, a login link has been sent' });
   } catch (error) {
+    if (error instanceof ZodError) {
+      throw error;
+    }
     console.error('Error sending login link:', error);
     return c.json({ error: 'Failed to send login link' }, 500);
   }
@@ -378,6 +385,9 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
       });
     }
   } catch (error) {
+    if (error instanceof ZodError) {
+      throw error;
+    }
     console.error('Error verifying magic link:', error);
     return c.json({ error: 'Failed to verify magic link' }, 500);
   }
@@ -458,6 +468,9 @@ auth.post('/switch-group', requireAuth, async (c) => {
       })),
     });
   } catch (error) {
+    if (error instanceof ZodError) {
+      throw error;
+    }
     console.error('Error switching group:', error);
     return c.json({ error: 'Failed to switch group' }, 500);
   }
@@ -544,6 +557,9 @@ auth.post('/select-group', async (c) => {
       })),
     });
   } catch (error) {
+    if (error instanceof ZodError) {
+      throw error;
+    }
     console.error('Error selecting group:', error);
     return c.json({ error: 'Failed to select group' }, 500);
   }
