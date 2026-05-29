@@ -55,17 +55,22 @@ self.addEventListener('activate', (event) => {
 // Match only same-origin requests so we don't intercept cross-origin API/images (e.g. dev API on another port).
 // The SW controls the page and sees all fetches; without this guard, CacheFirst can capture those requests.
 const isSameOrigin = (url: URL) => url.origin === self.location.origin;
-const isUnauthenticatedRequest = (request: Request) => !request.headers.has('Authorization');
+
+// These runtime caches hold authenticated, user-private content. That is safe
+// because each cache is scoped to this browser and is purged on logout and
+// group switch (clearAllUserCaches / clearGroupCaches) and on SW activation
+// (above). Photo URLs are immutable and group-scoped, so a cached entry is only
+// ever valid for the same user's own content.
 
 // Cache thumbnails with cache-first strategy (no expiry, small files ~200KB)
 // (?:api\/)? prefix handles local dev where vite proxies /api/* to backend
 registerRoute(
-  ({ request, url }) =>
-    isSameOrigin(url) &&
-    isUnauthenticatedRequest(request) &&
-    url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/thumbnail$/),
+  ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/thumbnail$/),
   new CacheFirst({
     cacheName: 'photodrop:group:thumbnails',
+    // Image responses set `Vary: Authorization`; ignore it so a refreshed
+    // access token doesn't invalidate every cached image.
+    matchOptions: { ignoreVary: true },
     plugins: [
       stripTokenFromCacheKey,
       new CacheableResponsePlugin({
@@ -77,12 +82,10 @@ registerRoute(
 
 // Cache full-size photos with cache-first strategy (max 20 entries, purge on quota error)
 registerRoute(
-  ({ request, url }) =>
-    isSameOrigin(url) &&
-    isUnauthenticatedRequest(request) &&
-    url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/download$/),
+  ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/download$/),
   new CacheFirst({
     cacheName: 'photodrop:group:fullsize',
+    matchOptions: { ignoreVary: true },
     plugins: [
       stripTokenFromCacheKey,
       new CacheableResponsePlugin({
@@ -99,10 +102,7 @@ registerRoute(
 
 // Cache photo list API responses with network-first (prefer fresh data, cache fallback when offline)
 registerRoute(
-  ({ request, url }) =>
-    isSameOrigin(url) &&
-    isUnauthenticatedRequest(request) &&
-    url.pathname.match(/^\/(?:api\/)?photos$/),
+  ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos$/),
   new NetworkFirst({
     cacheName: 'photodrop:group:photo-list',
     networkTimeoutSeconds: 3,
@@ -120,9 +120,8 @@ registerRoute(
 
 // Cache user/group info API responses with network-first (prefer fresh data)
 registerRoute(
-  ({ request, url }) =>
+  ({ url }) =>
     isSameOrigin(url) &&
-    isUnauthenticatedRequest(request) &&
     (url.pathname.match(/^\/(?:api\/)?users\/me$/) ||
       url.pathname.match(/^\/(?:api\/)?groups$/) ||
       url.pathname.match(/^\/(?:api\/)?groups\/[^/]+\/members$/)),
