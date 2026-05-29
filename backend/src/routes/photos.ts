@@ -397,7 +397,8 @@ photos.get('/:id/download', requireAuth, async (c) => {
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'no-store',
+        Vary: 'Authorization',
       },
     });
   } catch (error) {
@@ -455,7 +456,8 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'no-store',
+        Vary: 'Authorization',
       },
     });
   } catch (error) {

@@ -33,6 +33,7 @@ import {
   getPhotoReactionsWithUsers,
   listPhotosWithCounts,
   createUser,
+  createMagicLinkToken,
   updateUserProfileColor,
   getRandomProfileColor,
   PROFILE_COLORS,
@@ -1421,6 +1422,34 @@ describe('Profile color functions', () => {
       // Verify the profile_color is a valid one
       const profileColor = db._mocks.mockBind.mock.calls[0][3] as ProfileColor;
       expect(PROFILE_COLORS).toContain(profileColor);
+    });
+  });
+
+  describe('createMagicLinkToken', () => {
+    it('allows login tokens without a group', async () => {
+      const db = createMockDb([]);
+
+      const token = await createMagicLinkToken(db, null, 'Test@Example.com', 'login');
+
+      expect(token).toBeTruthy();
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        expect.any(String),
+        null,
+        'test@example.com',
+        'login',
+        null,
+        expect.any(Number),
+        expect.any(Number)
+      );
+    });
+
+    it('rejects invite tokens without a group', async () => {
+      const db = createMockDb([]);
+
+      await expect(createMagicLinkToken(db, null, 'test@example.com', 'invite')).rejects.toThrow(
+        'Invite magic links require a group_id'
+      );
+      expect(db._mocks.mockPrepare).not.toHaveBeenCalled();
     });
   });
 

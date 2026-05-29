@@ -120,9 +120,8 @@ auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
     // Get user's memberships to find a group for the magic link
     const memberships = await getUserMemberships(c.env.DB, user.id);
 
-    // If user has no memberships, we still create a login token
-    // but with a special "no group" marker - the frontend will show empty state
-    const groupId = memberships.length > 0 ? memberships[0].group_id : 'no-group';
+    // Login tokens do not need to be group-scoped when the user has no groups.
+    const groupId = memberships.length > 0 ? memberships[0].group_id : null;
 
     // Create magic link token
     const token = await createMagicLinkToken(c.env.DB, groupId, email, 'login');
@@ -180,6 +179,10 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
     let memberships;
 
     if (magicToken.type === 'invite') {
+      if (!magicToken.group_id) {
+        return c.json({ error: 'Invalid invite token' }, 400);
+      }
+
       // Check if user already exists
       const existingUser = await getUserByEmail(c.env.DB, magicToken.email);
 

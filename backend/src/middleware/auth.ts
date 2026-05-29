@@ -46,11 +46,20 @@ async function authenticateUser(c: Context): Promise<boolean> {
     return false;
   }
 
+  // Access is revoked as soon as the membership disappears. Roles are also
+  // refreshed from the database so JWT role claims cannot outlive role changes.
+  const membership = await getMembership(c.env.DB, payload.sub, payload.groupId);
+  if (!membership) {
+    c.status(401);
+    c.res = c.json({ error: 'Membership no longer exists' });
+    return false;
+  }
+
   // Attach user info to context (including group_id for isolation)
   c.set('user', {
     id: payload.sub,
     groupId: payload.groupId,
-    role: payload.role,
+    role: membership.role,
   });
 
   return true;
@@ -75,14 +84,10 @@ export async function requireAdmin(c: Context, next: Next) {
     return c.json({ error: 'Admin access required' }, 403);
   }
 
-  // Check actual role from database (not JWT) to handle role changes immediately
-  const membership = await getMembership(c.env.DB, user.id, user.groupId);
-  if (!membership || membership.role !== 'admin') {
+  // authenticateUser refreshes this role from the database on every request.
+  if (user.role !== 'admin') {
     return c.json({ error: 'Admin access required' }, 403);
   }
-
-  // Update context with current role from DB
-  c.set('user', { ...user, role: membership.role });
 
   await next();
 }
