@@ -111,6 +111,14 @@ describe('POST /photos/:id/react validation', () => {
       role: 'member',
       type: 'access',
     });
+    // requireAuth -> authenticateUser looks up membership on every request.
+    mockGetMembership.mockResolvedValue({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+      joined_at: 1000,
+      image_protection: 1,
+    });
   });
 
   it('returns 400 (not 500) for an invalid reaction emoji', async () => {
@@ -126,7 +134,7 @@ describe('POST /photos/:id/react validation', () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: string };
     expect(json.error).toBe('Validation error');
-    // Validation must short-circuit before any DB lookup.
+    // Validation must short-circuit before the handler touches the photo.
     expect(mockGetPhoto).not.toHaveBeenCalled();
   });
 });
