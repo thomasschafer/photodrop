@@ -243,35 +243,30 @@ export function ReactionPills({
   const pillBaseClass =
     'h-9 rounded-full flex items-center justify-center text-sm transition-colors cursor-pointer select-none';
 
-  const { computedReactions, reactionsByEmoji } = useMemo(() => {
-    if (!reactionDetails || reactionDetails.length === 0) {
-      return { computedReactions: undefined, reactionsByEmoji: undefined };
-    }
+  // Names per emoji, for the hover / long-press tooltip. Sourced from the
+  // detailed reaction list, which loads lazily.
+  const reactionsByEmoji = useMemo(() => {
+    if (!reactionDetails || reactionDetails.length === 0) return undefined;
 
     const grouped: Record<string, string[]> = {};
-    const counts: Record<string, number> = {};
-
     for (const r of reactionDetails) {
       if (!grouped[r.emoji]) grouped[r.emoji] = [];
-      if (!counts[r.emoji]) counts[r.emoji] = 0;
-
       const name = currentUserId && r.userId === currentUserId ? 'You' : r.userName;
       grouped[r.emoji].push(name);
-      counts[r.emoji]++;
     }
-
-    const computedReactions: ReactionSummary[] = Object.entries(counts)
-      .map(([emoji, count]) => ({ emoji, count }))
-      .sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji));
-
-    return { computedReactions, reactionsByEmoji: grouped };
+    return grouped;
   }, [reactionDetails, currentUserId]);
 
-  const sortedReactionsFallback = useMemo(
+  // Counts come only from `reactions`, which is kept current optimistically.
+  // They must NOT be derived from `reactionDetails`: that list loads
+  // asynchronously, so using it for counts lets a late/stale load clobber an
+  // optimistic update — e.g. on iOS a tap also fires mouseenter and triggers
+  // the load, making the count jump +1 then snap back. Names can lag
+  // harmlessly; counts cannot.
+  const displayReactions = useMemo(
     () => [...reactions].sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji)),
     [reactions]
   );
-  const displayReactions = computedReactions ?? sortedReactionsFallback;
 
   const handleMouseEnter = useCallback(() => {
     if (showNames && !hasLoadedRef.current && onLoadReactionDetails) {
