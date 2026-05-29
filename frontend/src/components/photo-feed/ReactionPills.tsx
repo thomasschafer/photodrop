@@ -268,12 +268,21 @@ export function ReactionPills({
     [reactions]
   );
 
-  const handleMouseEnter = useCallback(() => {
+  const loadNames = useCallback(() => {
     if (showNames && !hasLoadedRef.current && onLoadReactionDetails) {
       hasLoadedRef.current = true;
       onLoadReactionDetails();
     }
   }, [showNames, onLoadReactionDetails]);
+
+  // Only hover-capable (mouse) devices load names on enter. On touch, a tap
+  // also synthesizes mouseenter, so loading here would fire a redundant fetch
+  // on every tap; touch users load names via long-press instead.
+  const handleMouseEnter = useCallback(() => {
+    if (window.matchMedia('(hover: hover)').matches) {
+      loadNames();
+    }
+  }, [loadNames]);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -307,7 +316,7 @@ export function ReactionPills({
             names={names}
             pillBaseClass={pillBaseClass}
             onClick={() => onReactionClick(emoji)}
-            onLoadDetails={handleMouseEnter}
+            onLoadDetails={loadNames}
             showTooltip={showNames && longPressTooltipEmoji === emoji}
             onShowTooltip={() => setLongPressTooltipEmoji(emoji)}
             enableLongPress={showNames}

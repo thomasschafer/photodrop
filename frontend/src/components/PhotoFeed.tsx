@@ -15,8 +15,9 @@ import {
   ReactionPills,
   Lightbox,
   EMOJI_OPTIONS,
+  toggleReaction,
+  toggleReactionDetails,
   type Photo,
-  type ReactionSummary,
   type ReactionWithUser,
 } from './photo-feed';
 
@@ -280,28 +281,11 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     const previousReactions = photo.reactions;
     const previousDetails = feedReactionDetails.get(photoId);
 
-    const isRemoving = photo.userReaction === emoji;
-    const newUserReaction = isRemoving ? null : emoji;
-
-    let newReactions: ReactionSummary[];
-    if (isRemoving) {
-      newReactions = photo.reactions
-        .map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1 } : r))
-        .filter((r) => r.count > 0);
-    } else {
-      let updated = [...photo.reactions];
-      if (previousReaction) {
-        updated = updated
-          .map((r) => (r.emoji === previousReaction ? { ...r, count: r.count - 1 } : r))
-          .filter((r) => r.count > 0);
-      }
-      const existing = updated.find((r) => r.emoji === emoji);
-      if (existing) {
-        newReactions = updated.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1 } : r));
-      } else {
-        newReactions = [...updated, { emoji, count: 1 }];
-      }
-    }
+    const {
+      userReaction: newUserReaction,
+      reactions: newReactions,
+      isRemoving,
+    } = toggleReaction(photo.userReaction, photo.reactions, emoji);
 
     setPhotos((prev) =>
       prev.map((p) =>
@@ -309,14 +293,10 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       )
     );
 
+    // Details only feed the names tooltip; update in place when already loaded
+    // so names stay correct without a refetch.
     if (previousDetails) {
-      let newDetails = previousDetails.filter((r) => r.userId !== user.id);
-      if (!isRemoving) {
-        newDetails = [
-          ...newDetails,
-          { emoji, userId: user.id, userName: user.name, profileColor: user.profileColor },
-        ];
-      }
+      const newDetails = toggleReactionDetails(previousDetails, user, emoji, isRemoving);
       setFeedReactionDetails((prev) => new Map(prev).set(photoId, newDetails));
     }
 

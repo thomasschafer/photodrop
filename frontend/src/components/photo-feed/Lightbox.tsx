@@ -12,6 +12,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { CommentPanel } from './CommentPanel';
 import type { Photo, Comment, ReactionSummary, ReactionWithUser } from './types';
 import { EMOJI_OPTIONS } from './types';
+import { toggleReaction, toggleReactionDetails } from './reactions';
 import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 
 function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
@@ -283,39 +284,15 @@ export function Lightbox({
     const previousReactions = reactions;
     const previousDetails = reactionDetails;
 
-    const isRemoving = userReaction === emoji;
-    const newUserReaction = isRemoving ? null : emoji;
-
-    let newReactions: ReactionSummary[];
-    if (isRemoving) {
-      newReactions = reactions
-        .map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1 } : r))
-        .filter((r) => r.count > 0);
-    } else {
-      let updated = [...reactions];
-      if (previousReaction) {
-        updated = updated
-          .map((r) => (r.emoji === previousReaction ? { ...r, count: r.count - 1 } : r))
-          .filter((r) => r.count > 0);
-      }
-      const existing = updated.find((r) => r.emoji === emoji);
-      if (existing) {
-        newReactions = updated.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1 } : r));
-      } else {
-        newReactions = [...updated, { emoji, count: 1 }];
-      }
-    }
+    const {
+      userReaction: newUserReaction,
+      reactions: newReactions,
+      isRemoving,
+    } = toggleReaction(userReaction, reactions, emoji);
+    const newDetails = toggleReactionDetails(reactionDetails, user, emoji, isRemoving);
 
     setUserReaction(newUserReaction);
     setReactions(newReactions);
-
-    let newDetails = reactionDetails.filter((r) => r.userId !== user.id);
-    if (!isRemoving) {
-      newDetails = [
-        ...newDetails,
-        { emoji, userId: user.id, userName: user.name, profileColor: user.profileColor },
-      ];
-    }
     setReactionDetails(newDetails);
     reactionDetailsCache.current.set(photo.id, newDetails);
 
