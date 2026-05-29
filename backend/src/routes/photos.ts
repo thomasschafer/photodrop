@@ -11,7 +11,6 @@ import {
   getPhotoReactionsWithUsers,
   getGroupPushSubscriptions,
   getGroupDeviceTokens,
-  getGroup,
   getUserById,
   createComment,
   getCommentsByPhotoId,
@@ -75,19 +74,15 @@ async function sendPhotoUploadNotifications(
   photoId: string,
   caption: string | null
 ): Promise<void> {
-  // Get group and uploader info (shared by both notification types)
-  const [group, uploader] = await Promise.all([
-    getGroup(env.DB, groupId),
-    getUserById(env.DB, uploaderId),
-  ]);
+  // Get uploader info (shared by both notification types)
+  const uploader = await getUserById(env.DB, uploaderId);
 
-  const groupName = group?.name || 'your group';
-  const uploaderName = uploader?.name || 'Someone';
-  const title = `New photo in ${groupName}`;
+  const uploaderName = uploader?.name || 'Someone'; // TODO: grab out first name
+  const title = `New photo`;
   // Sanitize caption to prevent injection in push notifications
   // Push payloads are plain text (not rendered as HTML), so just truncate
-  const sanitizedCaption = caption ? Array.from(caption).slice(0, 200).join('') : null;
-  const body = sanitizedCaption || `${uploaderName} shared a new photo`;
+  const sanitizedCaption = caption ? `"${Array.from(caption).slice(0, 200).join('')}"` : null;
+  const body = `${uploaderName} added ${sanitizedCaption || 'a new photo'}`;
 
   // Send web push notifications
   if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
