@@ -7,7 +7,9 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { api, type User, type Group } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
+import { App as CapApp } from '@capacitor/app';
+import { api, type User, type Group, type AuthResponse } from '../lib/api';
 import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
 import type { ProfileColor } from '../lib/profileColors';
 import {
@@ -60,10 +62,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     selectionToken: null,
   });
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   // Track if native push has been initialized (to avoid double init)
   const nativePushInitialized = useRef(false);
   const [imageProtection, setImageProtectionState] = useState(true);
+  // Throttle foreground-triggered refreshes so visibility + native app-state
+  // events don't fire two refreshes back to back.
+  const lastForegroundRefresh = useRef(0);
 
   const login = useCallback(
     (
@@ -291,6 +297,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => clearInterval(interval);
   }, [authState.user, authState.currentGroup, refreshAuth]);
+
+  // Keep auth state in sync when the API layer transparently refreshes the
+  // access token after a 401, and tear down + route to login when the refresh
+  // token itself is gone (the session has genuinely expired).
+  useEffect(() => {
+    const handleTokenRefreshed = (e: Event) => {
+      const data = (e as CustomEvent<AuthResponse>).detail;
+      if (!data?.user) return;
+      setAuthState({
+        user: data.user,
+        currentGroup: data.currentGroup ?? null,
+        groups: data.groups ?? [],
+        needsGroupSelection:
+          data.needsGroupSelection || (!data.currentGroup && (data.groups?.length ?? 0) > 0),
+        selectionToken: data.selectionToken ?? null,
+      });
+    };
+
+    const handleSessionExpired = () => {
+      localStorage.removeItem('accessToken');
+      setAuthState({
+        user: null,
+        currentGroup: null,
+        groups: [],
+        needsGroupSelection: false,
+        selectionToken: null,
+      });
+      clearAllUserCaches();
+      nativePushInitialized.current = false;
+      navigate('/login', { replace: true });
+    };
+
+    window.addEventListener('auth:token-refreshed', handleTokenRefreshed);
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('auth:token-refreshed', handleTokenRefreshed);
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
+  }, [navigate]);
+
+  // Refresh proactively when the app returns to the foreground. iOS freezes
+  // background timers, so the 14-minute interval above can't be relied on for
+  // PWAs/tabs that get suspended — without this, the access token can expire
+  // while backgrounded and every request fails until the app is restarted.
+  useEffect(() => {
+    if (!authState.user) return;
+
+    const refreshOnForeground = () => {
+      const now = Date.now();
+      if (now - lastForegroundRefresh.current < 30 * 1000) return;
+      lastForegroundRefresh.current = now;
+      refreshAuth();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshOnForeground();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    let nativeListener: { remove: () => void } | undefined;
+    if (isNativePlatform()) {
+      CapApp.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) refreshOnForeground();
+      }).then((handle) => {
+        nativeListener = handle;
+      });
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      nativeListener?.remove();
+    };
+  }, [authState.user, refreshAuth]);
 
   // Initialize native push notifications when authenticated with a group
   useEffect(() => {

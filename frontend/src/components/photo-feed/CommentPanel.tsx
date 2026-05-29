@@ -24,6 +24,8 @@ export interface CommentPanelProps {
   onDeleteComment: (commentId: string) => void;
   deletingCommentId: string | null;
   loadingComments: boolean;
+  commentsLoadError?: boolean;
+  onRetryLoadComments?: () => void;
   commentInputRef: React.RefObject<HTMLInputElement | null>;
   newComment: string;
   onNewCommentChange: (value: string) => void;
@@ -46,6 +48,8 @@ export function CommentPanel({
   onDeleteComment,
   deletingCommentId,
   loadingComments,
+  commentsLoadError,
+  onRetryLoadComments,
   commentInputRef,
   newComment,
   onNewCommentChange,
@@ -163,6 +167,18 @@ export function CommentPanel({
             {loadingComments ? (
               <div className="flex justify-center py-4">
                 <div className="spinner-sm" />
+              </div>
+            ) : commentsLoadError ? (
+              <div className="text-center py-4">
+                <p className="text-sm text-text-muted mb-2">Couldn't load comments.</p>
+                {onRetryLoadComments && (
+                  <button
+                    onClick={onRetryLoadComments}
+                    className="text-sm text-accent hover:underline cursor-pointer"
+                  >
+                    Try again
+                  </button>
+                )}
               </div>
             ) : sortedComments.length === 0 ? (
               <p className="text-sm text-text-muted text-center py-4">No comments yet</p>

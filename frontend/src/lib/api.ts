@@ -102,11 +102,7 @@ class NativeResponse {
   }
 }
 
-async function fetchWithAuth(
-  url: string,
-  options: RequestInit = {},
-  includeAuth: boolean = true
-): Promise<Response | NativeResponse> {
+function buildHeaders(options: RequestInit, includeAuth: boolean): Record<string, string> {
   const headers: Record<string, string> = {};
 
   if (options.headers) {
@@ -127,6 +123,18 @@ async function fetchWithAuth(
 
   // CSRF protection header
   headers['X-Requested-With'] = 'XMLHttpRequest';
+
+  return headers;
+}
+
+// Execute a single request without 401-refresh handling. Returns the response
+// as-is (including error statuses) so callers can inspect the status code.
+async function executeRequest(
+  url: string,
+  options: RequestInit,
+  includeAuth: boolean
+): Promise<Response | NativeResponse> {
+  const headers = buildHeaders(options, includeAuth);
 
   // Use native HTTP for Capacitor, regular fetch for web
   // EXCEPT for FormData uploads - use regular fetch for those (CapacitorHttp handles it via plugin)
@@ -161,31 +169,72 @@ async function fetchWithAuth(
         response = await CapacitorHttp.get(httpOptions);
     }
 
-    const nativeResponse = new NativeResponse(response);
-    if (!nativeResponse.ok) {
-      const errorData = (await nativeResponse.json()) as { error?: string };
-      throw new ApiError(
-        nativeResponse.status,
-        nativeResponse.statusText,
-        errorData?.error || 'An error occurred'
-      );
-    }
-    return nativeResponse;
+    return new NativeResponse(response);
   }
 
   // Regular fetch for web
-  const response = await fetch(`${API_BASE_URL}${url}`, {
+  return fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers,
     credentials: 'include',
   });
+}
+
+// Single-flight refresh: concurrent 401s share one /auth/refresh call so we
+// don't rotate the refresh cookie multiple times in parallel.
+let refreshPromise: Promise<boolean> | null = null;
+
+function refreshAccessToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        // includeAuth=false so this call never recurses into refresh-on-401.
+        const response = await executeRequest('/auth/refresh', { method: 'POST' }, false);
+        if (!response.ok) return false;
+        const data = (await response.json()) as AuthResponse;
+        if (!data.accessToken) return false;
+        localStorage.setItem('accessToken', data.accessToken);
+        // Let AuthContext sync user/group/role state to the refreshed token.
+        window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
+        return true;
+      } catch {
+        return false;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
+async function fetchWithAuth(
+  url: string,
+  options: RequestInit = {},
+  includeAuth: boolean = true,
+  isRetry: boolean = false
+): Promise<Response | NativeResponse> {
+  const response = await executeRequest(url, options, includeAuth);
+
+  // The access token has likely expired. Refresh once via the httpOnly refresh
+  // cookie and retry. Only for authenticated requests — /auth/* calls pass
+  // includeAuth=false, so they never trigger (and can't recurse).
+  if (response.status === 401 && includeAuth && !isRetry) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return fetchWithAuth(url, options, includeAuth, true);
+    }
+    // Refresh failed: the session is genuinely gone. Clear it and let the app
+    // (AuthContext) tear down state and route to login.
+    localStorage.removeItem('accessToken');
+    window.dispatchEvent(new CustomEvent('auth:session-expired'));
+  }
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
+    const errorData = (await response.json().catch(() => ({}))) as { error?: string };
     throw new ApiError(
       response.status,
       response.statusText,
-      errorData.error || 'An error occurred'
+      errorData?.error || 'An error occurred'
     );
   }
 

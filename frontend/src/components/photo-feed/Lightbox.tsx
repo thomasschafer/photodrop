@@ -117,6 +117,7 @@ export function Lightbox({
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [loadingComments, setLoadingComments] = useState(false);
+  const [commentsLoadError, setCommentsLoadError] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -146,6 +147,7 @@ export function Lightbox({
     setComments(cachedComments ?? []);
     setReactionDetails(cachedReactionDetails ?? []);
     setCommentError(null);
+    setCommentsLoadError(false);
     setDeleteCommentError(null);
     // Reset only on photo change, not on optimistic reaction updates
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,31 +186,32 @@ export function Lightbox({
     }
   };
 
-  useEffect(() => {
-    let stale = false;
-    const photoId = photo.id;
-
-    if (commentsCache.current.has(photoId)) return;
-
+  const loadComments = useCallback(async (photoId: string) => {
     setLoadingComments(true);
-    (async () => {
-      try {
-        const data = await api.photos.getComments(photoId);
-        if (stale) return;
-        setComments(data.comments);
-        commentsCache.current.set(photoId, data.comments);
-      } catch (err) {
-        if (stale) return;
-        console.error('Failed to load comments:', err);
-      } finally {
-        if (!stale) setLoadingComments(false);
-      }
-    })();
+    setCommentsLoadError(false);
+    try {
+      const data = await api.photos.getComments(photoId);
+      // Guard against a stale response landing after the user navigated away.
+      if (currentPhotoIdRef.current !== photoId) return;
+      setComments(data.comments);
+      commentsCache.current.set(photoId, data.comments);
+    } catch (err) {
+      if (currentPhotoIdRef.current !== photoId) return;
+      console.error('Failed to load comments:', err);
+      setCommentsLoadError(true);
+    } finally {
+      if (currentPhotoIdRef.current === photoId) setLoadingComments(false);
+    }
+  }, []);
 
-    return () => {
-      stale = true;
-    };
-  }, [photo.id]);
+  useEffect(() => {
+    if (commentsCache.current.has(photo.id)) return;
+    loadComments(photo.id);
+  }, [photo.id, loadComments]);
+
+  const handleRetryLoadComments = useCallback(() => {
+    loadComments(photo.id);
+  }, [loadComments, photo.id]);
 
   useEffect(() => {
     const preloadComments = async (photoId: string) => {
@@ -608,6 +611,8 @@ export function Lightbox({
             onDeleteComment={handleDeleteComment}
             deletingCommentId={deletingCommentId}
             loadingComments={loadingComments}
+            commentsLoadError={commentsLoadError}
+            onRetryLoadComments={handleRetryLoadComments}
             commentInputRef={commentInputRef}
             newComment={newComment}
             onNewCommentChange={setNewComment}
