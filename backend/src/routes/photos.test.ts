@@ -6,6 +6,7 @@ const mockVerifyJWT = vi.fn();
 const mockGetPhoto = vi.fn();
 const mockGetUserById = vi.fn();
 const mockCreateComment = vi.fn();
+const mockGetMembership = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
@@ -29,7 +30,7 @@ vi.mock('../lib/db', () => ({
   getCommentsByPhotoId: vi.fn(),
   getComment: vi.fn(),
   deleteComment: vi.fn(),
-  getMembership: vi.fn(),
+  getMembership: (...args: unknown[]) => mockGetMembership(...args),
 }));
 
 import photos from './photos';
@@ -39,6 +40,13 @@ describe('POST /photos/:id/comments', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetMembership.mockResolvedValue({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+      joined_at: 1000,
+      image_protection: 1,
+    });
 
     app = new Hono();
     app.use('*', async (c, next) => {

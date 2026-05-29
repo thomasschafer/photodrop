@@ -21,6 +21,13 @@ describe('requireOwner middleware', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetMembership.mockResolvedValue({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
+    });
 
     app = new Hono();
     app.use('*', async (c, next) => {
@@ -61,6 +68,13 @@ describe('requireOwner middleware', () => {
       role: 'admin',
       type: 'access',
     });
+    mockGetMembership.mockResolvedValue({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
+    });
     mockGetGroup.mockResolvedValue({
       id: 'group-1',
       name: 'Test Group',
@@ -85,6 +99,13 @@ describe('requireOwner middleware', () => {
       role: 'member',
       type: 'access',
     });
+    mockGetMembership.mockResolvedValue({
+      user_id: 'member-user',
+      group_id: 'group-1',
+      role: 'member',
+      joined_at: 1000,
+      image_protection: 1,
+    });
     mockGetGroup.mockResolvedValue({
       id: 'group-1',
       name: 'Test Group',
@@ -108,6 +129,13 @@ describe('requireOwner middleware', () => {
       groupId: 'group-1',
       role: 'admin',
       type: 'access',
+    });
+    mockGetMembership.mockResolvedValue({
+      user_id: 'owner-user',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
     });
     mockGetGroup.mockResolvedValue({
       id: 'group-1',
@@ -143,5 +171,25 @@ describe('requireOwner middleware', () => {
     expect(res.status).toBe(403);
     const json = (await res.json()) as { error: string };
     expect(json.error).toBe('Only the group owner can perform this action');
+  });
+
+  it('returns 401 when membership has been removed', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'removed-user',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+    mockGetMembership.mockResolvedValue(null);
+
+    const res = await app.request('/test', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Membership no longer exists');
+    expect(mockGetGroup).not.toHaveBeenCalled();
   });
 });
