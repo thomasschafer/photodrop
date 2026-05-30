@@ -62,9 +62,9 @@ function Consumer() {
   );
 }
 
-function renderApp() {
+function renderApp(initialPath = '/') {
   return render(
-    <MemoryRouter initialEntries={['/']}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <AuthProvider>
         <Consumer />
       </AuthProvider>
@@ -125,6 +125,22 @@ describe('AuthProvider session resilience', () => {
       expect(screen.getByTestId('status').textContent).toBe('anon');
       expect(screen.getByTestId('path').textContent).toBe('/login');
     });
+    expect(localStorage.getItem('accessToken')).toBeNull();
+  });
+
+  it('does not redirect away from a magic-link route when the session expires', async () => {
+    // A stale session in the same browser must not bounce the user off the
+    // /auth/:token verify page they just opened.
+    renderApp('/auth/some-token');
+    await screen.findByText('user:Tom');
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('auth:session-expired'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anon'));
+    // State is cleared, but the route is left intact for the verify flow.
+    expect(screen.getByTestId('path').textContent).toBe('/auth/some-token');
     expect(localStorage.getItem('accessToken')).toBeNull();
   });
 

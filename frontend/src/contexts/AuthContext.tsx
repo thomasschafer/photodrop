@@ -7,7 +7,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
 import { api, type User, type Group, type AuthResponse } from '../lib/api';
 import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
@@ -63,6 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  // Current pathname via a ref so event-driven callbacks read it fresh without
+  // re-subscribing on every navigation.
+  const pathname = useLocation().pathname;
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
   // Track if native push has been initialized (to avoid double init)
   const nativePushInitialized = useRef(false);
@@ -326,7 +331,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       clearAllUserCaches();
       nativePushInitialized.current = false;
-      navigate('/login', { replace: true });
+      // Don't redirect away from an in-progress magic-link verification: the
+      // verify page owns that flow. Otherwise a stale session in the same
+      // browser (e.g. after being removed from a group) would bounce the user
+      // to /login instead of letting them sign in via the link they clicked.
+      if (!pathnameRef.current.startsWith('/auth/')) {
+        navigate('/login', { replace: true });
+      }
     };
 
     window.addEventListener('auth:token-refreshed', handleTokenRefreshed);
