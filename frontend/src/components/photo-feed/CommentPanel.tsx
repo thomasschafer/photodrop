@@ -25,6 +25,8 @@ export interface CommentPanelProps {
   currentUserId?: string;
   isAdmin: boolean;
   reactionPillsProps: Omit<ReactionPillsProps, 'reactions' | 'userReaction'>;
+  /** Remounts the reaction pills (resetting the picker) when the photo changes. */
+  reactionsKey?: string;
   commentSortOrder: 'newest' | 'oldest';
   onSortOrderChange: (order: 'newest' | 'oldest') => void;
   onToggleExpanded: () => void;
@@ -50,6 +52,7 @@ export function CommentPanel({
   currentUserId,
   isAdmin,
   reactionPillsProps,
+  reactionsKey,
   commentSortOrder,
   onSortOrderChange,
   onToggleExpanded,
@@ -74,7 +77,12 @@ export function CommentPanel({
   );
 
   const reactionPillsElement = (
-    <ReactionPills reactions={reactions} userReaction={userReaction} {...reactionPillsProps} />
+    <ReactionPills
+      key={reactionsKey}
+      reactions={reactions}
+      userReaction={userReaction}
+      {...reactionPillsProps}
+    />
   );
 
   const arrowIcon = (

@@ -1,7 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getNavDirection, isHorizontalNavKey } from '../../lib/keyboard';
-import { useDropdown } from '../../lib/useDropdown';
+import { getNavDirection } from '../../lib/keyboard';
 import { useIsPortrait } from '../../lib/useIsPortrait';
 import { useVirtualCarousel } from '../../lib/useVirtualCarousel';
 import { useAuthenticatedImage, preloadImage } from '../../lib/useAuthenticatedImage';
@@ -10,7 +9,6 @@ import { ConfirmModal } from '../ConfirmModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { CommentPanel } from './CommentPanel';
 import type { Photo } from './types';
-import { EMOJI_OPTIONS } from './types';
 import { useLightboxReactions } from './useLightboxReactions';
 import { useLightboxComments } from './useLightboxComments';
 
@@ -114,26 +112,7 @@ export function Lightbox({
     cancelDeleteComment,
   } = useLightboxComments({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
 
-  // Scope the picker's open state to a photo id so it closes automatically when
-  // the active photo changes — derived rather than reset via an effect.
-  const [pickerOpenForPhotoId, setPickerOpenForPhotoId] = useState<string | null>(null);
-  const showReactionPicker = pickerOpenForPhotoId === photo.id;
   const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('newest');
-
-  const currentReactionIndex = userReaction ? EMOJI_OPTIONS.indexOf(userReaction) : 0;
-  const {
-    containerRef: reactionPickerRef,
-    triggerRef: reactionTriggerRef,
-    setOptionRef: reactionSetOptionRef,
-    handleOptionKeyDown: handleReactionOptionKeyDown,
-    handleBlur: handleReactionPickerBlur,
-  } = useDropdown({
-    isOpen: showReactionPicker,
-    onClose: () => setPickerOpenForPhotoId(null),
-    itemCount: EMOJI_OPTIONS.length,
-    initialFocusIndex: currentReactionIndex >= 0 ? currentReactionIndex : 0,
-    horizontal: true,
-  });
 
   useLayoutEffect(() => {
     if (initialIndex !== centerIndex) {
@@ -167,13 +146,6 @@ export function Lightbox({
     };
   }, []);
 
-  const handleReactionTriggerKeyDown = (e: React.KeyboardEvent) => {
-    if (isHorizontalNavKey(e)) {
-      e.preventDefault();
-      setPickerOpenForPhotoId(photo.id);
-    }
-  };
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement === commentInputRef.current) {
@@ -183,7 +155,9 @@ export function Lightbox({
         return;
       }
 
-      if (showReactionPicker) return;
+      // Let an open in-panel menu/picker (reaction picker, sort dropdown) handle
+      // its own arrow/escape keys instead of navigating photos.
+      if ((document.activeElement as Element | null)?.closest('[role="listbox"]')) return;
 
       if (e.key === 'Escape') {
         onClose();
@@ -201,7 +175,7 @@ export function Lightbox({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, onIndexChange, centerIndex, photos.length, showReactionPicker]);
+  }, [onClose, onIndexChange, centerIndex, photos.length]);
 
   return (
     <div
@@ -324,22 +298,9 @@ export function Lightbox({
             commentsExpanded={commentsExpanded}
             currentUserId={user?.id}
             isAdmin={isAdmin}
+            reactionsKey={photo.id}
             reactionPillsProps={{
-              onReactionClick: (emoji) => {
-                handleReactionClick(emoji);
-                setPickerOpenForPhotoId(null);
-                reactionTriggerRef.current?.focus();
-              },
-              onAddClick: () => setPickerOpenForPhotoId(showReactionPicker ? null : photo.id),
-              showPicker: showReactionPicker,
-              pickerRef: reactionPickerRef,
-              triggerRef: (el) => {
-                reactionTriggerRef.current = el;
-              },
-              setOptionRef: reactionSetOptionRef,
-              onPickerBlur: handleReactionPickerBlur,
-              onTriggerKeyDown: handleReactionTriggerKeyDown,
-              onOptionKeyDown: handleReactionOptionKeyDown,
+              onReactionClick: handleReactionClick,
               pickerPosition: isPortrait ? 'above' : 'below',
               useViewportPositioning: isPortrait,
               reactionDetails: reactionDetails,

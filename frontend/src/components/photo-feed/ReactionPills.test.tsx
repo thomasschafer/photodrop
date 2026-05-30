@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ReactionPills } from './ReactionPills';
 import type { ReactionWithUser } from './types';
 
@@ -18,8 +18,6 @@ describe('ReactionPills', () => {
         reactions={[{ emoji: '❤️', count: 2 }]}
         userReaction="❤️"
         onReactionClick={vi.fn()}
-        onAddClick={vi.fn()}
-        showPicker={false}
         reactionDetails={staleDetails}
         currentUserId="me"
         showNames
@@ -31,7 +29,7 @@ describe('ReactionPills', () => {
     expect(pill.textContent).not.toContain('1');
   });
 
-  it('invokes onReactionClick with the tapped emoji', () => {
+  it('invokes onReactionClick when an existing pill is tapped', () => {
     const onReactionClick = vi.fn();
 
     render(
@@ -39,12 +37,27 @@ describe('ReactionPills', () => {
         reactions={[{ emoji: '🔥', count: 1 }]}
         userReaction={null}
         onReactionClick={onReactionClick}
-        onAddClick={vi.fn()}
-        showPicker={false}
       />
     );
 
     fireEvent.click(screen.getByLabelText('Add 🔥 reaction'));
     expect(onReactionClick).toHaveBeenCalledWith('🔥');
+  });
+
+  it('opens its own picker and selects an emoji from it', () => {
+    const onReactionClick = vi.fn();
+
+    render(<ReactionPills reactions={[]} userReaction={null} onReactionClick={onReactionClick} />);
+
+    // No picker until the trigger is tapped (ReactionPills owns this now).
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add reaction' }));
+    const picker = screen.getByRole('listbox', { name: 'Select reaction' });
+
+    fireEvent.click(within(picker).getByRole('option', { name: 'React with 😂' }));
+
+    expect(onReactionClick).toHaveBeenCalledWith('😂');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 });

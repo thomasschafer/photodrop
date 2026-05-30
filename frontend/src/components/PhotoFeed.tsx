@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatRelativeTime } from '../lib/dateFormat';
 import { useFocusRestore } from '../lib/hooks';
-import { getNavDirection, isHorizontalNavKey } from '../lib/keyboard';
+import { getNavDirection } from '../lib/keyboard';
 import { useAuthenticatedImage } from '../lib/useAuthenticatedImage';
 import { PullToRefresh } from './PullToRefresh';
 import { ConfirmModal } from './ConfirmModal';
@@ -14,7 +14,6 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   ReactionPills,
   Lightbox,
-  EMOJI_OPTIONS,
   toggleReaction,
   toggleReactionDetails,
   type Photo,
@@ -63,16 +62,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [feedReactionPickerPhotoId, setFeedReactionPickerPhotoId] = useState<string | null>(null);
   const [feedReactionDetails, setFeedReactionDetails] = useState<Map<string, ReactionWithUser[]>>(
     new Map()
   );
   const [uploadButtonRef, restoreUploadFocus] = useFocusRestore<HTMLButtonElement>();
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
-  const feedReactionPickerRef = useRef<HTMLDivElement>(null);
-  const feedReactionTriggerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
-  const feedReactionOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -91,44 +86,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     },
     [feedReactionDetails]
   );
-
-  // Close feed reaction picker on click outside or escape
-  useEffect(() => {
-    if (!feedReactionPickerPhotoId) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        feedReactionPickerRef.current &&
-        !feedReactionPickerRef.current.contains(e.target as Node)
-      ) {
-        setFeedReactionPickerPhotoId(null);
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setFeedReactionPickerPhotoId(null);
-        feedReactionTriggerRefs.current.get(feedReactionPickerPhotoId)?.focus();
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [feedReactionPickerPhotoId]);
-
-  // Focus first option when feed reaction picker opens
-  useEffect(() => {
-    if (feedReactionPickerPhotoId) {
-      const photo = photos.find((p) => p.id === feedReactionPickerPhotoId);
-      const currentIndex = photo?.userReaction ? EMOJI_OPTIONS.indexOf(photo.userReaction) : 0;
-      feedReactionOptionRefs.current[currentIndex >= 0 ? currentIndex : 0]?.focus();
-    }
-  }, [feedReactionPickerPhotoId, photos]);
 
   const selectedPhotoIndex = photoId ? photos.findIndex((p) => p.id === photoId) : null;
   const selectedPhoto =
@@ -300,9 +257,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       setFeedReactionDetails((prev) => new Map(prev).set(photoId, newDetails));
     }
 
-    setFeedReactionPickerPhotoId(null);
-    feedReactionTriggerRefs.current.get(photoId)?.focus();
-
     try {
       if (isRemoving) {
         await api.photos.removeReaction(photoId);
@@ -323,43 +277,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       }
     }
   };
-
-  const handleFeedReactionKeyDown = (e: React.KeyboardEvent, index: number, photoId: string) => {
-    const direction = getNavDirection(e);
-    if (direction === 'right') {
-      e.preventDefault();
-      const nextIndex = Math.min(index + 1, EMOJI_OPTIONS.length - 1);
-      feedReactionOptionRefs.current[nextIndex]?.focus();
-    } else if (direction === 'left') {
-      e.preventDefault();
-      const prevIndex = Math.max(index - 1, 0);
-      feedReactionOptionRefs.current[prevIndex]?.focus();
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      feedReactionOptionRefs.current[0]?.focus();
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      feedReactionOptionRefs.current[EMOJI_OPTIONS.length - 1]?.focus();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setFeedReactionPickerPhotoId(null);
-      feedReactionTriggerRefs.current.get(photoId)?.focus();
-    }
-  };
-
-  const handleFeedReactionTriggerKeyDown = (e: React.KeyboardEvent, photoId: string) => {
-    if (isHorizontalNavKey(e)) {
-      e.preventDefault();
-      e.stopPropagation();
-      setFeedReactionPickerPhotoId(photoId);
-    }
-  };
-
-  const handleFeedReactionPickerBlur = useCallback((e: React.FocusEvent) => {
-    if (!feedReactionPickerRef.current?.contains(e.relatedTarget as Node)) {
-      setFeedReactionPickerPhotoId(null);
-    }
-  }, []);
 
   if (loading) {
     return (
@@ -475,27 +392,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                     reactions={photo.reactions}
                     userReaction={photo.userReaction}
                     onReactionClick={(emoji) => handleFeedReactionClick(photo.id, emoji)}
-                    onAddClick={() =>
-                      setFeedReactionPickerPhotoId(
-                        feedReactionPickerPhotoId === photo.id ? null : photo.id
-                      )
-                    }
-                    showPicker={feedReactionPickerPhotoId === photo.id}
-                    pickerRef={feedReactionPickerRef}
-                    triggerRef={(el) => {
-                      if (el) {
-                        feedReactionTriggerRefs.current.set(photo.id, el);
-                      } else {
-                        feedReactionTriggerRefs.current.delete(photo.id);
-                      }
-                    }}
-                    setOptionRef={(index) => (el) => {
-                      feedReactionOptionRefs.current[index] = el;
-                    }}
-                    onPickerBlur={handleFeedReactionPickerBlur}
-                    onTriggerKeyDown={(e) => handleFeedReactionTriggerKeyDown(e, photo.id)}
-                    onOptionKeyDown={(e, index) => handleFeedReactionKeyDown(e, index, photo.id)}
-                    onPickerSelect={(emoji) => handleFeedReactionClick(photo.id, emoji)}
                     reactionDetails={feedReactionDetails.get(photo.id)}
                     onLoadReactionDetails={() => loadFeedReactionDetails(photo.id)}
                     currentUserId={user?.id}

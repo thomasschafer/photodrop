@@ -25,7 +25,7 @@ function renderPanel(overrides: Partial<CommentPanelProps> = {}) {
     commentsExpanded: true,
     currentUserId: 'me',
     isAdmin: false,
-    reactionPillsProps: { onReactionClick: vi.fn(), onAddClick: vi.fn(), showPicker: false },
+    reactionPillsProps: { onReactionClick: vi.fn() },
     commentSortOrder: 'newest',
     onSortOrderChange: vi.fn(),
     onToggleExpanded: vi.fn(),
