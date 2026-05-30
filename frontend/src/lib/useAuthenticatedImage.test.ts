@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { useAuthenticatedImage, clearImageCache, LRUImageCache } from './useAuthenticatedImage';
+import {
+  useAuthenticatedImage,
+  preloadImage,
+  clearImageCache,
+  LRUImageCache,
+} from './useAuthenticatedImage';
 
 // Declare global for Node.js environment in tests
 declare const global: typeof globalThis;
@@ -112,6 +117,26 @@ describe('useAuthenticatedImage', () => {
 
       // Fetch should only have been called once
       expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('dedupes concurrent loads of the same image (no double fetch or revoke)', async () => {
+      // The lightbox renders an image and preloads the same neighbour at the
+      // same time. Both must share one fetch + one blob URL — otherwise the
+      // second cache write revokes the first, still-displayed blob, producing
+      // ERR_FILE_NOT_FOUND when navigating.
+      const { result } = renderHook(() => useAuthenticatedImage(mockPhotoId, 'download'));
+      // Kick off a concurrent preload for the same image while the first load
+      // is still in flight.
+      const preload = preloadImage(mockPhotoId, 'download');
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      await preload;
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+      expect(result.current.src).toBe('blob:test-url');
+      expect(result.current.error).toBeNull();
     });
   });
 

@@ -22,7 +22,6 @@ interface UseVirtualCarouselReturn {
   visibleIndices: number[];
   handlers: {
     onTouchStart: (e: React.TouchEvent) => void;
-    onTouchMove: (e: React.TouchEvent) => void;
     onTouchEnd: (e: React.TouchEvent) => void;
   };
   reset: (newIndex?: number) => void;
@@ -143,8 +142,11 @@ export function useVirtualCarousel({
     [excludeRef]
   );
 
+  // Native (non-passive) so preventDefault() actually suppresses the page
+  // scroll during a horizontal swipe. React's onTouchMove is registered as a
+  // passive listener, where preventDefault is ignored (and warns).
   const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
+    (e: TouchEvent) => {
       if (!touchStartRef.current) return;
 
       const touch = e.touches[0];
@@ -207,6 +209,14 @@ export function useVirtualCarousel({
     },
     [totalCount, containerRef]
   );
+
+  // Attach touchmove ourselves with passive:false so preventDefault works.
+  useEffect(() => {
+    const el = containerRef?.current;
+    if (!el) return;
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    return () => el.removeEventListener('touchmove', handleTouchMove);
+  }, [containerRef, handleTouchMove]);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
@@ -298,7 +308,6 @@ export function useVirtualCarousel({
     visibleIndices,
     handlers: {
       onTouchStart: handleTouchStart,
-      onTouchMove: handleTouchMove,
       onTouchEnd: handleTouchEnd,
     },
     reset,
