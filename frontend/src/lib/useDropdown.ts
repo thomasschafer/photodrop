@@ -76,9 +76,15 @@ export function useDropdown({
     };
   }, [isOpen, onClose, closeOnScroll]);
 
-  // Handle blur (tab out)
+  // Handle blur (keyboard tab-out). A null relatedTarget means focus didn't
+  // move to another element — notably on iOS Safari, tapping a button doesn't
+  // focus it, so the auto-focused option blurs with no relatedTarget. Closing
+  // here would unmount the option before its click registers, so the tap never
+  // selects anything. Outside taps are handled by the mousedown listener above,
+  // so this path only needs to close on a real tab-out (relatedTarget present).
   const handleBlur = useCallback(
     (e: React.FocusEvent) => {
+      if (!e.relatedTarget) return;
       if (!containerRef.current?.contains(e.relatedTarget as Node)) {
         onClose();
       }
