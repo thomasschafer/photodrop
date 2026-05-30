@@ -14,6 +14,13 @@ export interface CommentPanelProps {
   reactions: ReactionSummary[];
   userReaction: string | null;
   comments: Comment[];
+  /**
+   * Authoritative count of non-deleted comments (from `photo.commentCount`).
+   * Used for the badge so it matches the feed and stays correct through
+   * optimistic add/delete; deleted-comment tombstones in `comments` are shown
+   * but not counted.
+   */
+  commentCount: number;
   commentsExpanded: boolean;
   currentUserId?: string;
   isAdmin: boolean;
@@ -38,6 +45,7 @@ export function CommentPanel({
   reactions,
   userReaction,
   comments,
+  commentCount,
   commentsExpanded,
   currentUserId,
   isAdmin,
@@ -68,8 +76,6 @@ export function CommentPanel({
   const reactionPillsElement = (
     <ReactionPills reactions={reactions} userReaction={userReaction} {...reactionPillsProps} />
   );
-
-  const commentCount = comments.length;
 
   const arrowIcon = (
     <>
@@ -185,31 +191,49 @@ export function CommentPanel({
             ) : (
               <div className="divide-y divide-border">
                 {sortedComments.map((comment) => {
-                  const isAuthorDeleted = !comment.isDeleted && !comment.userId;
-                  const authorLabel = comment.isDeleted
-                    ? `(deleted) ${comment.authorName}`
-                    : isAuthorDeleted
-                      ? 'Deleted user'
-                      : comment.authorName;
-                  const authorClass =
-                    comment.isDeleted || isAuthorDeleted
-                      ? 'font-medium text-text-muted'
-                      : 'font-medium text-text-primary';
+                  // Deleted comments keep their place in the thread as an
+                  // unattributed tombstone so the surrounding replies still
+                  // make sense, but carry no author, avatar, or delete action.
+                  if (comment.isDeleted) {
+                    return (
+                      <div key={comment.id} className="text-sm py-3 first:pt-0 last:pb-0">
+                        <p className="break-words italic text-text-muted">
+                          This comment has been deleted.
+                        </p>
+                        <p className="text-xs text-text-muted mt-1">
+                          {formatRelativeTime(comment.createdAt)}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  // A null userId on a live comment means the author's account
+                  // was removed (distinct from the comment being deleted).
+                  const isAuthorDeleted = !comment.userId;
+                  const canDelete = comment.userId === currentUserId || isAdmin;
 
                   return (
                     <div key={comment.id} className="text-sm py-3 first:pt-0 last:pb-0">
                       <div className="flex justify-between items-center gap-2">
                         <span className="flex items-center gap-1.5">
-                          {comment.authorProfileColor && !comment.isDeleted && !isAuthorDeleted && (
+                          {comment.authorProfileColor && !isAuthorDeleted && (
                             <Avatar
                               name={comment.authorName}
                               color={comment.authorProfileColor}
                               size="sm"
                             />
                           )}
-                          <span className={authorClass}>{authorLabel}</span>
+                          <span
+                            className={
+                              isAuthorDeleted
+                                ? 'font-medium text-text-muted'
+                                : 'font-medium text-text-primary'
+                            }
+                          >
+                            {isAuthorDeleted ? 'Deleted user' : comment.authorName}
+                          </span>
                         </span>
-                        {(comment.userId === currentUserId || isAdmin) && !comment.isDeleted && (
+                        {canDelete && (
                           <button
                             onClick={() => onDeleteComment(comment.id)}
                             disabled={deletingCommentId === comment.id}
@@ -219,11 +243,7 @@ export function CommentPanel({
                           </button>
                         )}
                       </div>
-                      <p
-                        className={`mt-0.5 break-words ${comment.isDeleted ? 'text-text-muted italic' : 'text-text-secondary'}`}
-                      >
-                        {comment.isDeleted ? 'This comment has been deleted.' : comment.content}
-                      </p>
+                      <p className="mt-0.5 break-words text-text-secondary">{comment.content}</p>
                       <p className="text-xs text-text-muted mt-1">
                         {formatRelativeTime(comment.createdAt)}
                       </p>

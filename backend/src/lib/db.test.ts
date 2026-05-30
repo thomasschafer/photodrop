@@ -27,9 +27,6 @@ import {
   getCommentsByPhotoId,
   getComment,
   deleteComment,
-  getCommentCount,
-  getReactionSummary,
-  getUserReaction,
   getPhotoReactionsWithUsers,
   listPhotosWithCounts,
   createUser,
@@ -1091,77 +1088,9 @@ describe('Comment functions', () => {
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
   });
-
-  describe('getCommentCount', () => {
-    it('returns count for photo with comments', async () => {
-      const db = createMockDb([{ count: 5 }]);
-
-      const result = await getCommentCount(db, 'photo-1');
-
-      expect(result).toBe(5);
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        expect.stringContaining('deleted_at IS NULL')
-      );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
-    });
-
-    it('returns 0 for photo with no comments', async () => {
-      const db = createMockDb([{ count: 0 }]);
-
-      const result = await getCommentCount(db, 'photo-empty');
-
-      expect(result).toBe(0);
-    });
-  });
 });
 
 describe('Reaction functions', () => {
-  describe('getReactionSummary', () => {
-    it('returns grouped reaction counts', async () => {
-      const reactions = [
-        { emoji: '❤️', count: 5 },
-        { emoji: '😂', count: 3 },
-      ];
-      const db = createMockDb(reactions);
-
-      const result = await getReactionSummary(db, 'photo-1');
-
-      expect(result).toHaveLength(2);
-      expect(result[0].emoji).toBe('❤️');
-      expect(result[0].count).toBe(5);
-      expect(result[1].emoji).toBe('😂');
-      expect(result[1].count).toBe(3);
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
-    });
-
-    it('returns empty array when no reactions', async () => {
-      const db = createMockDb([]);
-
-      const result = await getReactionSummary(db, 'photo-1');
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('getUserReaction', () => {
-    it('returns user reaction emoji', async () => {
-      const db = createMockDb([{ emoji: '❤️' }]);
-
-      const result = await getUserReaction(db, 'photo-1', 'user-1');
-
-      expect(result).toBe('❤️');
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1', 'user-1');
-    });
-
-    it('returns null when user has no reaction', async () => {
-      const db = createMockDb([]);
-
-      const result = await getUserReaction(db, 'photo-1', 'user-1');
-
-      expect(result).toBeNull();
-    });
-  });
-
   describe('getPhotoReactionsWithUsers', () => {
     it('returns reactions with user details', async () => {
       const reactions = [
@@ -1214,7 +1143,6 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 5,
-        reaction_count: 10,
         user_reaction: '❤️',
       },
     ];
@@ -1229,7 +1157,6 @@ describe('listPhotosWithCounts', () => {
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('photo-1');
     expect(result[0].comment_count).toBe(5);
-    expect(result[0].reaction_count).toBe(10);
     expect(result[0].user_reaction).toBe('❤️');
     expect(result[0].reactions).toHaveLength(2);
     expect(result[0].reactions[0]).toEqual({ emoji: '❤️', count: 7 });
@@ -1247,7 +1174,6 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 0,
-        reaction_count: 0,
         user_reaction: null,
       },
     ];
@@ -1258,7 +1184,6 @@ describe('listPhotosWithCounts', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].comment_count).toBe(0);
-    expect(result[0].reaction_count).toBe(0);
     expect(result[0].user_reaction).toBeNull();
     expect(result[0].reactions).toEqual([]);
   });
@@ -1282,7 +1207,6 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 2000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 2,
-        reaction_count: 5,
         user_reaction: '❤️',
       },
       {
@@ -1294,7 +1218,6 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/2.jpg',
         comment_count: 0,
-        reaction_count: 3,
         user_reaction: null,
       },
     ];
@@ -1332,7 +1255,6 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 0,
-        reaction_count: 0,
         user_reaction: null,
       },
     ];

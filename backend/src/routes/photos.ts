@@ -170,7 +170,6 @@ photos.get('/', requireAuth, async (c) => {
         caption: photo.caption,
         uploadedBy: photo.uploaded_by,
         uploadedAt: photo.uploaded_at,
-        reactionCount: photo.reaction_count,
         commentCount: photo.comment_count,
         reactions: photo.reactions,
         userReaction: photo.user_reaction,

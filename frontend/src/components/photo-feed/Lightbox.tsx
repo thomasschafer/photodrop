@@ -544,6 +544,7 @@ export function Lightbox({
             reactions={reactions}
             userReaction={userReaction}
             comments={comments}
+            commentCount={photo.commentCount}
             commentsExpanded={commentsExpanded}
             currentUserId={user?.id}
             isAdmin={isAdmin}
