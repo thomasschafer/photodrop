@@ -63,7 +63,7 @@ export function SwUpdatePrompt() {
         <p className="text-sm text-text-secondary">A new version is available!</p>
         <button
           onClick={handleUpdate}
-          className="px-3 py-1.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors cursor-pointer flex-shrink-0"
+          className="px-3 py-1.5 rounded-lg bg-accent-solid text-white text-sm font-medium hover:bg-accent-solid-hover transition-colors cursor-pointer flex-shrink-0"
         >
           Update
         </button>
