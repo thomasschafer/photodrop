@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ZodError } from 'zod';
 import {
   createPushSubscription,
   deletePushSubscriptionForGroup,
@@ -8,10 +9,10 @@ import {
   deleteDeviceToken,
   getDeviceToken,
   countUserDeviceTokensSince,
-  type DevicePlatform,
 } from '../lib/db';
 import { configureFcm, isFcmConfigured, sendFcmNotification } from '../lib/fcm';
 import { requireAuth } from '../middleware/auth';
+import { subscribeSchema, registerDeviceSchema } from '../lib/schemas';
 import type { AppEnv } from '../types';
 
 // Rate limit: max new device token registrations per user per hour
@@ -32,12 +33,7 @@ push.get('/vapid-public-key', (c) => {
 push.post('/subscribe', requireAuth, async (c) => {
   try {
     const user = c.get('user');
-    const body = await c.req.json();
-
-    const { endpoint, keys } = body;
-    if (!endpoint || !keys?.p256dh || !keys?.auth) {
-      return c.json({ error: 'Invalid subscription data' }, 400);
-    }
+    const { endpoint, keys } = subscribeSchema.parse(await c.req.json());
 
     const { deletionToken } = await createPushSubscription(
       c.env.DB,
@@ -50,6 +46,9 @@ push.post('/subscribe', requireAuth, async (c) => {
 
     return c.json({ message: 'Subscribed successfully', deletionToken }, 201);
   } catch (error) {
+    if (error instanceof ZodError) {
+      throw error;
+    }
     console.error('Error subscribing to push:', error);
     return c.json({ error: 'Failed to subscribe' }, 500);
   }
@@ -128,17 +127,7 @@ push.get('/status', requireAuth, async (c) => {
 push.post('/device', requireAuth, async (c) => {
   try {
     const user = c.get('user');
-    const body = await c.req.json();
-
-    const { platform, token } = body;
-
-    if (!platform || !token) {
-      return c.json({ error: 'Platform and token are required' }, 400);
-    }
-
-    if (platform !== 'ios' && platform !== 'android') {
-      return c.json({ error: 'Platform must be ios or android' }, 400);
-    }
+    const { platform, token } = registerDeviceSchema.parse(await c.req.json());
 
     // Rate limit: check how many new tokens this user has registered recently
     const now = Math.floor(Date.now() / 1000);
@@ -149,10 +138,13 @@ push.post('/device', requireAuth, async (c) => {
       return c.json({ error: 'Too many device registrations. Please try again later.' }, 429);
     }
 
-    await createDeviceToken(c.env.DB, user.id, user.groupId, platform as DevicePlatform, token);
+    await createDeviceToken(c.env.DB, user.id, user.groupId, platform, token);
 
     return c.json({ message: 'Device registered successfully' }, 201);
   } catch (error) {
+    if (error instanceof ZodError) {
+      throw error;
+    }
     console.error('Error registering device token:', error);
     return c.json({ error: 'Failed to register device' }, 500);
   }
