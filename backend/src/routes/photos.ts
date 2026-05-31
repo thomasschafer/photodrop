@@ -78,7 +78,7 @@ async function sendPhotoUploadNotifications(
   // Get uploader info (shared by both notification types)
   const uploader = await getUserById(env.DB, uploaderId);
 
-  const uploaderName = uploader?.name || 'Someone'; // TODO: grab out first name
+  const uploaderName = uploader?.name || 'Someone';
   const title = `New photo`;
   // Sanitize caption to prevent injection in push notifications
   // Push payloads are plain text (not rendered as HTML), so just truncate
@@ -396,6 +396,9 @@ photos.get('/:id/download', requireAuth, async (c) => {
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
+        // Private image: no shared/HTTP/CDN caching, and vary by the auth header.
+        // The app's service worker caches it deliberately (per-browser, purged
+        // on logout/group switch) via CacheFirst + ignoreVary.
         'Cache-Control': 'no-store',
         Vary: 'Authorization',
       },
@@ -455,6 +458,8 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
+        // See the download route: private image, no shared/HTTP/CDN caching;
+        // the service worker caches it deliberately (CacheFirst + ignoreVary).
         'Cache-Control': 'no-store',
         Vary: 'Authorization',
       },
