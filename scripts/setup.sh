@@ -224,6 +224,10 @@ cleanup() {
 trap cleanup EXIT
 
 write_secrets_file() {
+    # Export so the node subprocess can read them via process.env. Generated and
+    # sourced values are plain (unexported) shell variables, so without this the
+    # secrets file is written empty and the Worker deploys with no secrets.
+    export JWT_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY RESEND_API_KEY FIREBASE_SERVICE_ACCOUNT
     SECRETS_FILE_PATH="$SECRETS_FILE" node <<'NODE'
 const fs = require('fs');
 
