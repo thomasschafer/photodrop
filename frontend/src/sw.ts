@@ -8,14 +8,12 @@ import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 
 declare let self: ServiceWorkerGlobalScope;
 
-// Security-sensitive SW updates must activate immediately so old workers stop
-// serving auth-scoped runtime caches.
-self.skipWaiting();
-
 // Clean up old caches
 cleanupOutdatedCaches();
 
-// Listen for message from client to activate the new SW
+// A new worker waits until the user accepts the update (SwUpdatePrompt posts
+// SKIP_WAITING), so we never reload mid-session unexpectedly. The activate
+// handler below still purges auth-scoped caches when the new worker takes over.
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();

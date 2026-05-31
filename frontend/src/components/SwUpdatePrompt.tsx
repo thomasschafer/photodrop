@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 /**
  * Shows a banner when a new service worker is waiting to activate.
@@ -7,11 +7,15 @@ import { useState, useEffect } from 'react';
 export function SwUpdatePrompt() {
   const [showPrompt, setShowPrompt] = useState(false);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
+  // Set when the user accepts the update, so we only reload for an explicit
+  // update — not the first-install controllerchange from clientsClaim().
+  const userAcceptedUpdate = useRef(false);
 
   useEffect(() => {
     if (!navigator.serviceWorker) return;
 
     const handleControllerChange = () => {
+      if (!userAcceptedUpdate.current) return;
       window.location.reload();
     };
 
@@ -51,6 +55,7 @@ export function SwUpdatePrompt() {
 
   const handleUpdate = () => {
     if (waitingWorker) {
+      userAcceptedUpdate.current = true;
       waitingWorker.postMessage({ type: 'SKIP_WAITING' });
     }
   };
