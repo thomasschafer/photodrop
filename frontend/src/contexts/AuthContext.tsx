@@ -28,6 +28,28 @@ interface AuthState {
   selectionToken: string | null;
 }
 
+const LOGGED_OUT_STATE: AuthState = {
+  user: null,
+  currentGroup: null,
+  groups: [],
+  needsGroupSelection: false,
+  selectionToken: null,
+};
+
+// Maps a /auth/refresh response (whether returned directly or delivered via the
+// auth:token-refreshed event) to auth state. A valid session with no active
+// group surfaces the group picker rather than logging the user out.
+function refreshedAuthState(data: AuthResponse): AuthState {
+  return {
+    user: data.user,
+    currentGroup: data.currentGroup ?? null,
+    groups: data.groups,
+    needsGroupSelection:
+      (data.needsGroupSelection ?? false) || (!data.currentGroup && data.groups.length > 0),
+    selectionToken: data.selectionToken ?? null,
+  };
+}
+
 interface AuthContextType {
   user: User | null;
   currentGroup: Group | null;
@@ -149,24 +171,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         localStorage.removeItem('accessToken');
       }
-      setAuthState({
-        user: data.user,
-        currentGroup: data.currentGroup ?? null,
-        groups: data.groups,
-        needsGroupSelection:
-          data.needsGroupSelection || (!data.currentGroup && data.groups.length > 0),
-        selectionToken: data.selectionToken ?? null,
-      });
+      setAuthState(refreshedAuthState(data));
     } catch (error) {
       console.error('Refresh error:', error);
       localStorage.removeItem('accessToken');
-      setAuthState({
-        user: null,
-        currentGroup: null,
-        groups: [],
-        needsGroupSelection: false,
-        selectionToken: null,
-      });
+      setAuthState(LOGGED_OUT_STATE);
     }
   }, []);
 
@@ -310,25 +319,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleTokenRefreshed = (e: Event) => {
       const data = (e as CustomEvent<AuthResponse>).detail;
       if (!data?.user) return;
-      setAuthState({
-        user: data.user,
-        currentGroup: data.currentGroup ?? null,
-        groups: data.groups ?? [],
-        needsGroupSelection:
-          data.needsGroupSelection || (!data.currentGroup && (data.groups?.length ?? 0) > 0),
-        selectionToken: data.selectionToken ?? null,
-      });
+      setAuthState(refreshedAuthState(data));
     };
 
     const handleSessionExpired = () => {
       localStorage.removeItem('accessToken');
-      setAuthState({
-        user: null,
-        currentGroup: null,
-        groups: [],
-        needsGroupSelection: false,
-        selectionToken: null,
-      });
+      setAuthState(LOGGED_OUT_STATE);
       clearAllUserCaches();
       nativePushInitialized.current = false;
       // Don't redirect away from an in-progress magic-link verification: the

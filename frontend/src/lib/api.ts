@@ -180,34 +180,54 @@ async function executeRequest(
   });
 }
 
-// Single-flight refresh: concurrent 401s share one /auth/refresh call so we
-// don't rotate the refresh cookie multiple times in parallel.
-let refreshPromise: Promise<boolean> | null = null;
+// Single-flight session refresh: every refresh — the 401-retry path below and
+// the bootstrap/interval/foreground refreshes in AuthContext (via
+// api.auth.refresh) — shares one in-flight POST /auth/refresh, so the refresh
+// cookie is never rotated by concurrent calls. Throws on failure, like a normal
+// request.
+let refreshPromise: Promise<AuthResponse> | null = null;
 
-// Performs the refresh and owns the outcome. Both a refreshed token and a
-// still-valid session that needs group selection dispatch auth:token-refreshed
-// (AuthContext syncs state / shows the group picker); only a genuinely dead
-// session dispatches auth:session-expired. Resolves to true when the caller has
-// a fresh access token to retry with.
-async function performRefresh(): Promise<boolean> {
+function refreshSession(): Promise<AuthResponse> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      // includeAuth=false so this call never recurses into refresh-on-401.
+      const response = await executeRequest('/auth/refresh', { method: 'POST' }, false);
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new ApiError(
+          response.status,
+          response.statusText,
+          errorData?.error || 'Failed to refresh session'
+        );
+      }
+      return (await response.json()) as AuthResponse;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+// 401-retry outcome: refresh, then route. A fresh token or a still-valid
+// session that needs group selection both dispatch auth:token-refreshed
+// (AuthContext syncs state / shows the picker); a genuinely dead session
+// dispatches auth:session-expired. Resolves to true when there's a fresh token
+// to retry the original request with.
+async function refreshAccessToken(): Promise<boolean> {
   try {
-    // includeAuth=false so this call never recurses into refresh-on-401.
-    const response = await executeRequest('/auth/refresh', { method: 'POST' }, false);
-    if (response.ok) {
-      const data = (await response.json()) as AuthResponse;
-      if (data.accessToken) {
-        localStorage.setItem('accessToken', data.accessToken);
-        window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
-        return true;
-      }
-      // Valid session but no active group (e.g. removed from the current group):
-      // hand the remaining groups to the app for selection rather than logging
-      // out. There's no token, so the original request can't be retried.
-      if (data.groups && data.groups.length > 0) {
-        localStorage.removeItem('accessToken');
-        window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
-        return false;
-      }
+    const data = await refreshSession();
+    if (data.accessToken) {
+      localStorage.setItem('accessToken', data.accessToken);
+      window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
+      return true;
+    }
+    // Valid session but no active group (e.g. removed from the current group):
+    // hand the remaining groups to the app for selection rather than logging
+    // out. There's no token, so the original request can't be retried.
+    if (data.groups && data.groups.length > 0) {
+      localStorage.removeItem('accessToken');
+      window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
+      return false;
     }
   } catch {
     // Fall through to session-expired below.
@@ -215,15 +235,6 @@ async function performRefresh(): Promise<boolean> {
   localStorage.removeItem('accessToken');
   window.dispatchEvent(new CustomEvent('auth:session-expired'));
   return false;
-}
-
-function refreshAccessToken(): Promise<boolean> {
-  if (!refreshPromise) {
-    refreshPromise = performRefresh().finally(() => {
-      refreshPromise = null;
-    });
-  }
-  return refreshPromise;
 }
 
 async function fetchWithAuth(
@@ -293,10 +304,9 @@ export const api = {
       return response.json();
     },
 
-    refresh: async (): Promise<AuthResponse> => {
-      const response = await fetchWithAuth('/auth/refresh', { method: 'POST' }, false);
-      return response.json();
-    },
+    // Shares the single-flight refresh with the 401-retry path so concurrent
+    // refreshes never rotate the cookie twice.
+    refresh: (): Promise<AuthResponse> => refreshSession(),
 
     logout: async () => {
       const response = await fetchWithAuth('/auth/logout', {

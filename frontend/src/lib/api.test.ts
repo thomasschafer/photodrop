@@ -180,4 +180,29 @@ describe('fetchWithAuth refresh-on-401', () => {
 
     expect(refreshCalls).toBe(1);
   });
+
+  it('shares one refresh between the 401-retry path and a direct api.auth.refresh', async () => {
+    let refreshCalls = 0;
+    let photoCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/auth/refresh')) {
+          refreshCalls++;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return jsonResponse(refreshPayload);
+        }
+        photoCalls++;
+        return photoCalls === 1
+          ? jsonResponse({ error: 'Invalid or expired token' }, 401)
+          : jsonResponse({ photos: [], hasMore: false });
+      })
+    );
+
+    // A 401-triggered refresh and a direct refresh (as AuthContext's interval/
+    // foreground refresh does) at the same time must not double-rotate the cookie.
+    await Promise.all([api.photos.list(), api.auth.refresh()]);
+
+    expect(refreshCalls).toBe(1);
+  });
 });
