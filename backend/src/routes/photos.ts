@@ -78,12 +78,13 @@ async function sendPhotoUploadNotifications(
   // Get uploader info (shared by both notification types)
   const uploader = await getUserById(env.DB, uploaderId);
 
-  const uploaderName = uploader?.name || 'Someone';
+  // Use just the first name to keep the notification short and friendly.
+  const uploaderFirstName = uploader?.name?.trim().split(/\s+/)[0] || 'Someone';
   const title = `New photo`;
   // Sanitize caption to prevent injection in push notifications
   // Push payloads are plain text (not rendered as HTML), so just truncate
   const sanitizedCaption = caption ? `"${Array.from(caption).slice(0, 200).join('')}"` : null;
-  const body = `${uploaderName} added ${sanitizedCaption || 'a new photo'}`;
+  const body = `${uploaderFirstName} added ${sanitizedCaption || 'a new photo'}`;
 
   // Send web push notifications
   if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
