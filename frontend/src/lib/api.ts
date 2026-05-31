@@ -184,25 +184,44 @@ async function executeRequest(
 // don't rotate the refresh cookie multiple times in parallel.
 let refreshPromise: Promise<boolean> | null = null;
 
-function refreshAccessToken(): Promise<boolean> {
-  if (!refreshPromise) {
-    refreshPromise = (async () => {
-      try {
-        // includeAuth=false so this call never recurses into refresh-on-401.
-        const response = await executeRequest('/auth/refresh', { method: 'POST' }, false);
-        if (!response.ok) return false;
-        const data = (await response.json()) as AuthResponse;
-        if (!data.accessToken) return false;
+// Performs the refresh and owns the outcome. Both a refreshed token and a
+// still-valid session that needs group selection dispatch auth:token-refreshed
+// (AuthContext syncs state / shows the group picker); only a genuinely dead
+// session dispatches auth:session-expired. Resolves to true when the caller has
+// a fresh access token to retry with.
+async function performRefresh(): Promise<boolean> {
+  try {
+    // includeAuth=false so this call never recurses into refresh-on-401.
+    const response = await executeRequest('/auth/refresh', { method: 'POST' }, false);
+    if (response.ok) {
+      const data = (await response.json()) as AuthResponse;
+      if (data.accessToken) {
         localStorage.setItem('accessToken', data.accessToken);
-        // Let AuthContext sync user/group/role state to the refreshed token.
         window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
         return true;
-      } catch {
-        return false;
-      } finally {
-        refreshPromise = null;
       }
-    })();
+      // Valid session but no active group (e.g. removed from the current group):
+      // hand the remaining groups to the app for selection rather than logging
+      // out. There's no token, so the original request can't be retried.
+      if (data.groups && data.groups.length > 0) {
+        localStorage.removeItem('accessToken');
+        window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
+        return false;
+      }
+    }
+  } catch {
+    // Fall through to session-expired below.
+  }
+  localStorage.removeItem('accessToken');
+  window.dispatchEvent(new CustomEvent('auth:session-expired'));
+  return false;
+}
+
+function refreshAccessToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = performRefresh().finally(() => {
+      refreshPromise = null;
+    });
   }
   return refreshPromise;
 }
@@ -223,10 +242,9 @@ async function fetchWithAuth(
     if (refreshed) {
       return fetchWithAuth(url, options, includeAuth, true);
     }
-    // Refresh failed: the session is genuinely gone. Clear it and let the app
-    // (AuthContext) tear down state and route to login.
-    localStorage.removeItem('accessToken');
-    window.dispatchEvent(new CustomEvent('auth:session-expired'));
+    // No fresh token: refreshAccessToken has already handled the outcome
+    // (routed to group selection, or signalled session expiry). Fall through
+    // to surface the original error to the caller.
   }
 
   if (!response.ok) {
