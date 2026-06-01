@@ -365,16 +365,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    // CapApp.addListener resolves asynchronously. If this effect is cleaned up
+    // (re-run on auth change, or unmount) before the handle arrives, remove it
+    // on resolution instead — otherwise the listener leaks and keeps firing.
     let nativeListener: { remove: () => void } | undefined;
+    let cancelled = false;
     if (isNativePlatform()) {
       CapApp.addListener('appStateChange', ({ isActive }) => {
         if (isActive) refreshOnForeground();
       }).then((handle) => {
-        nativeListener = handle;
+        if (cancelled) handle.remove();
+        else nativeListener = handle;
       });
     }
 
     return () => {
+      cancelled = true;
       document.removeEventListener('visibilitychange', handleVisibility);
       nativeListener?.remove();
     };
