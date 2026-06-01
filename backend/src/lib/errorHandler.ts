@@ -1,4 +1,5 @@
 import type { ErrorHandler } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
 import { logger } from './logger';
 
@@ -14,6 +15,12 @@ export const errorHandler: ErrorHandler = (err, c) => {
   if (err instanceof ZodError) {
     const messages = err.issues.map((e) => `${e.path.join('.')}: ${e.message}`);
     return c.json({ error: 'Validation error', details: messages }, 400);
+  }
+
+  // Preserve the intended response for anything that throws Hono's HTTPException
+  // (e.g. middleware/libraries) rather than collapsing it into a generic 500.
+  if (err instanceof HTTPException) {
+    return err.getResponse();
   }
 
   logger.error('Unhandled error', { error: err instanceof Error ? err.message : String(err) });

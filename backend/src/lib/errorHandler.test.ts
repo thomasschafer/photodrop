@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { errorHandler } from './errorHandler';
 
@@ -49,6 +50,18 @@ describe('errorHandler', () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as { details: string[] };
     expect(json.details.join(' ')).toContain('keys.p256dh');
+  });
+
+  it('preserves the status and body of a thrown HTTPException', async () => {
+    const app = createApp();
+    app.get('/forbidden', () => {
+      throw new HTTPException(403, { message: 'Nope' });
+    });
+
+    const res = await app.request('/forbidden');
+
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('Nope');
   });
 
   it('maps unexpected (non-Zod) errors to a generic 500', async () => {
