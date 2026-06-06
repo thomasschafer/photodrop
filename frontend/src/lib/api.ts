@@ -208,6 +208,15 @@ function refreshSession(): Promise<AuthResponse> {
   return refreshPromise;
 }
 
+// A refresh failure means the session is genuinely gone only when the server
+// explicitly rejects the refresh cookie (401/403). Network errors and 5xxs are
+// transient and tell us nothing about the session, so they must not force a
+// logout. Shared by the 401-retry path here and AuthContext's interval/
+// foreground refresh so both apply the same rule.
+export function isSessionExpired(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
 // 401-retry outcome: refresh, then route. A fresh token or a still-valid
 // session that needs group selection both dispatch auth:token-refreshed
 // (AuthContext syncs state / shows the picker); a genuinely dead session
@@ -230,8 +239,15 @@ export async function refreshAccessToken(): Promise<boolean> {
       window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
       return false;
     }
-  } catch {
-    // Fall through to session-expired below.
+    // A 2xx response with neither a token nor groups means the session is gone;
+    // fall through to the teardown below.
+  } catch (error) {
+    // Transient failure: keep the session intact and let the caller's request
+    // fail. The next interval/foreground refresh can recover.
+    if (!isSessionExpired(error)) {
+      return false;
+    }
+    // A genuine expiry falls through to the teardown below.
   }
   localStorage.removeItem('accessToken');
   window.dispatchEvent(new CustomEvent('auth:session-expired'));

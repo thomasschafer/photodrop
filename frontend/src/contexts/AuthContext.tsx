@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
-import { api, type User, type Group, type AuthResponse } from '../lib/api';
+import { api, isSessionExpired, type User, type Group, type AuthResponse } from '../lib/api';
 import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
 import type { ProfileColor } from '../lib/profileColors';
 import {
@@ -174,6 +174,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthState(refreshedAuthState(data));
     } catch (error) {
       console.error('Refresh error:', error);
+      // A transient failure (network / 5xx) must not sign the user out — keep
+      // the current session so a later refresh can recover. Only tear down on a
+      // genuine expiry (the server rejected the refresh cookie).
+      if (!isSessionExpired(error)) {
+        return;
+      }
       localStorage.removeItem('accessToken');
       setAuthState(LOGGED_OUT_STATE);
     }

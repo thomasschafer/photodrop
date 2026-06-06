@@ -96,6 +96,33 @@ describe('fetchWithAuth refresh-on-401', () => {
     window.removeEventListener('auth:session-expired', onExpired);
   });
 
+  it('keeps the session on a transient refresh failure (5xx)', async () => {
+    let expired = false;
+    const onExpired = () => {
+      expired = true;
+    };
+    window.addEventListener('auth:session-expired', onExpired);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/auth/refresh')) {
+          // A backend hiccup, not an invalid refresh cookie.
+          return jsonResponse({ error: 'Service unavailable' }, 503);
+        }
+        return jsonResponse({ error: 'Invalid or expired token' }, 401);
+      })
+    );
+
+    await expect(api.photos.list()).rejects.toBeInstanceOf(ApiError);
+    // A transient failure must not sign the user out: no expiry event, and the
+    // existing token is left intact so a later refresh can recover.
+    expect(expired).toBe(false);
+    expect(localStorage.getItem('accessToken')).toBe('old-token');
+
+    window.removeEventListener('auth:session-expired', onExpired);
+  });
+
   it('routes to group selection (not logout) when refresh has groups but no token', async () => {
     // Being removed from the active group while still in others: /auth/refresh
     // returns 200 with accessToken=null + selectionToken + groups. This must

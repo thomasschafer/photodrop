@@ -17,6 +17,13 @@ vi.mock('../lib/api', () => ({
     },
     push: { unsubscribe: vi.fn().mockResolvedValue(undefined) },
   },
+  // Mirrors the real classifier: only an explicit 401/403 is a genuine expiry;
+  // anything else (network / 5xx) is transient.
+  isSessionExpired: (error: unknown): boolean =>
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    ((error as { status: number }).status === 401 || (error as { status: number }).status === 403),
 }));
 
 vi.mock('../lib/cache', () => ({
@@ -111,6 +118,36 @@ describe('AuthProvider session resilience', () => {
 
     // The 30s throttle collapses the burst into a single refresh.
     await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
+  });
+
+  it('stays logged in when a foreground refresh fails transiently', async () => {
+    renderApp();
+    await screen.findByText('user:Tom');
+
+    // A network blip / 5xx on the foreground refresh must not sign the user out.
+    mockRefresh.mockRejectedValue(new Error('network down'));
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('status').textContent).toBe('user:Tom');
+    expect(localStorage.getItem('accessToken')).toBe('initial-token');
+  });
+
+  it('logs out when a foreground refresh is rejected as expired (401)', async () => {
+    renderApp();
+    await screen.findByText('user:Tom');
+
+    mockRefresh.mockRejectedValue({ status: 401 });
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anon'));
+    expect(localStorage.getItem('accessToken')).toBeNull();
   });
 
   it('clears state and routes to /login when the session expires', async () => {
