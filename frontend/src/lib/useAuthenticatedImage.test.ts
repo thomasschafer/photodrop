@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import {
   useAuthenticatedImage,
   preloadImage,
@@ -345,6 +345,33 @@ describe('useAuthenticatedImage', () => {
   });
 
   describe('clearImageCache', () => {
+    it('drops an in-flight load that resolves after a clear (no stale repopulation)', async () => {
+      // Logout/group-switch clears the cache. A load already in flight must not
+      // reinsert the old session's image when it resolves afterwards.
+      let resolveFetch!: (value: { ok: true; blob: () => Promise<Blob> }) => void;
+      const pending = new Promise<{ ok: true; blob: () => Promise<Blob> }>((resolve) => {
+        resolveFetch = resolve;
+      });
+      global.fetch = vi.fn(() => pending) as unknown as typeof fetch;
+
+      const { result } = renderHook(() => useAuthenticatedImage('photo-stale', 'thumbnail'));
+      expect(result.current.loading).toBe(true);
+
+      // Purge while the fetch is still pending, then let it resolve.
+      clearImageCache();
+      await act(async () => {
+        resolveFetch!({ ok: true, blob: () => Promise.resolve(mockBlob) });
+      });
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // The late result is dropped: the orphan blob URL is revoked and nothing
+      // is cached for the stale key.
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test-url');
+      expect(result.current.src).toBeNull();
+      expect(result.current.error).toBeTruthy();
+    });
+
     it('revokes all blob URLs and clears cache', async () => {
       const { result } = renderHook(() => useAuthenticatedImage(mockPhotoId, 'thumbnail'));
 

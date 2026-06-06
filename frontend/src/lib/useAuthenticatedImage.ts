@@ -88,8 +88,14 @@ const imageCache = new LRUImageCache(200, isInUse);
 // a still-displayed image is prevented separately by the ref counts above.
 const inFlightLoads = new Map<string, Promise<string>>();
 
+// Bumped on every clear so a load that's still in flight when the cache is
+// purged (logout/group switch) can detect it resolved into a stale generation
+// and drop its result instead of repopulating the cleared cache.
+let cacheGeneration = 0;
+
 // Clear cache on logout/group switch (call from auth context)
 export function clearImageCache() {
+  cacheGeneration += 1;
   imageCache.clear();
   inFlightLoads.clear();
   refCounts.clear();
@@ -193,13 +199,24 @@ function loadImage(photoId: string, type: ImageType): Promise<string> {
     return pending;
   }
 
+  const generation = cacheGeneration;
   const promise = fetchImageBlobUrl(photoId, type)
     .then((blobUrl) => {
+      if (generation !== cacheGeneration) {
+        // The cache was cleared (logout/group switch) while this load was in
+        // flight; drop the result rather than caching another session's image.
+        URL.revokeObjectURL(blobUrl);
+        throw new Error('Image cache cleared during load');
+      }
       imageCache.set(cacheKey, blobUrl);
       return blobUrl;
     })
     .finally(() => {
-      inFlightLoads.delete(cacheKey);
+      // Only clear our own entry — a newer load for this key may have replaced
+      // it (e.g. after a clear), and we mustn't evict that one.
+      if (inFlightLoads.get(cacheKey) === promise) {
+        inFlightLoads.delete(cacheKey);
+      }
     });
 
   inFlightLoads.set(cacheKey, promise);
