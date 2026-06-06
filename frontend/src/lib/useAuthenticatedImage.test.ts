@@ -20,8 +20,16 @@ vi.mock('@capacitor/core', () => ({
   },
 }));
 
+// Keep the real api module (for API_BASE_URL) but stub the refresh so we can
+// drive the image hook's 401-recovery path deterministically.
+vi.mock('./api', async (importActual) => {
+  const actual = await importActual<typeof import('./api')>();
+  return { ...actual, refreshAccessToken: vi.fn() };
+});
+
 // Import mocked modules
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { refreshAccessToken } from './api';
 
 describe('useAuthenticatedImage', () => {
   const mockToken = 'test-access-token';
@@ -97,6 +105,42 @@ describe('useAuthenticatedImage', () => {
         expect(result.current.loading).toBe(false);
       });
 
+      expect(result.current.src).toBeNull();
+      expect(result.current.error).toBeTruthy();
+    });
+
+    it('refreshes the token and retries once on a 401, then succeeds', async () => {
+      // Token expired mid-session: the first fetch 401s, we refresh (shared
+      // single-flight) and the retry succeeds. Image requests don't go through
+      // fetchWithAuth, so this recovery lives in the hook.
+      global.fetch = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 401 })
+        .mockResolvedValueOnce({ ok: true, blob: () => Promise.resolve(mockBlob) });
+      vi.mocked(refreshAccessToken).mockResolvedValue(true);
+
+      const { result } = renderHook(() => useAuthenticatedImage(mockPhotoId, 'thumbnail'));
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(result.current.src).toBe('blob:test-url');
+      expect(result.current.error).toBeNull();
+    });
+
+    it('errors without retrying the fetch when the refresh fails', async () => {
+      // A genuinely dead session: refresh returns false, so we surface the error
+      // (AuthContext's session-expired handler routes to login) and don't loop.
+      global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+      vi.mocked(refreshAccessToken).mockResolvedValue(false);
+
+      const { result } = renderHook(() => useAuthenticatedImage(mockPhotoId, 'thumbnail'));
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledTimes(1);
       expect(result.current.src).toBeNull();
       expect(result.current.error).toBeTruthy();
     });
@@ -259,6 +303,33 @@ describe('useAuthenticatedImage', () => {
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:b');
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:c');
       expect(cache.has('a')).toBe(false);
+    });
+
+    it('skips an in-use entry during eviction and revokes the oldest free one', () => {
+      const inUse = new Set<string>(['a']);
+      const cache = new LRUImageCache(2, (k) => inUse.has(k));
+      cache.set('a', 'blob:a'); // oldest, but stays mounted (in use)
+      cache.set('b', 'blob:b');
+      cache.set('c', 'blob:c'); // over capacity: skip 'a', evict 'b'
+
+      expect(cache.has('a')).toBe(true);
+      expect(revokeObjectURL).not.toHaveBeenCalledWith('blob:a');
+      expect(cache.has('b')).toBe(false);
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:b');
+      expect(cache.has('c')).toBe(true);
+    });
+
+    it('grows beyond maxSize rather than revoking when every entry is in use', () => {
+      const inUse = new Set<string>(['a', 'b']);
+      const cache = new LRUImageCache(2, (k) => inUse.has(k));
+      cache.set('a', 'blob:a');
+      cache.set('b', 'blob:b');
+      cache.set('c', 'blob:c'); // both in use: nothing safe to evict
+
+      expect(cache.has('a')).toBe(true);
+      expect(cache.has('b')).toBe(true);
+      expect(cache.has('c')).toBe(true);
+      expect(revokeObjectURL).not.toHaveBeenCalled();
     });
 
     it('overwrites existing key without eviction', () => {

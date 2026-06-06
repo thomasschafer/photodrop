@@ -1,15 +1,35 @@
 import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { CapacitorHttp } from '@capacitor/core';
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, refreshAccessToken } from './api';
+
+// Tracks how many mounted consumers are currently displaying each cache key, so
+// the LRU never revokes a blob URL that's still bound to an on-screen <img>.
+const refCounts = new Map<string, number>();
+
+function acquireImage(key: string): void {
+  refCounts.set(key, (refCounts.get(key) ?? 0) + 1);
+}
+
+function releaseImage(key: string): void {
+  const next = (refCounts.get(key) ?? 0) - 1;
+  if (next <= 0) refCounts.delete(key);
+  else refCounts.set(key, next);
+}
+
+function isInUse(key: string): boolean {
+  return (refCounts.get(key) ?? 0) > 0;
+}
 
 // LRU cache for blob URLs with bounded size and proper cleanup
 export class LRUImageCache {
   private map = new Map<string, string>();
   private readonly maxSize: number;
+  private readonly isInUse: (key: string) => boolean;
 
-  constructor(maxSize: number) {
+  constructor(maxSize: number, isInUse: (key: string) => boolean = () => false) {
     this.maxSize = maxSize;
+    this.isInUse = isInUse;
   }
 
   get(key: string): string | undefined {
@@ -28,13 +48,23 @@ export class LRUImageCache {
       URL.revokeObjectURL(oldUrl);
       this.map.delete(key);
     } else if (this.map.size >= this.maxSize) {
-      // Evict oldest (first entry)
-      const oldest = this.map.keys().next().value!;
-      const oldUrl = this.map.get(oldest)!;
-      URL.revokeObjectURL(oldUrl);
-      this.map.delete(oldest);
+      this.evictOne();
     }
     this.map.set(key, value);
+  }
+
+  // Evict the oldest entry that no mounted consumer is using. If every entry is
+  // in use (e.g. a long non-virtualized feed has them all mounted), skip
+  // eviction and let the map grow — memory is then bounded by what's actually
+  // on screen, and the slack is reclaimed as those consumers unmount. Revoking
+  // an in-use URL would break the live <img> with ERR_FILE_NOT_FOUND.
+  private evictOne(): void {
+    for (const [key, url] of this.map) {
+      if (this.isInUse(key)) continue;
+      URL.revokeObjectURL(url);
+      this.map.delete(key);
+      return;
+    }
   }
 
   has(key: string): boolean {
@@ -48,33 +78,32 @@ export class LRUImageCache {
 }
 
 // Key: `${photoId}:${type}`, Value: blob URL
-const imageCache = new LRUImageCache(200);
+const imageCache = new LRUImageCache(200, isInUse);
 
 // In-flight loads keyed the same way. Without this, concurrent requests for the
 // same image (e.g. the rendered <img> and a neighbour preload) each fetch and
 // create their own blob URL; the second cache write then revokes the first —
 // which may still be in use — causing ERR_FILE_NOT_FOUND. Sharing one promise
-// per key guarantees exactly one fetch and one blob URL per image.
+// per key guarantees exactly one fetch and one blob URL per image. Eviction of
+// a still-displayed image is prevented separately by the ref counts above.
 const inFlightLoads = new Map<string, Promise<string>>();
 
 // Clear cache on logout/group switch (call from auth context)
 export function clearImageCache() {
   imageCache.clear();
   inFlightLoads.clear();
+  refCounts.clear();
 }
 
 type ImageType = 'thumbnail' | 'download';
 
-/** Fetch the image bytes and wrap them in a blob URL. Throws on failure. */
-async function fetchImageBlobUrl(photoId: string, type: ImageType): Promise<string> {
-  const token = localStorage.getItem('accessToken');
-  if (!token) {
-    throw new Error('No auth token');
-  }
+interface BlobResult {
+  status: number;
+  blob: Blob | null;
+}
 
-  const url = `${API_BASE_URL}/photos/${photoId}/${type}`;
-  let blob: Blob;
-
+/** Fetch the image bytes for the given token. Returns the status and (on 200) the blob. */
+async function fetchBlob(url: string, token: string): Promise<BlobResult> {
   if (Capacitor.isNativePlatform()) {
     // Use CapacitorHttp for native - it handles CORS natively
     const response = await CapacitorHttp.get({
@@ -84,7 +113,7 @@ async function fetchImageBlobUrl(photoId: string, type: ImageType): Promise<stri
     });
 
     if (response.status !== 200) {
-      throw new Error(`HTTP ${response.status}`);
+      return { status: response.status, blob: null };
     }
 
     // CapacitorHttp returns base64 string for blob responseType
@@ -97,21 +126,54 @@ async function fetchImageBlobUrl(photoId: string, type: ImageType): Promise<stri
     // Get content-type case-insensitively (headers may vary)
     const contentType =
       response.headers['content-type'] || response.headers['Content-Type'] || 'image/jpeg';
-    blob = new Blob([bytes], { type: contentType });
-  } else {
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    blob = await response.blob();
+    return { status: 200, blob: new Blob([bytes], { type: contentType }) };
   }
 
-  return URL.createObjectURL(blob);
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    return { status: response.status, blob: null };
+  }
+
+  return { status: 200, blob: await response.blob() };
+}
+
+/**
+ * Fetch the image bytes and wrap them in a blob URL. Throws on failure.
+ *
+ * Image requests don't go through fetchWithAuth (they need blob handling and
+ * CapacitorHttp on native), so they recover from an expired access token here:
+ * on a 401 we run the shared single-flight refresh and retry once, matching the
+ * API layer. Without this, an image that 401s during the brief window before a
+ * foreground refresh completes would stay broken until the photo remounts.
+ */
+async function fetchImageBlobUrl(photoId: string, type: ImageType): Promise<string> {
+  const url = `${API_BASE_URL}/photos/${photoId}/${type}`;
+
+  let token = localStorage.getItem('accessToken');
+  if (!token) {
+    throw new Error('No auth token');
+  }
+
+  let result = await fetchBlob(url, token);
+
+  if (result.status === 401) {
+    const refreshed = await refreshAccessToken();
+    token = localStorage.getItem('accessToken');
+    if (!refreshed || !token) {
+      throw new Error('Session expired');
+    }
+    result = await fetchBlob(url, token);
+  }
+
+  if (result.status !== 200 || !result.blob) {
+    throw new Error(`HTTP ${result.status}`);
+  }
+
+  return URL.createObjectURL(result.blob);
 }
 
 /**
@@ -171,6 +233,13 @@ export function useAuthenticatedImage(
   if (state.key !== cacheKey) {
     setState(initialImageState(cacheKey));
   }
+
+  // Hold a reference to the key we're displaying so the LRU won't evict (and
+  // revoke) its blob URL while this <img> is still mounted.
+  useEffect(() => {
+    acquireImage(cacheKey);
+    return () => releaseImage(cacheKey);
+  }, [cacheKey]);
 
   useEffect(() => {
     let isCurrent = true;

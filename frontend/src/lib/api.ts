@@ -212,8 +212,9 @@ function refreshSession(): Promise<AuthResponse> {
 // session that needs group selection both dispatch auth:token-refreshed
 // (AuthContext syncs state / shows the picker); a genuinely dead session
 // dispatches auth:session-expired. Resolves to true when there's a fresh token
-// to retry the original request with.
-async function refreshAccessToken(): Promise<boolean> {
+// to retry the original request with. Exported so the authenticated-image
+// fetch (which can't use fetchWithAuth) can recover from a 401 the same way.
+export async function refreshAccessToken(): Promise<boolean> {
   try {
     const data = await refreshSession();
     if (data.accessToken) {
