@@ -6,7 +6,8 @@ const mockVerifyJWT = vi.fn();
 const mockGetPhoto = vi.fn();
 const mockGetUserById = vi.fn();
 const mockCreateComment = vi.fn();
-const mockGetMembership = vi.fn();
+const mockAddPhotoReaction = vi.fn();
+const mockRemovePhotoReaction = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
@@ -19,8 +20,8 @@ vi.mock('../lib/db', () => ({
   deletePhoto: vi.fn(),
   recordPhotoView: vi.fn(),
   getPhotoViewers: vi.fn(),
-  addPhotoReaction: vi.fn(),
-  removePhotoReaction: vi.fn(),
+  addPhotoReaction: (...args: unknown[]) => mockAddPhotoReaction(...args),
+  removePhotoReaction: (...args: unknown[]) => mockRemovePhotoReaction(...args),
   getPhotoReactionsWithUsers: vi.fn(),
   getGroupPushSubscriptions: vi.fn(),
   getGroupDeviceTokens: vi.fn(),
@@ -30,50 +31,52 @@ vi.mock('../lib/db', () => ({
   getCommentsByPhotoId: vi.fn(),
   getComment: vi.fn(),
   deleteComment: vi.fn(),
-  getMembership: (...args: unknown[]) => mockGetMembership(...args),
+  getMembership: vi.fn(),
 }));
 
 import photos from './photos';
-import { errorHandler } from '../lib/errorHandler';
+
+function createTestApp(): Hono {
+  const app = new Hono();
+  app.use('*', async (c, next) => {
+    c.env = {
+      JWT_SECRET: 'test-secret',
+      DB: {},
+    };
+    await next();
+  });
+  app.route('/photos', photos);
+  return app;
+}
+
+function authenticateAsMember() {
+  mockVerifyJWT.mockResolvedValue({
+    sub: 'user-1',
+    groupId: 'group-1',
+    role: 'member',
+    type: 'access',
+  });
+}
+
+const authHeaders = {
+  Authorization: 'Bearer valid-token',
+  'Content-Type': 'application/json',
+};
 
 describe('POST /photos/:id/comments', () => {
   let app: Hono;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetMembership.mockResolvedValue({
-      user_id: 'user-1',
-      group_id: 'group-1',
-      role: 'member',
-      joined_at: 1000,
-      image_protection: 1,
-    });
-
-    app = new Hono();
-    app.use('*', async (c, next) => {
-      c.env = {
-        JWT_SECRET: 'test-secret',
-        DB: {},
-      };
-      await next();
-    });
-    app.route('/photos', photos);
+    app = createTestApp();
   });
 
   it('returns 400 when comment exceeds max length', async () => {
-    mockVerifyJWT.mockResolvedValue({
-      sub: 'user-1',
-      groupId: 'group-1',
-      role: 'member',
-      type: 'access',
-    });
+    authenticateAsMember();
 
     const res = await app.request('/photos/photo-1/comments', {
       method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-token',
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders,
       body: JSON.stringify({ content: 'a'.repeat(COMMENT_MAX_LENGTH + 1) }),
     });
 
@@ -86,55 +89,92 @@ describe('POST /photos/:id/comments', () => {
   });
 });
 
-describe('POST /photos/:id/react validation', () => {
+describe('POST /photos/:id/react', () => {
   let app: Hono;
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    app = new Hono();
-    app.use('*', async (c, next) => {
-      c.env = {
-        JWT_SECRET: 'test-secret',
-        DB: {},
-      };
-      await next();
-    });
-    app.route('/photos', photos);
-    // Register the same error handler the production app uses, so a re-thrown
-    // ZodError is formatted as 400 rather than falling back to Hono's 500.
-    app.onError(errorHandler);
-
-    mockVerifyJWT.mockResolvedValue({
-      sub: 'user-1',
-      groupId: 'group-1',
-      role: 'member',
-      type: 'access',
-    });
-    // requireAuth -> authenticateUser looks up membership on every request.
-    mockGetMembership.mockResolvedValue({
-      user_id: 'user-1',
-      group_id: 'group-1',
-      role: 'member',
-      joined_at: 1000,
-      image_protection: 1,
-    });
+    app = createTestApp();
+    authenticateAsMember();
   });
 
-  it('returns 400 (not 500) for an invalid reaction emoji', async () => {
+  it('adds a reaction for a valid emoji', async () => {
+    mockGetPhoto.mockResolvedValue({ id: 'photo-1', group_id: 'group-1' });
+
     const res = await app.request('/photos/photo-1/react', {
       method: 'POST',
-      headers: {
-        Authorization: 'Bearer valid-token',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ emoji: 'not-an-emoji' }),
+      headers: authHeaders,
+      body: JSON.stringify({ emoji: '❤️' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockAddPhotoReaction).toHaveBeenCalledWith({}, 'photo-1', 'user-1', '❤️');
+  });
+
+  it('returns 400 for a disallowed emoji without touching the database', async () => {
+    const res = await app.request('/photos/photo-1/react', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ emoji: '🦄' }),
     });
 
     expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: string };
-    expect(json.error).toBe('Validation error');
-    // Validation must short-circuit before the handler touches the photo.
     expect(mockGetPhoto).not.toHaveBeenCalled();
+    expect(mockAddPhotoReaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for a missing request body', async () => {
+    const res = await app.request('/photos/photo-1/react', {
+      method: 'POST',
+      headers: authHeaders,
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockAddPhotoReaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /photos/:id/react', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    app = createTestApp();
+    authenticateAsMember();
+  });
+
+  it('removes a specific reaction for a valid emoji', async () => {
+    mockGetPhoto.mockResolvedValue({ id: 'photo-1', group_id: 'group-1' });
+
+    const res = await app.request('/photos/photo-1/react', {
+      method: 'DELETE',
+      headers: authHeaders,
+      body: JSON.stringify({ emoji: '🔥' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockRemovePhotoReaction).toHaveBeenCalledWith({}, 'photo-1', 'user-1', '🔥');
+  });
+
+  it('returns 400 for a disallowed emoji without touching the database', async () => {
+    const res = await app.request('/photos/photo-1/react', {
+      method: 'DELETE',
+      headers: authHeaders,
+      body: JSON.stringify({ emoji: '🦄' }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockGetPhoto).not.toHaveBeenCalled();
+    expect(mockRemovePhotoReaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for a missing request body', async () => {
+    const res = await app.request('/photos/photo-1/react', {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockRemovePhotoReaction).not.toHaveBeenCalled();
   });
 });

@@ -67,7 +67,7 @@ test.describe('Reactions and comments', () => {
     await expect(heartReactionPill).toBeVisible();
   });
 
-  test('user can change their reaction to different emoji', async ({ page }) => {
+  test('user can add multiple reactions to a photo', async ({ page }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
@@ -76,15 +76,17 @@ test.describe('Reactions and comments', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
-    // Open reaction picker and click a different emoji
+    // Add a second, different emoji on top of the heart from the previous test
     const addReactionButton = dialog.getByRole('button', { name: 'Add reaction' });
     await addReactionButton.click();
     const laughOption = dialog.getByRole('option', { name: /react with 😂/i });
     await laughOption.click();
 
-    // Verify a reaction pill appears with the laugh emoji (user's selection is highlighted)
+    // Both reactions should now be present simultaneously (not replaced)
     const laughReactionPill = dialog.getByRole('button', { name: /remove 😂 reaction/i });
+    const heartReactionPill = dialog.getByRole('button', { name: /remove ❤️ reaction/i });
     await expect(laughReactionPill).toBeVisible();
+    await expect(heartReactionPill).toBeVisible();
   });
 
   test('user can remove their reaction', async ({ page }) => {

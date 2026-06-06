@@ -19,7 +19,7 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
 function renderPanel(overrides: Partial<CommentPanelProps> = {}) {
   const props: CommentPanelProps = {
     reactions: [],
-    userReaction: null,
+    userReactions: [],
     comments: [],
     commentCount: 0,
     commentsExpanded: true,

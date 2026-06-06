@@ -1,100 +1,142 @@
 import { describe, it, expect } from 'vitest';
-import { toggleReaction, toggleReactionDetails } from './reactions';
+import { toggleReaction, type ReactionActor, type ReactionState } from './reactions';
 import type { ReactionWithUser } from './types';
 
-const user = { id: 'me', name: 'Me', profileColor: 'teal' };
+const actor: ReactionActor = { id: 'user-1', name: 'Alice', profileColor: 'coral' };
+
+function detail(emoji: string, userId: string, userName: string): ReactionWithUser {
+  return { emoji, userId, userName, profileColor: 'coral' };
+}
 
 describe('toggleReaction', () => {
-  it('adds a new reaction when the user had none', () => {
-    const result = toggleReaction(null, [{ emoji: '❤️', count: 1 }], '❤️');
-    expect(result).toEqual({
-      userReaction: '❤️',
-      reactions: [{ emoji: '❤️', count: 2 }],
-      isRemoving: false,
+  describe('adding a reaction', () => {
+    it('adds a brand-new emoji nobody has reacted with', () => {
+      const state: ReactionState = { reactions: [], userReactions: [], details: [] };
+
+      const result = toggleReaction(state, '❤️', actor);
+
+      expect(result.isRemoving).toBe(false);
+      expect(result.reactions).toEqual([{ emoji: '❤️', count: 1 }]);
+      expect(result.userReactions).toEqual(['❤️']);
+      expect(result.details).toEqual([detail('❤️', 'user-1', 'Alice')]);
+    });
+
+    it('adds a second distinct emoji while keeping the first', () => {
+      const state: ReactionState = {
+        reactions: [{ emoji: '❤️', count: 1 }],
+        userReactions: ['❤️'],
+        details: [detail('❤️', 'user-1', 'Alice')],
+      };
+
+      const result = toggleReaction(state, '🔥', actor);
+
+      expect(result.isRemoving).toBe(false);
+      expect(result.userReactions).toEqual(['❤️', '🔥']);
+      expect(result.reactions).toContainEqual({ emoji: '❤️', count: 1 });
+      expect(result.reactions).toContainEqual({ emoji: '🔥', count: 1 });
+      expect(result.details).toHaveLength(2);
+    });
+
+    it('increments an emoji others have already reacted with', () => {
+      const state: ReactionState = {
+        reactions: [{ emoji: '❤️', count: 2 }],
+        userReactions: [],
+        details: [detail('❤️', 'user-2', 'Bob'), detail('❤️', 'user-3', 'Carol')],
+      };
+
+      const result = toggleReaction(state, '❤️', actor);
+
+      expect(result.isRemoving).toBe(false);
+      expect(result.reactions).toEqual([{ emoji: '❤️', count: 3 }]);
+      expect(result.userReactions).toEqual(['❤️']);
+      expect(result.details).toHaveLength(3);
+      expect(result.details).toContainEqual(detail('❤️', 'user-1', 'Alice'));
     });
   });
 
-  it('creates a pill for an emoji nobody has reacted with yet', () => {
-    const result = toggleReaction(null, [], '🔥');
-    expect(result).toEqual({
-      userReaction: '🔥',
-      reactions: [{ emoji: '🔥', count: 1 }],
-      isRemoving: false,
+  describe('removing a reaction', () => {
+    it('removes the pill entirely when the user was the only reactor', () => {
+      const state: ReactionState = {
+        reactions: [{ emoji: '❤️', count: 1 }],
+        userReactions: ['❤️'],
+        details: [detail('❤️', 'user-1', 'Alice')],
+      };
+
+      const result = toggleReaction(state, '❤️', actor);
+
+      expect(result.isRemoving).toBe(true);
+      expect(result.reactions).toEqual([]);
+      expect(result.userReactions).toEqual([]);
+      expect(result.details).toEqual([]);
+    });
+
+    it('keeps the pill but decrements when others also reacted', () => {
+      const state: ReactionState = {
+        reactions: [{ emoji: '❤️', count: 3 }],
+        userReactions: ['❤️'],
+        details: [
+          detail('❤️', 'user-1', 'Alice'),
+          detail('❤️', 'user-2', 'Bob'),
+          detail('❤️', 'user-3', 'Carol'),
+        ],
+      };
+
+      const result = toggleReaction(state, '❤️', actor);
+
+      expect(result.isRemoving).toBe(true);
+      expect(result.reactions).toEqual([{ emoji: '❤️', count: 2 }]);
+      expect(result.userReactions).toEqual([]);
+      expect(result.details).toEqual([
+        detail('❤️', 'user-2', 'Bob'),
+        detail('❤️', 'user-3', 'Carol'),
+      ]);
+    });
+
+    it('removes only the targeted emoji from the user, leaving their other reactions', () => {
+      const state: ReactionState = {
+        reactions: [
+          { emoji: '❤️', count: 1 },
+          { emoji: '🔥', count: 1 },
+        ],
+        userReactions: ['❤️', '🔥'],
+        details: [detail('❤️', 'user-1', 'Alice'), detail('🔥', 'user-1', 'Alice')],
+      };
+
+      const result = toggleReaction(state, '❤️', actor);
+
+      expect(result.isRemoving).toBe(true);
+      expect(result.userReactions).toEqual(['🔥']);
+      expect(result.reactions).toEqual([{ emoji: '🔥', count: 1 }]);
+      expect(result.details).toEqual([detail('🔥', 'user-1', 'Alice')]);
     });
   });
 
-  it('removes the reaction when tapping the one already selected', () => {
-    const result = toggleReaction('❤️', [{ emoji: '❤️', count: 1 }], '❤️');
-    expect(result).toEqual({ userReaction: null, reactions: [], isRemoving: true });
-  });
+  describe('details handling', () => {
+    it('leaves details undefined when they have not been loaded', () => {
+      const state: ReactionState = {
+        reactions: [{ emoji: '❤️', count: 1 }],
+        userReactions: [],
+        details: undefined,
+      };
 
-  it('keeps a pill that still has other reactors after removal', () => {
-    const result = toggleReaction('❤️', [{ emoji: '❤️', count: 3 }], '❤️');
-    expect(result).toEqual({
-      userReaction: null,
-      reactions: [{ emoji: '❤️', count: 2 }],
-      isRemoving: true,
+      const result = toggleReaction(state, '❤️', actor);
+
+      expect(result.details).toBeUndefined();
+      expect(result.userReactions).toEqual(['❤️']);
+      expect(result.reactions).toEqual([{ emoji: '❤️', count: 2 }]);
     });
-  });
 
-  it('switches reaction: decrements the old emoji and increments the new', () => {
-    const result = toggleReaction(
-      '😂',
-      [
-        { emoji: '😂', count: 1 },
-        { emoji: '🔥', count: 2 },
-      ],
-      '🔥'
-    );
-    expect(result.userReaction).toBe('🔥');
-    expect(result.isRemoving).toBe(false);
-    // 😂 dropped to 0 and removed; 🔥 bumped to 3.
-    expect(result.reactions).toEqual([{ emoji: '🔥', count: 3 }]);
-  });
+    it('does not mutate the input state', () => {
+      const reactions = [{ emoji: '❤️', count: 1 }];
+      const userReactions = ['❤️'];
+      const details = [detail('❤️', 'user-1', 'Alice')];
+      const state: ReactionState = { reactions, userReactions, details };
 
-  it('switches to a brand-new emoji, dropping the previous solo reaction', () => {
-    const result = toggleReaction('😂', [{ emoji: '😂', count: 1 }], '👏');
-    expect(result.userReaction).toBe('👏');
-    expect(result.reactions).toEqual([{ emoji: '👏', count: 1 }]);
-  });
+      toggleReaction(state, '❤️', actor);
 
-  it('does not mutate the input arrays', () => {
-    const input = [{ emoji: '❤️', count: 1 }];
-    toggleReaction(null, input, '❤️');
-    expect(input).toEqual([{ emoji: '❤️', count: 1 }]);
-  });
-});
-
-describe('toggleReactionDetails', () => {
-  const others: ReactionWithUser[] = [
-    { emoji: '❤️', userId: 'bob', userName: 'Bob', profileColor: 'rose' },
-  ];
-
-  it('adds the acting user when not removing', () => {
-    const result = toggleReactionDetails(others, user, '❤️', false);
-    expect(result).toEqual([
-      ...others,
-      { emoji: '❤️', userId: 'me', userName: 'Me', profileColor: 'teal' },
-    ]);
-  });
-
-  it('removes the acting user when removing', () => {
-    const withMe: ReactionWithUser[] = [
-      ...others,
-      { emoji: '❤️', userId: 'me', userName: 'Me', profileColor: 'teal' },
-    ];
-    expect(toggleReactionDetails(withMe, user, '❤️', true)).toEqual(others);
-  });
-
-  it('replaces the user’s prior entry when switching emoji', () => {
-    const withMyOldReaction: ReactionWithUser[] = [
-      ...others,
-      { emoji: '😂', userId: 'me', userName: 'Me', profileColor: 'teal' },
-    ];
-    const result = toggleReactionDetails(withMyOldReaction, user, '🔥', false);
-    expect(result).toEqual([
-      ...others,
-      { emoji: '🔥', userId: 'me', userName: 'Me', profileColor: 'teal' },
-    ]);
+      expect(reactions).toEqual([{ emoji: '❤️', count: 1 }]);
+      expect(userReactions).toEqual(['❤️']);
+      expect(details).toEqual([detail('❤️', 'user-1', 'Alice')]);
+    });
   });
 });

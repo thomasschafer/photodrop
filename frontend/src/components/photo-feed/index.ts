@@ -5,4 +5,5 @@ export type { CommentPanelProps } from './CommentPanel';
 export { Lightbox } from './Lightbox';
 export type { Photo, ReactionSummary, Comment, ReactionWithUser } from './types';
 export { EMOJI_OPTIONS, LONG_PRESS_TIMEOUT_MS } from './types';
-export { toggleReaction, toggleReactionDetails } from './reactions';
+export { toggleReaction } from './reactions';
+export type { ReactionActor, ReactionState, ToggleReactionResult } from './reactions';

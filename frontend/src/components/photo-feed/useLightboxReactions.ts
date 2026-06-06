@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import type { Photo, ReactionSummary, ReactionWithUser } from './types';
-import { toggleReaction, toggleReactionDetails } from './reactions';
+import { toggleReaction } from './reactions';
 
 interface ReactionUser {
   id: string;
@@ -30,9 +30,9 @@ export function useLightboxReactions({
   user,
   onPhotoUpdate,
 }: UseLightboxReactionsArgs) {
-  const [userReaction, setUserReaction] = useState<string | null>(photo.userReaction);
+  const [userReactions, setUserReactions] = useState<string[]>(photo.userReactions);
   const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
-  const [details, setDetails] = useState<ReactionWithUser[]>([]);
+  const [details, setDetails] = useState<ReactionWithUser[] | undefined>();
 
   const cache = useRef<Map<string, ReactionWithUser[]>>(new Map());
   const currentPhotoIdRef = useRef(photo.id);
@@ -42,9 +42,9 @@ export function useLightboxReactions({
   // we have them). Runs before the load effects below.
   useLayoutEffect(() => {
     currentPhotoIdRef.current = photo.id;
-    setUserReaction(photo.userReaction);
+    setUserReactions(photo.userReactions);
     setReactions(photo.reactions);
-    setDetails(cache.current.get(photo.id) ?? []);
+    setDetails(cache.current.get(photo.id));
     // Intentionally keyed on photo.id only: optimistic updates must not reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
@@ -101,33 +101,39 @@ export function useLightboxReactions({
     if (!user) return;
 
     const photoId = photo.id;
-    const previous = { userReaction, reactions, details };
+    const previous = { userReactions, reactions, details };
 
     const {
-      userReaction: nextUserReaction,
       reactions: nextReactions,
+      userReactions: nextUserReactions,
+      details: nextDetails,
       isRemoving,
-    } = toggleReaction(userReaction, reactions, emoji);
-    const nextDetails = toggleReactionDetails(details, user, emoji, isRemoving);
+    } = toggleReaction({ reactions, userReactions, details }, emoji, user);
 
-    setUserReaction(nextUserReaction);
+    setUserReactions(nextUserReactions);
     setReactions(nextReactions);
-    setDetails(nextDetails);
-    cache.current.set(photoId, nextDetails);
+    if (nextDetails) {
+      setDetails(nextDetails);
+      cache.current.set(photoId, nextDetails);
+    }
 
     try {
       if (isRemoving) {
-        await api.photos.removeReaction(photoId);
+        await api.photos.removeReaction(photoId, emoji);
       } else {
         await api.photos.addReaction(photoId, emoji);
       }
-      onPhotoUpdate({ id: photoId, userReaction: nextUserReaction, reactions: nextReactions });
+      onPhotoUpdate({ id: photoId, userReactions: nextUserReactions, reactions: nextReactions });
     } catch (err) {
       console.error('Failed to update reaction:', err);
-      cache.current.set(photoId, previous.details);
+      if (previous.details) {
+        cache.current.set(photoId, previous.details);
+      } else {
+        cache.current.delete(photoId);
+      }
       // Only roll the visible state back if we're still on this photo.
       if (currentPhotoIdRef.current === photoId) {
-        setUserReaction(previous.userReaction);
+        setUserReactions(previous.userReactions);
         setReactions(previous.reactions);
         setDetails(previous.details);
       }
@@ -135,7 +141,7 @@ export function useLightboxReactions({
   };
 
   return {
-    userReaction,
+    userReactions,
     reactions,
     reactionDetails: details,
     loadReactionDetails,

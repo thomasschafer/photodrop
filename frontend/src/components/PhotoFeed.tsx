@@ -15,7 +15,6 @@ import {
   ReactionPills,
   Lightbox,
   toggleReaction,
-  toggleReactionDetails,
   type Photo,
   type ReactionWithUser,
 } from './photo-feed';
@@ -234,32 +233,33 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     const photo = photos.find((p) => p.id === photoId);
     if (!photo || !user) return;
 
-    const previousReaction = photo.userReaction;
     const previousReactions = photo.reactions;
+    const previousUserReactions = photo.userReactions;
     const previousDetails = feedReactionDetails.get(photoId);
 
-    const {
-      userReaction: newUserReaction,
-      reactions: newReactions,
-      isRemoving,
-    } = toggleReaction(photo.userReaction, photo.reactions, emoji);
+    const { reactions, userReactions, details, isRemoving } = toggleReaction(
+      {
+        reactions: previousReactions,
+        userReactions: previousUserReactions,
+        details: previousDetails,
+      },
+      emoji,
+      { id: user.id, name: user.name, profileColor: user.profileColor }
+    );
 
     setPhotos((prev) =>
-      prev.map((p) =>
-        p.id === photoId ? { ...p, userReaction: newUserReaction, reactions: newReactions } : p
-      )
+      prev.map((p) => (p.id === photoId ? { ...p, userReactions, reactions } : p))
     );
 
     // Details only feed the names tooltip; update in place when already loaded
     // so names stay correct without a refetch.
-    if (previousDetails) {
-      const newDetails = toggleReactionDetails(previousDetails, user, emoji, isRemoving);
-      setFeedReactionDetails((prev) => new Map(prev).set(photoId, newDetails));
+    if (details) {
+      setFeedReactionDetails((prev) => new Map(prev).set(photoId, details));
     }
 
     try {
       if (isRemoving) {
-        await api.photos.removeReaction(photoId);
+        await api.photos.removeReaction(photoId, emoji);
       } else {
         await api.photos.addReaction(photoId, emoji);
       }
@@ -268,7 +268,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       setPhotos((prev) =>
         prev.map((p) =>
           p.id === photoId
-            ? { ...p, userReaction: previousReaction, reactions: previousReactions }
+            ? { ...p, userReactions: previousUserReactions, reactions: previousReactions }
             : p
         )
       );
@@ -366,6 +366,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           {photos.map((photo, index) => (
             <article
               key={photo.id}
+              data-photo-id={photo.id}
               ref={(el) => {
                 photoRefs.current[index] = el;
               }}
@@ -390,7 +391,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                 <div className="mb-2">
                   <ReactionPills
                     reactions={photo.reactions}
-                    userReaction={photo.userReaction}
+                    userReactions={photo.userReactions}
                     onReactionClick={(emoji) => handleFeedReactionClick(photo.id, emoji)}
                     reactionDetails={feedReactionDetails.get(photo.id)}
                     onLoadReactionDetails={() => loadFeedReactionDetails(photo.id)}

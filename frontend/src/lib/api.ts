@@ -497,9 +497,10 @@ export const api = {
       return response.json();
     },
 
-    removeReaction: async (photoId: string) => {
+    removeReaction: async (photoId: string, emoji: string) => {
       const response = await fetchWithAuth(`/photos/${photoId}/react`, {
         method: 'DELETE',
+        body: JSON.stringify({ emoji }),
       });
       return response.json();
     },

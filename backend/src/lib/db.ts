@@ -73,7 +73,7 @@ export interface MembershipWithUser extends Membership {
 
 export interface MagicLinkToken {
   token: string;
-  group_id: string | null;
+  group_id: string;
   email: string;
   type: 'invite' | 'login';
   invite_role: MembershipRole | null; // 'admin' or 'member' only
@@ -129,9 +129,10 @@ export interface ReactionSummary {
 }
 
 export interface PhotoWithCounts extends Photo {
+  reaction_count: number;
   comment_count: number;
   reactions: ReactionSummary[];
-  user_reaction: string | null;
+  user_reactions: string[];
 }
 
 // Group functions
@@ -350,15 +351,11 @@ export async function updateUserProfileColor(
 // Magic link token functions
 export async function createMagicLinkToken(
   db: D1Database,
-  groupId: string | null,
+  groupId: string,
   email: string,
   type: 'invite' | 'login',
   inviteRole?: 'admin' | 'member'
 ): Promise<string> {
-  if (type === 'invite' && !groupId) {
-    throw new Error('Invite magic links require a group_id');
-  }
-
   const token = generateInviteToken(); // Reuse this for cryptographically random tokens
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 15 * 60; // 15 minutes
@@ -532,39 +529,27 @@ export async function addPhotoReaction(
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
 
+  // Idempotent: re-adding an existing reaction is a no-op (preserves created_at).
   await db
     .prepare(
       `INSERT INTO photo_reactions (photo_id, user_id, emoji, created_at)
        VALUES (?, ?, ?, ?)
-       ON CONFLICT (photo_id, user_id) DO UPDATE SET emoji = ?, created_at = ?`
+       ON CONFLICT (photo_id, user_id, emoji) DO NOTHING`
     )
-    .bind(photoId, userId, emoji, now, emoji, now)
+    .bind(photoId, userId, emoji, now)
     .run();
 }
 
 export async function removePhotoReaction(
   db: D1Database,
   photoId: string,
-  userId: string
+  userId: string,
+  emoji: string
 ): Promise<void> {
   await db
-    .prepare('DELETE FROM photo_reactions WHERE photo_id = ? AND user_id = ?')
-    .bind(photoId, userId)
+    .prepare('DELETE FROM photo_reactions WHERE photo_id = ? AND user_id = ? AND emoji = ?')
+    .bind(photoId, userId, emoji)
     .run();
-}
-
-export async function getPhotoReactions(db: D1Database, photoId: string): Promise<PhotoReaction[]> {
-  const result = await db
-    .prepare(
-      `SELECT photo_id, user_id, emoji, created_at
-       FROM photo_reactions
-       WHERE photo_id = ?
-       ORDER BY created_at ASC`
-    )
-    .bind(photoId)
-    .all<PhotoReaction>();
-
-  return result.results || [];
 }
 
 export async function getGroupPhotoKeys(
@@ -932,6 +917,15 @@ export async function deleteComment(db: D1Database, commentId: string): Promise<
   return result.success;
 }
 
+export async function getCommentCount(db: D1Database, photoId: string): Promise<number> {
+  const result = await db
+    .prepare('SELECT COUNT(*) as count FROM comments WHERE photo_id = ? AND deleted_at IS NULL')
+    .bind(photoId)
+    .first<{ count: number }>();
+
+  return result?.count ?? 0;
+}
+
 // Reaction functions with user details
 export async function getPhotoReactionsWithUsers(
   db: D1Database,
@@ -954,7 +948,6 @@ export async function getPhotoReactionsWithUsers(
 // Internal type for the aggregated query result
 interface PhotoWithCountsRow extends Photo {
   comment_count: number;
-  user_reaction: string | null;
 }
 
 // List photos with reaction and comment counts (optimized: 2 queries instead of 1+3N)
@@ -965,7 +958,7 @@ export async function listPhotosWithCounts(
   limit: number = 20,
   offset: number = 0
 ): Promise<PhotoWithCounts[]> {
-  // Query 1: Get photos with aggregated counts in a single query
+  // Query 1: Get photos with comment counts in a single query
   const photosResult = await db
     .prepare(
       `SELECT
@@ -976,8 +969,7 @@ export async function listPhotosWithCounts(
         p.uploaded_by,
         p.uploaded_at,
         p.thumbnail_r2_key,
-        COALESCE(c.comment_count, 0) as comment_count,
-        ur.emoji as user_reaction
+        COALESCE(c.comment_count, 0) as comment_count
       FROM photos p
       LEFT JOIN (
         SELECT photo_id, COUNT(*) as comment_count
@@ -985,12 +977,11 @@ export async function listPhotosWithCounts(
         WHERE deleted_at IS NULL
         GROUP BY photo_id
       ) c ON c.photo_id = p.id
-      LEFT JOIN photo_reactions ur ON ur.photo_id = p.id AND ur.user_id = ?
       WHERE p.group_id = ?
       ORDER BY p.uploaded_at DESC
       LIMIT ? OFFSET ?`
     )
-    .bind(userId, groupId, limit, offset)
+    .bind(groupId, limit, offset)
     .all<PhotoWithCountsRow>();
 
   const photos = photosResult.results || [];
@@ -999,26 +990,42 @@ export async function listPhotosWithCounts(
     return [];
   }
 
-  // Query 2: Get reaction breakdown for all photos in a single batch query
+  // Query 2: Get the per-emoji reaction breakdown for all photos in one batch,
+  // flagging which emoji the requesting user has reacted with. This yields both
+  // the public counts and the user's own reactions without a separate join.
   const photoIds = photos.map((p) => p.id);
   const placeholders = photoIds.map(() => '?').join(',');
 
   const reactionsResult = await db
     .prepare(
-      `SELECT photo_id, emoji, COUNT(*) as count
+      `SELECT photo_id, emoji, COUNT(*) as count,
+              MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) as reacted_by_user
        FROM photo_reactions
        WHERE photo_id IN (${placeholders})
        GROUP BY photo_id, emoji
        ORDER BY count DESC, emoji ASC`
     )
-    .bind(...photoIds)
-    .all<{ photo_id: string; emoji: string; count: number }>();
+    .bind(userId, ...photoIds)
+    .all<{ photo_id: string; emoji: string; count: number; reacted_by_user: number }>();
 
   const reactionsByPhoto = new Map<string, ReactionSummary[]>();
+  const userReactionsByPhoto = new Map<string, string[]>();
+  const reactionCountByPhoto = new Map<string, number>();
   for (const row of reactionsResult.results || []) {
-    const existing = reactionsByPhoto.get(row.photo_id) || [];
-    existing.push({ emoji: row.emoji, count: row.count });
-    reactionsByPhoto.set(row.photo_id, existing);
+    const summaries = reactionsByPhoto.get(row.photo_id) || [];
+    summaries.push({ emoji: row.emoji, count: row.count });
+    reactionsByPhoto.set(row.photo_id, summaries);
+
+    reactionCountByPhoto.set(
+      row.photo_id,
+      (reactionCountByPhoto.get(row.photo_id) || 0) + row.count
+    );
+
+    if (row.reacted_by_user) {
+      const userReactions = userReactionsByPhoto.get(row.photo_id) || [];
+      userReactions.push(row.emoji);
+      userReactionsByPhoto.set(row.photo_id, userReactions);
+    }
   }
 
   // Combine photos with their reaction summaries
@@ -1030,8 +1037,9 @@ export async function listPhotosWithCounts(
     uploaded_by: photo.uploaded_by,
     uploaded_at: photo.uploaded_at,
     thumbnail_r2_key: photo.thumbnail_r2_key,
+    reaction_count: reactionCountByPhoto.get(photo.id) || 0,
     comment_count: photo.comment_count,
     reactions: reactionsByPhoto.get(photo.id) || [],
-    user_reaction: photo.user_reaction,
+    user_reactions: userReactionsByPhoto.get(photo.id) || [],
   }));
 }

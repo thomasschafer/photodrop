@@ -15,26 +15,10 @@ import {
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
 import { updateMemberSchema, imageProtectionSchema } from '../lib/schemas';
+import { BadRequestError, requireParam } from '../lib/http';
 import type { AppEnv } from '../types';
 
 const groups = new Hono<AppEnv>();
-
-class BadRequestError extends Error {
-  readonly statusCode = 400 as const;
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'BadRequestError';
-  }
-}
-
-function requireParam(value: string | undefined, name: string): string {
-  if (!value) {
-    throw new BadRequestError(`Missing route parameter: ${name}`);
-  }
-
-  return value;
-}
 
 // Get all groups the current user is a member of
 groups.get('/', requireAuth, async (c) => {
