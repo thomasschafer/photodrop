@@ -2,28 +2,36 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
+import { ApiError } from '../lib/api';
 
 const mockGetMe = vi.fn();
 const mockRefresh = vi.fn();
 
-vi.mock('../lib/api', () => ({
-  api: {
-    users: { getMe: (...a: unknown[]) => mockGetMe(...a) },
-    auth: {
-      refresh: (...a: unknown[]) => mockRefresh(...a),
-      logout: vi.fn().mockResolvedValue({}),
-      switchGroup: vi.fn(),
-      selectGroup: vi.fn(),
+// Mock only the network surface (the `api` object); keep the real, pure
+// isSessionExpired/ApiError so the tests exercise production's actual
+// expiry classification rather than a hand-rolled copy that could drift.
+vi.mock('../lib/api', async (importActual) => {
+  const actual = await importActual<typeof import('../lib/api')>();
+  return {
+    ...actual,
+    api: {
+      users: { getMe: (...a: unknown[]) => mockGetMe(...a) },
+      auth: {
+        refresh: (...a: unknown[]) => mockRefresh(...a),
+        logout: vi.fn().mockResolvedValue({}),
+        switchGroup: vi.fn(),
+        selectGroup: vi.fn(),
+      },
+      push: { unsubscribe: vi.fn().mockResolvedValue(undefined) },
     },
-    push: { unsubscribe: vi.fn().mockResolvedValue(undefined) },
-  },
-  // Mirrors the real classifier: only an explicit 401/403 is a genuine expiry;
-  // anything else (network / 5xx) is transient.
-  isSessionExpired: (error: unknown): boolean =>
-    typeof error === 'object' &&
-    error !== null &&
-    'status' in error &&
-    ((error as { status: number }).status === 401 || (error as { status: number }).status === 403),
+  };
+});
+
+// api.ts reads Capacitor.isNativePlatform() at module load, so the real module
+// (pulled in above via importActual) needs this stubbed.
+vi.mock('@capacitor/core', () => ({
+  Capacitor: { isNativePlatform: () => false },
+  CapacitorHttp: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn(), patch: vi.fn() },
 }));
 
 vi.mock('../lib/cache', () => ({
@@ -140,7 +148,7 @@ describe('AuthProvider session resilience', () => {
     renderApp();
     await screen.findByText('user:Tom');
 
-    mockRefresh.mockRejectedValue({ status: 401 });
+    mockRefresh.mockRejectedValue(new ApiError(401, 'Unauthorized', 'Expired'));
 
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
