@@ -162,6 +162,47 @@ describe('fetchWithAuth refresh-on-401', () => {
     window.removeEventListener('auth:session-expired', onExpired);
   });
 
+  it('surfaces the no-groups state (not logout) when refresh returns a user but no groups', async () => {
+    // The user's last group is deleted: /auth/refresh returns 200 with a user,
+    // accessToken=null, and groups=[]. This is a live session with no active
+    // group, so it must dispatch auth:token-refreshed (AuthContext maps it to
+    // the "no groups yet" state) — never auth:session-expired.
+    const refreshedDetails: unknown[] = [];
+    let expired = false;
+    const onRefreshed = (e: Event) => refreshedDetails.push((e as CustomEvent).detail);
+    const onExpired = () => {
+      expired = true;
+    };
+    window.addEventListener('auth:token-refreshed', onRefreshed);
+    window.addEventListener('auth:session-expired', onExpired);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/auth/refresh')) {
+          return jsonResponse({
+            accessToken: null,
+            selectionToken: null,
+            user: refreshPayload.user,
+            currentGroup: null,
+            groups: [],
+            needsGroupSelection: false,
+          });
+        }
+        return jsonResponse({ error: 'Membership no longer exists' }, 401);
+      })
+    );
+
+    await expect(api.photos.list()).rejects.toBeInstanceOf(ApiError);
+    expect(refreshedDetails).toHaveLength(1);
+    expect((refreshedDetails[0] as { groups: unknown[] }).groups).toEqual([]);
+    expect(expired).toBe(false);
+    expect(localStorage.getItem('accessToken')).toBeNull();
+
+    window.removeEventListener('auth:token-refreshed', onRefreshed);
+    window.removeEventListener('auth:session-expired', onExpired);
+  });
+
   it('does not attempt a refresh for unauthenticated (includeAuth=false) endpoints', async () => {
     let expired = false;
     const onExpired = () => {

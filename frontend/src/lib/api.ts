@@ -231,15 +231,18 @@ export async function refreshAccessToken(): Promise<boolean> {
       window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
       return true;
     }
-    // Valid session but no active group (e.g. removed from the current group):
-    // hand the remaining groups to the app for selection rather than logging
-    // out. There's no token, so the original request can't be retried.
-    if (data.groups && data.groups.length > 0) {
+    // Valid session but no active group (e.g. removed from the current/last
+    // group): hand the response to the app so it can show the group picker or
+    // the no-groups state, rather than logging out. The refresh endpoint only
+    // returns a user when the refresh cookie verified, so a user with no token
+    // always means a live session — regardless of how many groups remain.
+    // There's no token, so the original request can't be retried.
+    if (data.user) {
       localStorage.removeItem('accessToken');
       window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
       return false;
     }
-    // A 2xx response with neither a token nor groups means the session is gone;
+    // A 2xx response with neither a token nor a user means the session is gone;
     // fall through to the teardown below.
   } catch (error) {
     // Transient failure: keep the session intact and let the caller's request
