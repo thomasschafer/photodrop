@@ -397,9 +397,14 @@ photos.get('/:id/download', requireAuth, async (c) => {
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
-        // Private image: no shared/HTTP/CDN caching, and vary by the auth header.
-        // The app's service worker caches it deliberately (per-browser, purged
-        // on logout/group switch) via CacheFirst + ignoreVary.
+        // Private image: no-store keeps it out of all shared/browser/CDN HTTP
+        // caches, and we vary by the auth header. Deliberate per-browser caching
+        // is left to the service worker (CacheFirst + ignoreVary, purged on
+        // logout/group switch) — but only when the request is same-origin with
+        // the controlled page (dev via the Vite /api proxy, or a same-origin
+        // deploy). The default production build points at a separate API
+        // subdomain, so those cross-origin requests bypass the SW caches and are
+        // refetched on cold loads. See frontend/src/sw.ts.
         'Cache-Control': 'no-store',
         Vary: 'Authorization',
       },
@@ -459,8 +464,9 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
-        // See the download route: private image, no shared/HTTP/CDN caching;
-        // the service worker caches it deliberately (CacheFirst + ignoreVary).
+        // Private image, no shared/browser/CDN HTTP caching; same-origin-only
+        // service-worker caching. See the download route above for the full
+        // rationale and the cross-origin production caveat.
         'Cache-Control': 'no-store',
         Vary: 'Authorization',
       },

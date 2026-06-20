@@ -52,6 +52,18 @@ self.addEventListener('activate', (event) => {
 
 // Match only same-origin requests so we don't intercept cross-origin API/images (e.g. dev API on another port).
 // The SW controls the page and sees all fetches; without this guard, CacheFirst can capture those requests.
+//
+// Consequence: the runtime caches below only engage when the API is same-origin
+// with the page — local dev (Vite proxies /api/* to the backend) or a deploy
+// that fronts the API on the page's own origin. The default production build
+// (scripts/deploy.sh sets VITE_API_URL=https://$API_DOMAIN) talks to a separate
+// API subdomain, so image/API requests are cross-origin and intentionally
+// bypass these caches; combined with the backend's `no-store`, default
+// production has no persistent image cache and refetches on cold loads. In-app
+// images are still deduped/cached in memory for the session by
+// useAuthenticatedImage's blob-URL LRU. Persistent cross-origin caching would
+// require a same-origin /api proxy (or allowlisting the API origin here plus
+// the matching CORS work) and is deliberately left out for now.
 const isSameOrigin = (url: URL) => url.origin === self.location.origin;
 
 // These runtime caches hold authenticated, user-private content. That is safe
