@@ -67,17 +67,35 @@ test.describe('Reactions and comments', () => {
     await expect(heartReactionPill).toBeVisible();
   });
 
-  test('user can add multiple reactions to a photo', async ({ page }) => {
+  test('user can add multiple reactions to a photo', async ({ page, request }) => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
+    const token = await getAuthToken(page);
 
+    await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
+
+    for (const emoji of ['❤️', '😂']) {
+      await request.delete(`${API_BASE}/photos/${photoId}/react`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/json',
+        },
+        data: { emoji },
+      });
+    }
+
+    await page.reload();
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
     await page.locator('article').first().click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
-    // Add a second, different emoji on top of the heart from the previous test
     const addReactionButton = dialog.getByRole('button', { name: 'Add reaction' });
+    await addReactionButton.click();
+    const heartOption = dialog.getByRole('option', { name: /react with ❤️/i });
+    await heartOption.click();
+
     await addReactionButton.click();
     const laughOption = dialog.getByRole('option', { name: /react with 😂/i });
     await laughOption.click();
