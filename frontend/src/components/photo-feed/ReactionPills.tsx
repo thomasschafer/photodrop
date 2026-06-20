@@ -167,6 +167,10 @@ export function ReactionPills({
   const handleTriggerKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (isHorizontalNavKey(e)) {
       e.preventDefault();
+      // Stop the key reaching the lightbox's document-level keydown listener,
+      // which navigates photos on the same left/right keys — otherwise opening
+      // the picker would also flip to the adjacent photo.
+      e.stopPropagation();
       setPickerOpen(true);
     }
   }, []);

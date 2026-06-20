@@ -44,6 +44,28 @@ describe('ReactionPills', () => {
     expect(onReactionClick).toHaveBeenCalledWith('🔥');
   });
 
+  it('opens the picker on a horizontal arrow without leaking the key to the lightbox', () => {
+    // The lightbox navigates photos from a document-level (bubble-phase) keydown
+    // listener on the same left/right keys. With focus on the trigger, opening
+    // the picker must not also reach that listener and flip to another photo.
+    const documentKeyDown = vi.fn();
+    document.addEventListener('keydown', documentKeyDown);
+
+    try {
+      render(<ReactionPills reactions={[]} userReaction={null} onReactionClick={vi.fn()} />);
+
+      const trigger = screen.getByRole('button', { name: 'Add reaction' });
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: 'ArrowRight' });
+
+      // Picker opened, and the event was stopped before bubbling to document.
+      expect(screen.getByRole('listbox', { name: 'Select reaction' })).toBeInTheDocument();
+      expect(documentKeyDown).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('keydown', documentKeyDown);
+    }
+  });
+
   it('opens its own picker and selects an emoji from it', () => {
     const onReactionClick = vi.fn();
 
