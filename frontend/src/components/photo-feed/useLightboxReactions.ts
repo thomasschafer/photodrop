@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import type { Photo, ReactionSummary, ReactionWithUser } from './types';
-import { toggleReaction, toggleReactionDetails } from './reactions';
+import { toggleReaction } from './reactions';
 
 interface ReactionUser {
   id: string;
@@ -30,37 +30,75 @@ export function useLightboxReactions({
   user,
   onPhotoUpdate,
 }: UseLightboxReactionsArgs) {
-  const [userReaction, setUserReaction] = useState<string | null>(photo.userReaction);
+  const [userReactions, setUserReactions] = useState<string[]>(photo.userReactions);
   const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
-  const [details, setDetails] = useState<ReactionWithUser[]>([]);
+  const [details, setDetails] = useState<ReactionWithUser[] | undefined>();
 
   const cache = useRef<Map<string, ReactionWithUser[]>>(new Map());
+  const cacheVersions = useRef<Map<string, number>>(new Map());
+  const pendingMutationCounts = useRef<Map<string, number>>(new Map());
   const currentPhotoIdRef = useRef(photo.id);
   const loadingRef = useRef(false);
+
+  const bumpCacheVersion = useCallback((photoId: string) => {
+    cacheVersions.current.set(photoId, (cacheVersions.current.get(photoId) ?? 0) + 1);
+  }, []);
+
+  const beginPendingMutation = useCallback((photoId: string) => {
+    pendingMutationCounts.current.set(
+      photoId,
+      (pendingMutationCounts.current.get(photoId) ?? 0) + 1
+    );
+  }, []);
+
+  const endPendingMutation = useCallback((photoId: string) => {
+    const nextCount = (pendingMutationCounts.current.get(photoId) ?? 1) - 1;
+    if (nextCount > 0) {
+      pendingMutationCounts.current.set(photoId, nextCount);
+    } else {
+      pendingMutationCounts.current.delete(photoId);
+    }
+  }, []);
+
+  const hasPendingMutation = useCallback(
+    (photoId: string) => pendingMutationCounts.current.has(photoId),
+    []
+  );
 
   // Reset to the active photo's state when it changes (using cached details if
   // we have them). Runs before the load effects below.
   useLayoutEffect(() => {
     currentPhotoIdRef.current = photo.id;
-    setUserReaction(photo.userReaction);
+    setUserReactions(photo.userReactions);
     setReactions(photo.reactions);
-    setDetails(cache.current.get(photo.id) ?? []);
+    setDetails(cache.current.get(photo.id));
     // Intentionally keyed on photo.id only: optimistic updates must not reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
 
-  // Single fetch path shared by load and prefetch: fetch, cache, return.
-  const fetchDetails = useCallback(async (photoId: string): Promise<ReactionWithUser[]> => {
-    const data = await api.photos.getReactions(photoId);
-    cache.current.set(photoId, data.reactions);
-    return data.reactions;
-  }, []);
+  // Single fetch path shared by load, refresh, and prefetch. A request is only
+  // allowed to write if no optimistic mutation started while it was in flight.
+  const fetchDetails = useCallback(
+    async (photoId: string): Promise<ReactionWithUser[] | undefined> => {
+      const versionAtStart = cacheVersions.current.get(photoId) ?? 0;
+      const startedDuringMutation = hasPendingMutation(photoId);
+      const data = await api.photos.getReactions(photoId);
+
+      if (startedDuringMutation || (cacheVersions.current.get(photoId) ?? 0) !== versionAtStart) {
+        return undefined;
+      }
+
+      cache.current.set(photoId, data.reactions);
+      return data.reactions;
+    },
+    [hasPendingMutation]
+  );
 
   const loadReactionDetails = useCallback(async () => {
     if (loadingRef.current) return;
 
     const cached = cache.current.get(photo.id);
-    if (cached) {
+    if (cached !== undefined) {
       if (currentPhotoIdRef.current === photo.id) setDetails(cached);
       return;
     }
@@ -68,7 +106,7 @@ export function useLightboxReactions({
     loadingRef.current = true;
     try {
       const fetched = await fetchDetails(photo.id);
-      if (currentPhotoIdRef.current === photo.id) setDetails(fetched);
+      if (fetched !== undefined && currentPhotoIdRef.current === photo.id) setDetails(fetched);
     } catch (err) {
       console.error('Failed to load reaction details:', err);
     } finally {
@@ -101,41 +139,64 @@ export function useLightboxReactions({
     if (!user) return;
 
     const photoId = photo.id;
-    const previous = { userReaction, reactions, details };
+    const previous = { userReactions, reactions, details };
+    bumpCacheVersion(photoId);
+    beginPendingMutation(photoId);
 
     const {
-      userReaction: nextUserReaction,
       reactions: nextReactions,
+      userReactions: nextUserReactions,
+      details: nextDetails,
       isRemoving,
-    } = toggleReaction(userReaction, reactions, emoji);
-    const nextDetails = toggleReactionDetails(details, user, emoji, isRemoving);
+    } = toggleReaction({ reactions, userReactions, details }, emoji, user);
 
-    setUserReaction(nextUserReaction);
+    setUserReactions(nextUserReactions);
     setReactions(nextReactions);
-    setDetails(nextDetails);
-    cache.current.set(photoId, nextDetails);
+    if (nextDetails !== undefined) {
+      setDetails(nextDetails);
+      cache.current.set(photoId, nextDetails);
+    }
 
     try {
       if (isRemoving) {
-        await api.photos.removeReaction(photoId);
+        await api.photos.removeReaction(photoId, emoji);
       } else {
         await api.photos.addReaction(photoId, emoji);
       }
-      onPhotoUpdate({ id: photoId, userReaction: nextUserReaction, reactions: nextReactions });
+      onPhotoUpdate({ id: photoId, userReactions: nextUserReactions, reactions: nextReactions });
     } catch (err) {
       console.error('Failed to update reaction:', err);
-      cache.current.set(photoId, previous.details);
+      endPendingMutation(photoId);
+      bumpCacheVersion(photoId);
+      if (previous.details !== undefined) {
+        cache.current.set(photoId, previous.details);
+      } else {
+        cache.current.delete(photoId);
+      }
       // Only roll the visible state back if we're still on this photo.
       if (currentPhotoIdRef.current === photoId) {
-        setUserReaction(previous.userReaction);
+        setUserReactions(previous.userReactions);
         setReactions(previous.reactions);
         setDetails(previous.details);
+      }
+      return;
+    }
+
+    endPendingMutation(photoId);
+    if (previous.details === undefined && !hasPendingMutation(photoId)) {
+      try {
+        const refreshed = await fetchDetails(photoId);
+        if (refreshed !== undefined && currentPhotoIdRef.current === photoId) {
+          setDetails(refreshed);
+        }
+      } catch (err) {
+        console.error('Failed to refresh reaction details:', err);
       }
     }
   };
 
   return {
-    userReaction,
+    userReactions,
     reactions,
     reactionDetails: details,
     loadReactionDetails,

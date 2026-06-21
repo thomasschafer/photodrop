@@ -15,7 +15,6 @@ import {
   ReactionPills,
   Lightbox,
   toggleReaction,
-  toggleReactionDetails,
   type Photo,
   type ReactionWithUser,
 } from './photo-feed';
@@ -65,6 +64,8 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [feedReactionDetails, setFeedReactionDetails] = useState<Map<string, ReactionWithUser[]>>(
     new Map()
   );
+  const feedReactionDetailVersions = useRef<Map<string, number>>(new Map());
+  const pendingFeedReactionCounts = useRef<Map<string, number>>(new Map());
   const [uploadButtonRef, restoreUploadFocus] = useFocusRestore<HTMLButtonElement>();
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
@@ -73,18 +74,64 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const location = useLocation();
   const { photoId } = useParams<{ photoId: string }>();
 
+  const bumpFeedReactionDetailVersion = useCallback((photoId: string) => {
+    feedReactionDetailVersions.current.set(
+      photoId,
+      (feedReactionDetailVersions.current.get(photoId) ?? 0) + 1
+    );
+  }, []);
+
+  const beginPendingFeedReaction = useCallback((photoId: string) => {
+    pendingFeedReactionCounts.current.set(
+      photoId,
+      (pendingFeedReactionCounts.current.get(photoId) ?? 0) + 1
+    );
+  }, []);
+
+  const endPendingFeedReaction = useCallback((photoId: string) => {
+    const nextCount = (pendingFeedReactionCounts.current.get(photoId) ?? 1) - 1;
+    if (nextCount > 0) {
+      pendingFeedReactionCounts.current.set(photoId, nextCount);
+    } else {
+      pendingFeedReactionCounts.current.delete(photoId);
+    }
+  }, []);
+
+  const hasPendingFeedReaction = useCallback(
+    (photoId: string) => pendingFeedReactionCounts.current.has(photoId),
+    []
+  );
+
+  const fetchFeedReactionDetails = useCallback(
+    async (photoId: string) => {
+      const versionAtStart = feedReactionDetailVersions.current.get(photoId) ?? 0;
+      const startedDuringMutation = hasPendingFeedReaction(photoId);
+      const data = await api.photos.getReactions(photoId);
+
+      if (
+        startedDuringMutation ||
+        (feedReactionDetailVersions.current.get(photoId) ?? 0) !== versionAtStart
+      ) {
+        return undefined;
+      }
+
+      setFeedReactionDetails((prev) => new Map(prev).set(photoId, data.reactions));
+      return data.reactions as ReactionWithUser[];
+    },
+    [hasPendingFeedReaction]
+  );
+
   const loadFeedReactionDetails = useCallback(
     async (photoId: string) => {
       if (feedReactionDetails.has(photoId)) return;
 
       try {
-        const data = await api.photos.getReactions(photoId);
-        setFeedReactionDetails((prev) => new Map(prev).set(photoId, data.reactions));
+        await fetchFeedReactionDetails(photoId);
       } catch (err) {
         console.error('Failed to load reaction details:', err);
       }
     },
-    [feedReactionDetails]
+    [feedReactionDetails, fetchFeedReactionDetails]
   );
 
   const selectedPhotoIndex = photoId ? photos.findIndex((p) => p.id === photoId) : null;
@@ -234,46 +281,67 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     const photo = photos.find((p) => p.id === photoId);
     if (!photo || !user) return;
 
-    const previousReaction = photo.userReaction;
     const previousReactions = photo.reactions;
+    const previousUserReactions = photo.userReactions;
     const previousDetails = feedReactionDetails.get(photoId);
+    bumpFeedReactionDetailVersion(photoId);
+    beginPendingFeedReaction(photoId);
 
-    const {
-      userReaction: newUserReaction,
-      reactions: newReactions,
-      isRemoving,
-    } = toggleReaction(photo.userReaction, photo.reactions, emoji);
+    const { reactions, userReactions, details, isRemoving } = toggleReaction(
+      {
+        reactions: previousReactions,
+        userReactions: previousUserReactions,
+        details: previousDetails,
+      },
+      emoji,
+      { id: user.id, name: user.name, profileColor: user.profileColor }
+    );
 
     setPhotos((prev) =>
-      prev.map((p) =>
-        p.id === photoId ? { ...p, userReaction: newUserReaction, reactions: newReactions } : p
-      )
+      prev.map((p) => (p.id === photoId ? { ...p, userReactions, reactions } : p))
     );
 
     // Details only feed the names tooltip; update in place when already loaded
     // so names stay correct without a refetch.
-    if (previousDetails) {
-      const newDetails = toggleReactionDetails(previousDetails, user, emoji, isRemoving);
-      setFeedReactionDetails((prev) => new Map(prev).set(photoId, newDetails));
+    if (details !== undefined) {
+      setFeedReactionDetails((prev) => new Map(prev).set(photoId, details));
     }
 
     try {
       if (isRemoving) {
-        await api.photos.removeReaction(photoId);
+        await api.photos.removeReaction(photoId, emoji);
       } else {
         await api.photos.addReaction(photoId, emoji);
       }
     } catch (err) {
       console.error('Failed to update reaction:', err);
+      endPendingFeedReaction(photoId);
+      bumpFeedReactionDetailVersion(photoId);
       setPhotos((prev) =>
         prev.map((p) =>
           p.id === photoId
-            ? { ...p, userReaction: previousReaction, reactions: previousReactions }
+            ? { ...p, userReactions: previousUserReactions, reactions: previousReactions }
             : p
         )
       );
-      if (previousDetails) {
+      if (previousDetails !== undefined) {
         setFeedReactionDetails((prev) => new Map(prev).set(photoId, previousDetails));
+      } else {
+        setFeedReactionDetails((prev) => {
+          const next = new Map(prev);
+          next.delete(photoId);
+          return next;
+        });
+      }
+      return;
+    }
+
+    endPendingFeedReaction(photoId);
+    if (previousDetails === undefined && !hasPendingFeedReaction(photoId)) {
+      try {
+        await fetchFeedReactionDetails(photoId);
+      } catch (err) {
+        console.error('Failed to refresh reaction details:', err);
       }
     }
   };
@@ -366,6 +434,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           {photos.map((photo, index) => (
             <article
               key={photo.id}
+              data-photo-id={photo.id}
               ref={(el) => {
                 photoRefs.current[index] = el;
               }}
@@ -390,7 +459,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                 <div className="mb-2">
                   <ReactionPills
                     reactions={photo.reactions}
-                    userReaction={photo.userReaction}
+                    userReactions={photo.userReactions}
                     onReactionClick={(emoji) => handleFeedReactionClick(photo.id, emoji)}
                     reactionDetails={feedReactionDetails.get(photo.id)}
                     onLoadReactionDetails={() => loadFeedReactionDetails(photo.id)}

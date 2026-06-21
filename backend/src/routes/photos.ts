@@ -31,7 +31,7 @@ import {
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
 import { addReactionSchema, addCommentSchema } from '../lib/schemas';
-import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
+import { BadRequestError, requireParam, parseJsonBody } from '../lib/http';
 import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for comments: 100 per user per 15 minutes
@@ -49,23 +49,6 @@ const uploadRateLimit = createRateLimitMiddleware({
 });
 
 const photos = new Hono<AppEnv>();
-
-class BadRequestError extends Error {
-  readonly statusCode = 400 as const;
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'BadRequestError';
-  }
-}
-
-function requireParam(value: string | undefined, name: string): string {
-  if (!value) {
-    throw new BadRequestError(`Missing route parameter: ${name}`);
-  }
-
-  return value;
-}
 
 // Send push notifications in background (non-blocking)
 async function sendPhotoUploadNotifications(
@@ -173,7 +156,7 @@ photos.get('/', requireAuth, async (c) => {
         uploadedAt: photo.uploaded_at,
         commentCount: photo.comment_count,
         reactions: photo.reactions,
-        userReaction: photo.user_reaction,
+        userReactions: photo.user_reactions,
       })),
       limit,
       offset,
@@ -566,8 +549,7 @@ photos.post('/:id/react', requireAuth, async (c) => {
   try {
     const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
-    const body = await c.req.json();
-    const { emoji } = addReactionSchema.parse(body);
+    const { emoji } = await parseJsonBody(c, addReactionSchema);
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
@@ -595,15 +577,16 @@ photos.delete('/:id/react', requireAuth, async (c) => {
   try {
     const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
+    const { emoji } = await parseJsonBody(c, addReactionSchema);
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {
       return c.json({ error: 'Photo not found' }, 404);
     }
 
-    await removePhotoReaction(c.env.DB, photoId, currentUser.id);
+    await removePhotoReaction(c.env.DB, photoId, currentUser.id, emoji);
 
-    return c.json({ message: 'Reaction removed' });
+    return c.json({ message: 'Reaction removed', emoji });
   } catch (error) {
     if (error instanceof BadRequestError) {
       return c.json({ error: error.message }, error.statusCode);
@@ -691,21 +674,7 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
   try {
     const photoId = requireParam(c.req.param('id'), 'id');
     const currentUser = c.get('user');
-    const body = await c.req.json();
-    const parsed = addCommentSchema.safeParse(body);
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      let message = 'Invalid comment';
-      if (issue?.code === 'too_big') {
-        message = `Comment must be ${COMMENT_MAX_LENGTH} characters or less`;
-      } else if (issue?.code === 'too_small') {
-        message = 'Comment cannot be empty';
-      } else if (issue?.message) {
-        message = issue.message;
-      }
-      return c.json({ error: message }, 400);
-    }
-    const { content } = parsed.data;
+    const { content } = await parseJsonBody(c, addCommentSchema);
 
     const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
     if (!photo) {

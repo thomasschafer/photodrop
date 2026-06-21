@@ -16,7 +16,7 @@ vi.mock('../../lib/api', () => ({
 }));
 
 import { useLightboxReactions } from './useLightboxReactions';
-import type { Photo } from './types';
+import type { Photo, ReactionWithUser } from './types';
 
 const user = { id: 'me', name: 'Me', profileColor: 'teal' };
 
@@ -28,7 +28,7 @@ function makePhoto(over: Partial<Photo> = {}): Photo {
     uploadedAt: 1,
     commentCount: 0,
     reactions: [],
-    userReaction: null,
+    userReactions: [],
     ...over,
   };
 }
@@ -37,6 +37,16 @@ function setup(photo: Photo, onPhotoUpdate = vi.fn()) {
   return renderHook(() =>
     useLightboxReactions({ photo, prevPhoto: undefined, nextPhoto: undefined, user, onPhotoUpdate })
   );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('useLightboxReactions', () => {
@@ -56,11 +66,11 @@ describe('useLightboxReactions', () => {
     });
 
     expect(addReaction).toHaveBeenCalledWith('p1', '❤️');
-    expect(result.current.userReaction).toBe('❤️');
+    expect(result.current.userReactions).toEqual(['❤️']);
     expect(result.current.reactions).toEqual([{ emoji: '❤️', count: 1 }]);
     expect(onPhotoUpdate).toHaveBeenCalledWith({
       id: 'p1',
-      userReaction: '❤️',
+      userReactions: ['❤️'],
       reactions: [{ emoji: '❤️', count: 1 }],
     });
   });
@@ -68,7 +78,7 @@ describe('useLightboxReactions', () => {
   it('rolls back and does not sync the feed when the request fails', async () => {
     addReaction.mockRejectedValue(new Error('network'));
     const onPhotoUpdate = vi.fn();
-    const photo = makePhoto({ reactions: [{ emoji: '❤️', count: 1 }], userReaction: null });
+    const photo = makePhoto({ reactions: [{ emoji: '❤️', count: 1 }], userReactions: [] });
     const { result } = setup(photo, onPhotoUpdate);
 
     await waitFor(() => expect(getReactions).toHaveBeenCalledWith('p1'));
@@ -78,8 +88,43 @@ describe('useLightboxReactions', () => {
     });
 
     // Reverted to the pre-tap summary; the feed was never told about it.
-    expect(result.current.userReaction).toBeNull();
+    expect(result.current.userReactions).toEqual([]);
     expect(result.current.reactions).toEqual([{ emoji: '❤️', count: 1 }]);
     expect(onPhotoUpdate).not.toHaveBeenCalled();
+  });
+
+  it('ignores stale reaction details that resolve after an optimistic mutation', async () => {
+    const staleDetails: ReactionWithUser[] = [
+      { emoji: '❤️', userId: 'other', userName: 'Other', profileColor: 'coral' },
+    ];
+    const refreshedDetails: ReactionWithUser[] = [
+      ...staleDetails,
+      { emoji: '❤️', userId: 'me', userName: 'Me', profileColor: 'teal' },
+    ];
+    const staleLoad = deferred<{ reactions: ReactionWithUser[] }>();
+
+    getReactions
+      .mockReset()
+      .mockReturnValueOnce(staleLoad.promise)
+      .mockResolvedValueOnce({ reactions: refreshedDetails });
+
+    const photo = makePhoto({ reactions: [{ emoji: '❤️', count: 1 }], userReactions: [] });
+    const { result } = setup(photo);
+
+    await waitFor(() => expect(getReactions).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await result.current.handleReactionClick('❤️');
+    });
+
+    expect(getReactions).toHaveBeenCalledTimes(2);
+    expect(result.current.reactionDetails).toEqual(refreshedDetails);
+
+    await act(async () => {
+      staleLoad.resolve({ reactions: staleDetails });
+      await staleLoad.promise;
+    });
+
+    expect(result.current.reactionDetails).toEqual(refreshedDetails);
   });
 });

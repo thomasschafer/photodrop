@@ -12,7 +12,7 @@ export interface Photo {
   uploadedAt: number;
   commentCount: number;
   reactions: ReactionSummary[];
-  userReaction: string | null;
+  userReactions: string[];
 }
 
 export interface Comment {

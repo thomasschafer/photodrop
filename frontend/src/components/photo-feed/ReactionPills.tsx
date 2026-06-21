@@ -6,7 +6,7 @@ import { isHorizontalNavKey } from '../../lib/keyboard';
 
 export interface ReactionPillsProps {
   reactions: ReactionSummary[];
-  userReaction: string | null;
+  userReactions: string[];
   onReactionClick: (emoji: string) => void;
   pickerPosition?: 'above' | 'below';
   useViewportPositioning?: boolean;
@@ -133,7 +133,7 @@ function ReactionPillButton({
 
 export function ReactionPills({
   reactions,
-  userReaction,
+  userReactions,
   onReactionClick,
   pickerPosition = 'below',
   useViewportPositioning = false,
@@ -146,7 +146,8 @@ export function ReactionPills({
   // and lightbox get identical, iOS-safe open/focus/keyboard/blur behaviour
   // without re-implementing it.
   const [pickerOpen, setPickerOpen] = useState(false);
-  const currentReactionIndex = userReaction ? EMOJI_OPTIONS.indexOf(userReaction) : 0;
+  const firstUserReaction = userReactions[0];
+  const currentReactionIndex = firstUserReaction ? EMOJI_OPTIONS.indexOf(firstUserReaction) : 0;
   const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
     isOpen: pickerOpen,
     onClose: () => setPickerOpen(false),
@@ -294,7 +295,7 @@ export function ReactionPills({
   return (
     <div className="flex gap-1.5 flex-wrap items-center relative" onMouseEnter={handleMouseEnter}>
       {displayReactions.map(({ emoji, count }) => {
-        const isUserReaction = userReaction === emoji;
+        const isUserReaction = userReactions.includes(emoji);
         const names = showNames ? reactionsByEmoji?.[emoji] : undefined;
         return (
           <ReactionPillButton
@@ -337,6 +338,7 @@ export function ReactionPills({
           <div
             ref={pickerRef}
             role="listbox"
+            aria-multiselectable="true"
             aria-label="Select reaction"
             className={`z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1 ${
               useViewportPositioning
@@ -349,14 +351,14 @@ export function ReactionPills({
                 key={emoji}
                 ref={setOptionRef(index)}
                 role="option"
-                aria-selected={userReaction === emoji}
+                aria-selected={userReactions.includes(emoji)}
                 onClick={(e) => {
                   e.stopPropagation();
                   selectEmoji(emoji);
                 }}
                 onKeyDown={(e) => handleOptionKeyDown(e, index)}
                 className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-colors cursor-pointer ${
-                  userReaction === emoji
+                  userReactions.includes(emoji)
                     ? 'bg-accent/25 hover:bg-accent/35'
                     : 'hover:bg-bg-tertiary'
                 }`}

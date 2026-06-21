@@ -91,7 +91,7 @@ export function Lightbox({
   const prevPhoto = centerIndex > 0 ? photos[centerIndex - 1] : undefined;
   const nextPhoto = centerIndex < photos.length - 1 ? photos[centerIndex + 1] : undefined;
 
-  const { userReaction, reactions, reactionDetails, loadReactionDetails, handleReactionClick } =
+  const { userReactions, reactions, reactionDetails, loadReactionDetails, handleReactionClick } =
     useLightboxReactions({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
 
   const {
@@ -292,7 +292,7 @@ export function Lightbox({
         >
           <CommentPanel
             reactions={reactions}
-            userReaction={userReaction}
+            userReactions={userReactions}
             comments={comments}
             commentCount={photo.commentCount}
             commentsExpanded={commentsExpanded}

@@ -44,7 +44,7 @@ function makePhoto(over: Partial<Photo> = {}): Photo {
     uploadedAt: 1,
     commentCount: 0,
     reactions: [],
-    userReaction: null,
+    userReactions: [],
     ...over,
   };
 }

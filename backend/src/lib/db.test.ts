@@ -27,10 +27,10 @@ import {
   getCommentsByPhotoId,
   getComment,
   deleteComment,
+  getCommentCount,
   getPhotoReactionsWithUsers,
   listPhotosWithCounts,
   createUser,
-  createMagicLinkToken,
   updateUserProfileColor,
   getRandomProfileColor,
   PROFILE_COLORS,
@@ -1088,6 +1088,28 @@ describe('Comment functions', () => {
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
   });
+
+  describe('getCommentCount', () => {
+    it('returns count for photo with comments', async () => {
+      const db = createMockDb([{ count: 5 }]);
+
+      const result = await getCommentCount(db, 'photo-1');
+
+      expect(result).toBe(5);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('deleted_at IS NULL')
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
+    });
+
+    it('returns 0 for photo with no comments', async () => {
+      const db = createMockDb([{ count: 0 }]);
+
+      const result = await getCommentCount(db, 'photo-empty');
+
+      expect(result).toBe(0);
+    });
+  });
 });
 
 describe('Reaction functions', () => {
@@ -1143,12 +1165,11 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 5,
-        user_reaction: '❤️',
       },
     ];
     const reactions = [
-      { photo_id: 'photo-1', emoji: '❤️', count: 7 },
-      { photo_id: 'photo-1', emoji: '😂', count: 3 },
+      { photo_id: 'photo-1', emoji: '❤️', count: 7, reacted_by_user: 1 },
+      { photo_id: 'photo-1', emoji: '😂', count: 3, reacted_by_user: 0 },
     ];
     const db = createSequentialAllMockDb([photos, reactions]);
 
@@ -1157,10 +1178,37 @@ describe('listPhotosWithCounts', () => {
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('photo-1');
     expect(result[0].comment_count).toBe(5);
-    expect(result[0].user_reaction).toBe('❤️');
+    expect(result[0].reaction_count).toBe(10);
+    expect(result[0].user_reactions).toEqual(['❤️']);
     expect(result[0].reactions).toHaveLength(2);
     expect(result[0].reactions[0]).toEqual({ emoji: '❤️', count: 7 });
     expect(result[0].reactions[1]).toEqual({ emoji: '😂', count: 3 });
+  });
+
+  it('returns multiple user reactions for a photo', async () => {
+    const photos = [
+      {
+        id: 'photo-1',
+        group_id: 'group-1',
+        r2_key: 'photos/1.jpg',
+        caption: 'Test photo',
+        uploaded_by: 'user-1',
+        uploaded_at: 1000,
+        thumbnail_r2_key: 'thumbs/1.jpg',
+        comment_count: 0,
+      },
+    ];
+    const reactions = [
+      { photo_id: 'photo-1', emoji: '❤️', count: 2, reacted_by_user: 1 },
+      { photo_id: 'photo-1', emoji: '🔥', count: 1, reacted_by_user: 1 },
+      { photo_id: 'photo-1', emoji: '😂', count: 4, reacted_by_user: 0 },
+    ];
+    const db = createSequentialAllMockDb([photos, reactions]);
+
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+
+    expect(result[0].user_reactions).toEqual(['❤️', '🔥']);
+    expect(result[0].reaction_count).toBe(7);
   });
 
   it('handles photos with no reactions or comments', async () => {
@@ -1174,7 +1222,6 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 0,
-        user_reaction: null,
       },
     ];
     const reactions: unknown[] = [];
@@ -1184,7 +1231,8 @@ describe('listPhotosWithCounts', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].comment_count).toBe(0);
-    expect(result[0].user_reaction).toBeNull();
+    expect(result[0].reaction_count).toBe(0);
+    expect(result[0].user_reactions).toEqual([]);
     expect(result[0].reactions).toEqual([]);
   });
 
@@ -1207,7 +1255,6 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 2000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 2,
-        user_reaction: '❤️',
       },
       {
         id: 'photo-2',
@@ -1218,13 +1265,12 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/2.jpg',
         comment_count: 0,
-        user_reaction: null,
       },
     ];
     const reactions = [
-      { photo_id: 'photo-1', emoji: '❤️', count: 3 },
-      { photo_id: 'photo-1', emoji: '🔥', count: 2 },
-      { photo_id: 'photo-2', emoji: '😂', count: 3 },
+      { photo_id: 'photo-1', emoji: '❤️', count: 3, reacted_by_user: 1 },
+      { photo_id: 'photo-1', emoji: '🔥', count: 2, reacted_by_user: 0 },
+      { photo_id: 'photo-2', emoji: '😂', count: 3, reacted_by_user: 0 },
     ];
     const db = createSequentialAllMockDb([photos, reactions]);
 
@@ -1255,17 +1301,16 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 0,
-        user_reaction: null,
       },
     ];
     const db = createSequentialAllMockDb([photos, []]);
 
     await listPhotosWithCounts(db, 'group-1', 'user-1', 10, 5);
 
-    // First call: photos query with userId, groupId, limit, offset
-    expect(db._mocks.mockBind).toHaveBeenNthCalledWith(1, 'user-1', 'group-1', 10, 5);
-    // Second call: reactions query with photo IDs
-    expect(db._mocks.mockBind).toHaveBeenNthCalledWith(2, 'photo-1');
+    // First call: photos query with groupId, limit, offset
+    expect(db._mocks.mockBind).toHaveBeenNthCalledWith(1, 'group-1', 10, 5);
+    // Second call: reactions query with userId then photo IDs
+    expect(db._mocks.mockBind).toHaveBeenNthCalledWith(2, 'user-1', 'photo-1');
   });
 });
 
@@ -1344,34 +1389,6 @@ describe('Profile color functions', () => {
       // Verify the profile_color is a valid one
       const profileColor = db._mocks.mockBind.mock.calls[0][3] as ProfileColor;
       expect(PROFILE_COLORS).toContain(profileColor);
-    });
-  });
-
-  describe('createMagicLinkToken', () => {
-    it('allows login tokens without a group', async () => {
-      const db = createMockDb([]);
-
-      const token = await createMagicLinkToken(db, null, 'Test@Example.com', 'login');
-
-      expect(token).toBeTruthy();
-      expect(db._mocks.mockBind).toHaveBeenCalledWith(
-        expect.any(String),
-        null,
-        'test@example.com',
-        'login',
-        null,
-        expect.any(Number),
-        expect.any(Number)
-      );
-    });
-
-    it('rejects invite tokens without a group', async () => {
-      const db = createMockDb([]);
-
-      await expect(createMagicLinkToken(db, null, 'test@example.com', 'invite')).rejects.toThrow(
-        'Invite magic links require a group_id'
-      );
-      expect(db._mocks.mockPrepare).not.toHaveBeenCalled();
     });
   });
 

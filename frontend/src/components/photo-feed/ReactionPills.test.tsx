@@ -16,7 +16,7 @@ describe('ReactionPills', () => {
     render(
       <ReactionPills
         reactions={[{ emoji: '❤️', count: 2 }]}
-        userReaction="❤️"
+        userReactions={['❤️']}
         onReactionClick={vi.fn()}
         reactionDetails={staleDetails}
         currentUserId="me"
@@ -35,7 +35,7 @@ describe('ReactionPills', () => {
     render(
       <ReactionPills
         reactions={[{ emoji: '🔥', count: 1 }]}
-        userReaction={null}
+        userReactions={[]}
         onReactionClick={onReactionClick}
       />
     );
@@ -52,7 +52,7 @@ describe('ReactionPills', () => {
     document.addEventListener('keydown', documentKeyDown);
 
     try {
-      render(<ReactionPills reactions={[]} userReaction={null} onReactionClick={vi.fn()} />);
+      render(<ReactionPills reactions={[]} userReactions={[]} onReactionClick={vi.fn()} />);
 
       const trigger = screen.getByRole('button', { name: 'Add reaction' });
       trigger.focus();
@@ -69,7 +69,7 @@ describe('ReactionPills', () => {
   it('opens its own picker and selects an emoji from it', () => {
     const onReactionClick = vi.fn();
 
-    render(<ReactionPills reactions={[]} userReaction={null} onReactionClick={onReactionClick} />);
+    render(<ReactionPills reactions={[]} userReactions={[]} onReactionClick={onReactionClick} />);
 
     // No picker until the trigger is tapped (ReactionPills owns this now).
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();

@@ -62,7 +62,11 @@ export const addReactionSchema = z.object({
 });
 
 export const addCommentSchema = z.object({
-  content: z.string().trim().min(1).max(COMMENT_MAX_LENGTH),
+  content: z
+    .string()
+    .trim()
+    .min(1, 'Comment cannot be empty')
+    .max(COMMENT_MAX_LENGTH, `Comment must be ${COMMENT_MAX_LENGTH} characters or less`),
 });
 
 // Push schemas

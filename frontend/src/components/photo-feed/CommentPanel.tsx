@@ -12,7 +12,7 @@ const SORT_OPTIONS: Array<{ value: 'newest' | 'oldest'; label: string }> = [
 
 export interface CommentPanelProps {
   reactions: ReactionSummary[];
-  userReaction: string | null;
+  userReactions: string[];
   comments: Comment[];
   /**
    * Authoritative count of non-deleted comments (from `photo.commentCount`).
@@ -24,7 +24,7 @@ export interface CommentPanelProps {
   commentsExpanded: boolean;
   currentUserId?: string;
   isAdmin: boolean;
-  reactionPillsProps: Omit<ReactionPillsProps, 'reactions' | 'userReaction'>;
+  reactionPillsProps: Omit<ReactionPillsProps, 'reactions' | 'userReactions'>;
   /** Remounts the reaction pills (resetting the picker) when the photo changes. */
   reactionsKey?: string;
   commentSortOrder: 'newest' | 'oldest';
@@ -45,7 +45,7 @@ export interface CommentPanelProps {
 
 export function CommentPanel({
   reactions,
-  userReaction,
+  userReactions,
   comments,
   commentCount,
   commentsExpanded,
@@ -80,7 +80,7 @@ export function CommentPanel({
     <ReactionPills
       key={reactionsKey}
       reactions={reactions}
-      userReaction={userReaction}
+      userReactions={userReactions}
       {...reactionPillsProps}
     />
   );
