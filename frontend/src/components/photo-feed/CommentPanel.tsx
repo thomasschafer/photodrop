@@ -14,16 +14,27 @@ export interface CommentPanelProps {
   reactions: ReactionSummary[];
   userReaction: string | null;
   comments: Comment[];
+  /**
+   * Authoritative count of non-deleted comments (from `photo.commentCount`).
+   * Used for the badge so it matches the feed and stays correct through
+   * optimistic add/delete; deleted-comment tombstones in `comments` are shown
+   * but not counted.
+   */
+  commentCount: number;
   commentsExpanded: boolean;
   currentUserId?: string;
   isAdmin: boolean;
   reactionPillsProps: Omit<ReactionPillsProps, 'reactions' | 'userReaction'>;
+  /** Remounts the reaction pills (resetting the picker) when the photo changes. */
+  reactionsKey?: string;
   commentSortOrder: 'newest' | 'oldest';
   onSortOrderChange: (order: 'newest' | 'oldest') => void;
   onToggleExpanded: () => void;
   onDeleteComment: (commentId: string) => void;
   deletingCommentId: string | null;
   loadingComments: boolean;
+  commentsLoadError?: boolean;
+  onRetryLoadComments?: () => void;
   commentInputRef: React.RefObject<HTMLInputElement | null>;
   newComment: string;
   onNewCommentChange: (value: string) => void;
@@ -36,16 +47,20 @@ export function CommentPanel({
   reactions,
   userReaction,
   comments,
+  commentCount,
   commentsExpanded,
   currentUserId,
   isAdmin,
   reactionPillsProps,
+  reactionsKey,
   commentSortOrder,
   onSortOrderChange,
   onToggleExpanded,
   onDeleteComment,
   deletingCommentId,
   loadingComments,
+  commentsLoadError,
+  onRetryLoadComments,
   commentInputRef,
   newComment,
   onNewCommentChange,
@@ -62,10 +77,13 @@ export function CommentPanel({
   );
 
   const reactionPillsElement = (
-    <ReactionPills reactions={reactions} userReaction={userReaction} {...reactionPillsProps} />
+    <ReactionPills
+      key={reactionsKey}
+      reactions={reactions}
+      userReaction={userReaction}
+      {...reactionPillsProps}
+    />
   );
-
-  const commentCount = comments.length;
 
   const arrowIcon = (
     <>
@@ -164,36 +182,66 @@ export function CommentPanel({
               <div className="flex justify-center py-4">
                 <div className="spinner-sm" />
               </div>
+            ) : commentsLoadError ? (
+              <div className="text-center py-4">
+                <p className="text-sm text-text-muted mb-2">Couldn't load comments.</p>
+                {onRetryLoadComments && (
+                  <button
+                    onClick={onRetryLoadComments}
+                    className="text-sm text-accent hover:underline cursor-pointer"
+                  >
+                    Try again
+                  </button>
+                )}
+              </div>
             ) : sortedComments.length === 0 ? (
               <p className="text-sm text-text-muted text-center py-4">No comments yet</p>
             ) : (
               <div className="divide-y divide-border">
                 {sortedComments.map((comment) => {
-                  const isAuthorDeleted = !comment.isDeleted && !comment.userId;
-                  const authorLabel = comment.isDeleted
-                    ? `(deleted) ${comment.authorName}`
-                    : isAuthorDeleted
-                      ? 'Deleted user'
-                      : comment.authorName;
-                  const authorClass =
-                    comment.isDeleted || isAuthorDeleted
-                      ? 'font-medium text-text-muted'
-                      : 'font-medium text-text-primary';
+                  // Deleted comments keep their place in the thread as an
+                  // unattributed tombstone so the surrounding replies still
+                  // make sense, but carry no author, avatar, or delete action.
+                  if (comment.isDeleted) {
+                    return (
+                      <div key={comment.id} className="text-sm py-3 first:pt-0 last:pb-0">
+                        <p className="break-words italic text-text-muted">
+                          This comment has been deleted.
+                        </p>
+                        <p className="text-xs text-text-muted mt-1">
+                          {formatRelativeTime(comment.createdAt)}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  // A null userId on a live comment means the author's account
+                  // was removed (distinct from the comment being deleted).
+                  const isAuthorDeleted = !comment.userId;
+                  const canDelete = comment.userId === currentUserId || isAdmin;
 
                   return (
                     <div key={comment.id} className="text-sm py-3 first:pt-0 last:pb-0">
                       <div className="flex justify-between items-center gap-2">
                         <span className="flex items-center gap-1.5">
-                          {comment.authorProfileColor && !comment.isDeleted && !isAuthorDeleted && (
+                          {comment.authorProfileColor && !isAuthorDeleted && (
                             <Avatar
                               name={comment.authorName}
                               color={comment.authorProfileColor}
                               size="sm"
                             />
                           )}
-                          <span className={authorClass}>{authorLabel}</span>
+                          <span
+                            className={
+                              isAuthorDeleted
+                                ? 'font-medium text-text-muted'
+                                : 'font-medium text-text-primary'
+                            }
+                          >
+                            {isAuthorDeleted ? 'Deleted user' : comment.authorName}
+                          </span>
                         </span>
-                        {(comment.userId === currentUserId || isAdmin) && !comment.isDeleted && (
+                        {canDelete && (
                           <button
                             onClick={() => onDeleteComment(comment.id)}
                             disabled={deletingCommentId === comment.id}
@@ -203,11 +251,7 @@ export function CommentPanel({
                           </button>
                         )}
                       </div>
-                      <p
-                        className={`mt-0.5 break-words ${comment.isDeleted ? 'text-text-muted italic' : 'text-text-secondary'}`}
-                      >
-                        {comment.isDeleted ? 'This comment has been deleted.' : comment.content}
-                      </p>
+                      <p className="mt-0.5 break-words text-text-secondary">{comment.content}</p>
                       <p className="text-xs text-text-muted mt-1">
                         {formatRelativeTime(comment.createdAt)}
                       </p>
@@ -227,13 +271,13 @@ export function CommentPanel({
                 value={newComment}
                 onChange={(e) => onNewCommentChange(e.target.value)}
                 placeholder="Add a comment..."
-                className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-bg-secondary border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-bg-secondary border border-border text-sm focus:outline-none focus:ring-2 focus:ring-accent"
                 disabled={submittingComment}
               />
               <button
                 type="submit"
                 disabled={!newComment.trim() || submittingComment}
-                className="px-3 py-2 rounded-lg bg-primary text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary-hover transition-colors cursor-pointer flex-shrink-0"
+                className="px-3 py-2 rounded-lg bg-accent-solid text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-solid-hover transition-colors cursor-pointer flex-shrink-0"
               >
                 {submittingComment ? '...' : 'Post'}
               </button>

@@ -10,7 +10,6 @@ export interface Photo {
   caption: string | null;
   uploadedBy: string;
   uploadedAt: number;
-  reactionCount: number;
   commentCount: number;
   reactions: ReactionSummary[];
   userReaction: string | null;

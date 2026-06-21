@@ -35,6 +35,13 @@ describe('DELETE /groups/:groupId', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetMembership.mockResolvedValue({
+      user_id: 'owner-user',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
+    });
 
     mockR2Delete = vi.fn().mockResolvedValue(undefined);
 
@@ -227,6 +234,13 @@ describe('GET /groups/:groupId/photo-count', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetMembership.mockResolvedValue({
+      user_id: 'owner-user',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
+    });
 
     app = new Hono();
     app.use('*', async (c, next) => {
@@ -296,6 +310,13 @@ describe('PATCH /groups/:groupId/members/:userId/image-protection', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetMembership.mockResolvedValue({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
+    });
 
     app = new Hono();
     app.use('*', async (c, next) => {
@@ -324,6 +345,13 @@ describe('PATCH /groups/:groupId/members/:userId/image-protection', () => {
       groupId: 'group-1',
       role: 'member',
       type: 'access',
+    });
+    mockGetMembership.mockResolvedValue({
+      user_id: 'member-user',
+      group_id: 'group-1',
+      role: 'member',
+      joined_at: 1000,
+      image_protection: 1,
     });
 
     const res = await app.request('/groups/group-1/members/user-1/image-protection', {

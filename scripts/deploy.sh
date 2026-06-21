@@ -67,6 +67,41 @@ echo "  Zone:     $ZONE_NAME"
 echo "  Email:    configured"
 echo ""
 
+SECRETS_FILE=$(mktemp)
+cleanup() {
+    rm -f "$SECRETS_FILE"
+}
+trap cleanup EXIT
+
+write_secrets_file() {
+    # Export so the node subprocess can read them via process.env. Values sourced
+    # from .prod.vars are plain (unexported) shell variables, so without this the
+    # secrets file is written empty and the Worker deploys with no secrets.
+    export JWT_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY RESEND_API_KEY FIREBASE_SERVICE_ACCOUNT
+    SECRETS_FILE_PATH="$SECRETS_FILE" node <<'NODE'
+const fs = require('fs');
+
+const secretNames = [
+  'JWT_SECRET',
+  'VAPID_PUBLIC_KEY',
+  'VAPID_PRIVATE_KEY',
+  'RESEND_API_KEY',
+  'FIREBASE_SERVICE_ACCOUNT',
+];
+
+const secrets = {};
+for (const name of secretNames) {
+  if (process.env[name]) {
+    secrets[name] = process.env[name];
+  }
+}
+
+fs.writeFileSync(process.env.SECRETS_FILE_PATH, JSON.stringify(secrets));
+NODE
+}
+
+write_secrets_file
+
 # Generate production wrangler config (separate from dev config)
 echo "Generating wrangler.prod.toml..."
 cat > wrangler.prod.toml << EOF
@@ -114,49 +149,16 @@ npx --yes wrangler d1 migrations apply photodrop-db-prod --remote --config wrang
 echo "Migrations applied"
 echo ""
 
-# Deploy Worker first (creates it if it doesn't exist)
+# Deploy Worker with secrets in the same deployment. This avoids publishing a
+# new Worker version before required secrets are available.
 echo "Deploying Worker..."
-if ! npx --yes wrangler deploy --config wrangler.prod.toml; then
+if ! npx --yes wrangler deploy --config wrangler.prod.toml --secrets-file "$SECRETS_FILE"; then
     echo "Error: Worker deployment failed"
     exit 1
 fi
 
 echo "Worker deployed"
 echo ""
-
-# Set Worker secrets only in CI (local deploys use secrets set by setup-prod)
-if [ ! -f .prod.vars ]; then
-    echo "Setting Worker secrets (CI mode)..."
-
-    if ! echo "$JWT_SECRET" | npx --yes wrangler secret put JWT_SECRET --config wrangler.prod.toml; then
-        echo "Error: Failed to set JWT_SECRET"
-        exit 1
-    fi
-
-    if ! echo "$VAPID_PUBLIC_KEY" | npx --yes wrangler secret put VAPID_PUBLIC_KEY --config wrangler.prod.toml; then
-        echo "Error: Failed to set VAPID_PUBLIC_KEY"
-        exit 1
-    fi
-
-    if ! echo "$VAPID_PRIVATE_KEY" | npx --yes wrangler secret put VAPID_PRIVATE_KEY --config wrangler.prod.toml; then
-        echo "Error: Failed to set VAPID_PRIVATE_KEY"
-        exit 1
-    fi
-
-    # RESEND_API_KEY is optional - only set if provided
-    if [ -n "${RESEND_API_KEY:-}" ]; then
-        if ! echo "$RESEND_API_KEY" | npx --yes wrangler secret put RESEND_API_KEY --config wrangler.prod.toml; then
-            echo "Error: Failed to set RESEND_API_KEY"
-            exit 1
-        fi
-    fi
-
-    echo "Worker secrets configured"
-    echo ""
-else
-    echo "Skipping secrets (already set by setup-prod)"
-    echo ""
-fi
 
 # Build and deploy frontend
 echo "Building frontend..."

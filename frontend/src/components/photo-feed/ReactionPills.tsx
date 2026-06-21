@@ -1,20 +1,13 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import type { ReactionSummary, ReactionWithUser } from './types';
 import { EMOJI_OPTIONS, LONG_PRESS_TIMEOUT_MS } from './types';
+import { useDropdown } from '../../lib/useDropdown';
+import { isHorizontalNavKey } from '../../lib/keyboard';
 
 export interface ReactionPillsProps {
   reactions: ReactionSummary[];
   userReaction: string | null;
   onReactionClick: (emoji: string) => void;
-  onAddClick: () => void;
-  showPicker: boolean;
-  pickerRef?: React.MutableRefObject<HTMLDivElement | null>;
-  triggerRef?: React.RefCallback<HTMLButtonElement | null>;
-  setOptionRef?: (index: number) => (el: HTMLButtonElement | null) => void;
-  onPickerBlur?: (e: React.FocusEvent) => void;
-  onTriggerKeyDown?: (e: React.KeyboardEvent) => void;
-  onOptionKeyDown?: (e: React.KeyboardEvent, index: number) => void;
-  onPickerSelect?: (emoji: string) => void;
   pickerPosition?: 'above' | 'below';
   useViewportPositioning?: boolean;
   reactionDetails?: ReactionWithUser[];
@@ -142,15 +135,6 @@ export function ReactionPills({
   reactions,
   userReaction,
   onReactionClick,
-  onAddClick,
-  showPicker,
-  pickerRef,
-  triggerRef,
-  setOptionRef,
-  onPickerBlur,
-  onTriggerKeyDown,
-  onOptionKeyDown,
-  onPickerSelect,
   pickerPosition = 'below',
   useViewportPositioning = false,
   reactionDetails,
@@ -158,30 +142,54 @@ export function ReactionPills({
   currentUserId,
   showNames = false,
 }: ReactionPillsProps) {
+  // The emoji picker is owned here (via the shared useDropdown), so the feed
+  // and lightbox get identical, iOS-safe open/focus/keyboard/blur behaviour
+  // without re-implementing it.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const currentReactionIndex = userReaction ? EMOJI_OPTIONS.indexOf(userReaction) : 0;
+  const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
+    isOpen: pickerOpen,
+    onClose: () => setPickerOpen(false),
+    itemCount: EMOJI_OPTIONS.length,
+    initialFocusIndex: currentReactionIndex >= 0 ? currentReactionIndex : 0,
+    horizontal: true,
+  });
+
+  const selectEmoji = useCallback(
+    (emoji: string) => {
+      onReactionClick(emoji);
+      setPickerOpen(false);
+      triggerRef.current?.focus();
+    },
+    [onReactionClick, triggerRef]
+  );
+
+  const handleTriggerKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (isHorizontalNavKey(e)) {
+      e.preventDefault();
+      // Stop the key reaching the lightbox's document-level keydown listener,
+      // which navigates photos on the same left/right keys — otherwise opening
+      // the picker would also flip to the adjacent photo.
+      e.stopPropagation();
+      setPickerOpen(true);
+    }
+  }, []);
+
   const hasLoadedRef = useRef(false);
   const prevReactionsRef = useRef(reactions);
-
   useEffect(() => {
     if (prevReactionsRef.current !== reactions) {
       prevReactionsRef.current = reactions;
       hasLoadedRef.current = false;
     }
   }, [reactions]);
+
   const [longPressTooltipEmoji, setLongPressTooltipEmoji] = useState<string | null>(null);
-  const internalTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const internalPickerRef = useRef<HTMLDivElement | null>(null);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
   const [resizeCounter, setResizeCounter] = useState(0);
 
-  const setTriggerRef = useCallback(
-    (el: HTMLButtonElement | null) => {
-      internalTriggerRef.current = el;
-      triggerRef?.(el);
-    },
-    [triggerRef]
-  );
-
   useEffect(() => {
-    if (!showPicker || !useViewportPositioning) return;
+    if (!pickerOpen || !useViewportPositioning) return;
 
     const handleResize = () => setResizeCounter((c) => c + 1);
     window.addEventListener('resize', handleResize);
@@ -190,13 +198,13 @@ export function ReactionPills({
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
     };
-  }, [showPicker, useViewportPositioning]);
+  }, [pickerOpen, useViewportPositioning]);
 
   useLayoutEffect(() => {
-    const picker = internalPickerRef.current;
+    const picker = pickerRef.current;
     if (!picker) return;
 
-    if (!showPicker || !useViewportPositioning || !internalTriggerRef.current) {
+    if (!pickerOpen || !useViewportPositioning || !triggerRef.current) {
       picker.style.position = '';
       picker.style.left = '';
       picker.style.top = '';
@@ -204,8 +212,7 @@ export function ReactionPills({
       return;
     }
 
-    const button = internalTriggerRef.current;
-    const rect = button.getBoundingClientRect();
+    const rect = triggerRef.current.getBoundingClientRect();
     const pickerWidth = picker.offsetWidth || 280;
     const padding = 8;
     const viewportWidth = window.innerWidth;
@@ -223,7 +230,7 @@ export function ReactionPills({
       picker.style.top = `${rect.bottom + 8}px`;
       picker.style.bottom = '';
     }
-  }, [showPicker, useViewportPositioning, pickerPosition, resizeCounter]);
+  }, [pickerOpen, useViewportPositioning, pickerPosition, resizeCounter, triggerRef]);
 
   useEffect(() => {
     if (!longPressTooltipEmoji) return;
@@ -243,63 +250,49 @@ export function ReactionPills({
   const pillBaseClass =
     'h-9 rounded-full flex items-center justify-center text-sm transition-colors cursor-pointer select-none';
 
-  const { computedReactions, reactionsByEmoji } = useMemo(() => {
-    if (!reactionDetails || reactionDetails.length === 0) {
-      return { computedReactions: undefined, reactionsByEmoji: undefined };
-    }
+  // Names per emoji, for the hover / long-press tooltip. Sourced from the
+  // detailed reaction list, which loads lazily.
+  const reactionsByEmoji = useMemo(() => {
+    if (!reactionDetails || reactionDetails.length === 0) return undefined;
 
     const grouped: Record<string, string[]> = {};
-    const counts: Record<string, number> = {};
-
     for (const r of reactionDetails) {
       if (!grouped[r.emoji]) grouped[r.emoji] = [];
-      if (!counts[r.emoji]) counts[r.emoji] = 0;
-
       const name = currentUserId && r.userId === currentUserId ? 'You' : r.userName;
       grouped[r.emoji].push(name);
-      counts[r.emoji]++;
     }
-
-    const computedReactions: ReactionSummary[] = Object.entries(counts)
-      .map(([emoji, count]) => ({ emoji, count }))
-      .sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji));
-
-    return { computedReactions, reactionsByEmoji: grouped };
+    return grouped;
   }, [reactionDetails, currentUserId]);
 
-  const sortedReactionsFallback = useMemo(
+  // Counts come only from `reactions`, which is kept current optimistically.
+  // They must NOT be derived from `reactionDetails`: that list loads
+  // asynchronously, so using it for counts lets a late/stale load clobber an
+  // optimistic update — e.g. on iOS a tap also fires mouseenter and triggers
+  // the load, making the count jump +1 then snap back. Names can lag
+  // harmlessly; counts cannot.
+  const displayReactions = useMemo(
     () => [...reactions].sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji)),
     [reactions]
   );
-  const displayReactions = computedReactions ?? sortedReactionsFallback;
 
-  const handleMouseEnter = useCallback(() => {
+  const loadNames = useCallback(() => {
     if (showNames && !hasLoadedRef.current && onLoadReactionDetails) {
       hasLoadedRef.current = true;
       onLoadReactionDetails();
     }
   }, [showNames, onLoadReactionDetails]);
 
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  // Use a custom blur handler that checks the wrapper ref (not the pickerRef which
-  // gets reassigned to the inner picker div, causing premature blur dismissal)
-  const handleWrapperBlur = useCallback(
-    (e: React.FocusEvent) => {
-      if (!wrapperRef.current?.contains(e.relatedTarget as Node)) {
-        onPickerBlur?.(e);
-      }
-    },
-    [onPickerBlur]
-  );
+  // Only hover-capable (mouse) devices load names on enter. On touch, a tap
+  // also synthesizes mouseenter, so loading here would fire a redundant fetch
+  // on every tap; touch users load names via long-press instead.
+  const handleMouseEnter = useCallback(() => {
+    if (window.matchMedia('(hover: hover)').matches) {
+      loadNames();
+    }
+  }, [loadNames]);
 
   return (
-    <div
-      className="flex gap-1.5 flex-wrap items-center relative"
-      ref={wrapperRef}
-      onBlur={showPicker ? handleWrapperBlur : undefined}
-      onMouseEnter={handleMouseEnter}
-    >
+    <div className="flex gap-1.5 flex-wrap items-center relative" onMouseEnter={handleMouseEnter}>
       {displayReactions.map(({ emoji, count }) => {
         const isUserReaction = userReaction === emoji;
         const names = showNames ? reactionsByEmoji?.[emoji] : undefined;
@@ -312,7 +305,7 @@ export function ReactionPills({
             names={names}
             pillBaseClass={pillBaseClass}
             onClick={() => onReactionClick(emoji)}
-            onLoadDetails={handleMouseEnter}
+            onLoadDetails={loadNames}
             showTooltip={showNames && longPressTooltipEmoji === emoji}
             onShowTooltip={() => setLongPressTooltipEmoji(emoji)}
             enableLongPress={showNames}
@@ -320,34 +313,29 @@ export function ReactionPills({
         );
       })}
 
-      <div className="relative">
+      <div ref={containerRef} className="relative" onBlur={pickerOpen ? handleBlur : undefined}>
         <button
-          ref={setTriggerRef}
+          ref={triggerRef}
           onClick={(e) => {
             e.stopPropagation();
-            onAddClick();
+            setPickerOpen((open) => !open);
           }}
-          onKeyDown={onTriggerKeyDown}
+          onKeyDown={handleTriggerKeyDown}
           className={`${pillBaseClass} w-9 ${
-            showPicker
+            pickerOpen
               ? 'bg-bg-tertiary text-text-primary'
               : 'bg-bg-tertiary hover:bg-bg-border text-text-secondary'
           }`}
           aria-label="Add reaction"
-          aria-expanded={showPicker}
+          aria-expanded={pickerOpen}
           aria-haspopup="listbox"
         >
           +
         </button>
 
-        {showPicker && (
+        {pickerOpen && (
           <div
-            ref={(el) => {
-              internalPickerRef.current = el;
-              if (pickerRef) {
-                pickerRef.current = el;
-              }
-            }}
+            ref={pickerRef}
             role="listbox"
             aria-label="Select reaction"
             className={`z-[60] bg-surface border border-border rounded-lg shadow-elevated p-1.5 flex gap-1 ${
@@ -359,18 +347,14 @@ export function ReactionPills({
             {EMOJI_OPTIONS.map((emoji, index) => (
               <button
                 key={emoji}
-                ref={setOptionRef?.(index)}
+                ref={setOptionRef(index)}
                 role="option"
                 aria-selected={userReaction === emoji}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (onPickerSelect) {
-                    onPickerSelect(emoji);
-                  } else {
-                    onReactionClick(emoji);
-                  }
+                  selectEmoji(emoji);
                 }}
-                onKeyDown={(e) => onOptionKeyDown?.(e, index)}
+                onKeyDown={(e) => handleOptionKeyDown(e, index)}
                 className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-colors cursor-pointer ${
                   userReaction === emoji
                     ? 'bg-accent/25 hover:bg-accent/35'

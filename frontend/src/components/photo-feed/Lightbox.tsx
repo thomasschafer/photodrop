@@ -1,8 +1,6 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api, ApiError } from '../../lib/api';
-import { getNavDirection, isHorizontalNavKey } from '../../lib/keyboard';
-import { useDropdown } from '../../lib/useDropdown';
+import { getNavDirection } from '../../lib/keyboard';
 import { useIsPortrait } from '../../lib/useIsPortrait';
 import { useVirtualCarousel } from '../../lib/useVirtualCarousel';
 import { useAuthenticatedImage, preloadImage } from '../../lib/useAuthenticatedImage';
@@ -10,9 +8,9 @@ import { ProtectedImage } from '../ProtectedImage';
 import { ConfirmModal } from '../ConfirmModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { CommentPanel } from './CommentPanel';
-import type { Photo, Comment, ReactionSummary, ReactionWithUser } from './types';
-import { EMOJI_OPTIONS } from './types';
-import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
+import type { Photo } from './types';
+import { useLightboxReactions } from './useLightboxReactions';
+import { useLightboxComments } from './useLightboxComments';
 
 function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
   const { imageProtection } = useAuth();
@@ -93,63 +91,34 @@ export function Lightbox({
   const prevPhoto = centerIndex > 0 ? photos[centerIndex - 1] : undefined;
   const nextPhoto = centerIndex < photos.length - 1 ? photos[centerIndex + 1] : undefined;
 
-  const [userReaction, setUserReaction] = useState<string | null>(photo.userReaction);
-  const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
-  const [reactionDetails, setReactionDetails] = useState<ReactionWithUser[]>([]);
-  const [showReactionPicker, setShowReactionPicker] = useState(false);
-  const loadingReactionDetailsRef = useRef(false);
+  const { userReaction, reactions, reactionDetails, loadReactionDetails, handleReactionClick } =
+    useLightboxReactions({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
 
-  const currentReactionIndex = userReaction ? EMOJI_OPTIONS.indexOf(userReaction) : 0;
   const {
-    containerRef: reactionPickerRef,
-    triggerRef: reactionTriggerRef,
-    setOptionRef: reactionSetOptionRef,
-    handleOptionKeyDown: handleReactionOptionKeyDown,
-    handleBlur: handleReactionPickerBlur,
-  } = useDropdown({
-    isOpen: showReactionPicker,
-    onClose: () => setShowReactionPicker(false),
-    itemCount: EMOJI_OPTIONS.length,
-    initialFocusIndex: currentReactionIndex >= 0 ? currentReactionIndex : 0,
-    horizontal: true,
-  });
+    comments,
+    loadingComments,
+    commentsLoadError,
+    retryLoadComments,
+    newComment,
+    setNewComment,
+    submittingComment,
+    commentError,
+    submitComment,
+    deletingCommentId,
+    confirmDeleteCommentId,
+    deleteCommentError,
+    requestDeleteComment,
+    confirmDeleteComment,
+    cancelDeleteComment,
+  } = useLightboxComments({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
 
-  const [comments, setComments] = useState<Comment[]>([]);
   const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('newest');
-  const [loadingComments, setLoadingComments] = useState(false);
-  const [newComment, setNewComment] = useState('');
-  const [submittingComment, setSubmittingComment] = useState(false);
-  const [commentError, setCommentError] = useState<string | null>(null);
-  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
-  const [confirmDeleteCommentId, setConfirmDeleteCommentId] = useState<string | null>(null);
-  const [deleteCommentError, setDeleteCommentError] = useState<string | null>(null);
-
-  const commentsCache = useRef<Map<string, Comment[]>>(new Map());
-  const reactionDetailsCache = useRef<Map<string, ReactionWithUser[]>>(new Map());
-  const currentPhotoIdRef = useRef(photo.id);
 
   useLayoutEffect(() => {
     if (initialIndex !== centerIndex) {
       resetCarousel(initialIndex);
     }
   }, [initialIndex, centerIndex, resetCarousel]);
-
-  useLayoutEffect(() => {
-    currentPhotoIdRef.current = photo.id;
-    setUserReaction(photo.userReaction);
-    setReactions(photo.reactions);
-    setShowReactionPicker(false);
-    setNewComment('');
-
-    const cachedComments = commentsCache.current.get(photo.id);
-    const cachedReactionDetails = reactionDetailsCache.current.get(photo.id);
-    setComments(cachedComments ?? []);
-    setReactionDetails(cachedReactionDetails ?? []);
-    setCommentError(null);
-    setDeleteCommentError(null);
-    // Reset only on photo change, not on optimistic reaction updates
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photo.id]);
 
   const prevPhotoId = prevPhoto?.id;
   const nextPhotoId = nextPhoto?.id;
@@ -177,247 +146,6 @@ export function Lightbox({
     };
   }, []);
 
-  const handleReactionTriggerKeyDown = (e: React.KeyboardEvent) => {
-    if (isHorizontalNavKey(e)) {
-      e.preventDefault();
-      setShowReactionPicker(true);
-    }
-  };
-
-  useEffect(() => {
-    let stale = false;
-    const photoId = photo.id;
-
-    if (commentsCache.current.has(photoId)) return;
-
-    setLoadingComments(true);
-    (async () => {
-      try {
-        const data = await api.photos.getComments(photoId);
-        if (stale) return;
-        setComments(data.comments);
-        commentsCache.current.set(photoId, data.comments);
-      } catch (err) {
-        if (stale) return;
-        console.error('Failed to load comments:', err);
-      } finally {
-        if (!stale) setLoadingComments(false);
-      }
-    })();
-
-    return () => {
-      stale = true;
-    };
-  }, [photo.id]);
-
-  useEffect(() => {
-    const preloadComments = async (photoId: string) => {
-      if (commentsCache.current.has(photoId)) return;
-      try {
-        const data = await api.photos.getComments(photoId);
-        commentsCache.current.set(photoId, data.comments);
-      } catch {
-        // Silently fail preloading
-      }
-    };
-
-    if (prevPhotoId) preloadComments(prevPhotoId);
-    if (nextPhotoId) preloadComments(nextPhotoId);
-  }, [prevPhotoId, nextPhotoId]);
-
-  const loadReactionDetails = useCallback(async () => {
-    if (loadingReactionDetailsRef.current) return;
-
-    const cached = reactionDetailsCache.current.get(photo.id);
-    if (cached) {
-      if (currentPhotoIdRef.current === photo.id) {
-        setReactionDetails(cached);
-      }
-      return;
-    }
-
-    loadingReactionDetailsRef.current = true;
-    try {
-      const data = await api.photos.getReactions(photo.id);
-      reactionDetailsCache.current.set(photo.id, data.reactions);
-      if (currentPhotoIdRef.current === photo.id) {
-        setReactionDetails(data.reactions);
-      }
-    } catch (err) {
-      console.error('Failed to load reaction details:', err);
-    } finally {
-      loadingReactionDetailsRef.current = false;
-    }
-  }, [photo.id]);
-
-  useEffect(() => {
-    if (reactions.length > 0) {
-      loadReactionDetails();
-    }
-  }, [reactions.length, loadReactionDetails]);
-
-  useEffect(() => {
-    const preloadReactionDetails = async (photoId: string, hasReactions: boolean) => {
-      if (!hasReactions || reactionDetailsCache.current.has(photoId)) return;
-      try {
-        const data = await api.photos.getReactions(photoId);
-        reactionDetailsCache.current.set(photoId, data.reactions);
-      } catch {
-        // Silently fail preloading
-      }
-    };
-
-    if (prevPhotoId) preloadReactionDetails(prevPhotoId, (prevPhoto?.reactions.length ?? 0) > 0);
-    if (nextPhotoId) preloadReactionDetails(nextPhotoId, (nextPhoto?.reactions.length ?? 0) > 0);
-    // prevPhoto/nextPhoto accessed only for .reactions.length which is stable per photo identity
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prevPhotoId, nextPhotoId]);
-
-  const handleReactionClick = async (emoji: string) => {
-    if (!user) return;
-
-    const previousReaction = userReaction;
-    const previousReactions = reactions;
-    const previousDetails = reactionDetails;
-
-    const isRemoving = userReaction === emoji;
-    const newUserReaction = isRemoving ? null : emoji;
-
-    let newReactions: ReactionSummary[];
-    if (isRemoving) {
-      newReactions = reactions
-        .map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1 } : r))
-        .filter((r) => r.count > 0);
-    } else {
-      let updated = [...reactions];
-      if (previousReaction) {
-        updated = updated
-          .map((r) => (r.emoji === previousReaction ? { ...r, count: r.count - 1 } : r))
-          .filter((r) => r.count > 0);
-      }
-      const existing = updated.find((r) => r.emoji === emoji);
-      if (existing) {
-        newReactions = updated.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1 } : r));
-      } else {
-        newReactions = [...updated, { emoji, count: 1 }];
-      }
-    }
-
-    setUserReaction(newUserReaction);
-    setReactions(newReactions);
-
-    let newDetails = reactionDetails.filter((r) => r.userId !== user.id);
-    if (!isRemoving) {
-      newDetails = [
-        ...newDetails,
-        { emoji, userId: user.id, userName: user.name, profileColor: user.profileColor },
-      ];
-    }
-    setReactionDetails(newDetails);
-    reactionDetailsCache.current.set(photo.id, newDetails);
-
-    try {
-      if (isRemoving) {
-        await api.photos.removeReaction(photo.id);
-      } else {
-        await api.photos.addReaction(photo.id, emoji);
-      }
-      onPhotoUpdate({
-        id: photo.id,
-        userReaction: newUserReaction,
-        reactions: newReactions,
-      });
-    } catch (err) {
-      console.error('Failed to update reaction:', err);
-      setUserReaction(previousReaction);
-      setReactions(previousReactions);
-      setReactionDetails(previousDetails);
-      reactionDetailsCache.current.set(photo.id, previousDetails);
-    }
-  };
-
-  const handleSubmitComment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedComment = newComment.trim();
-    if (!trimmedComment || submittingComment) return;
-
-    if (trimmedComment.length > COMMENT_MAX_LENGTH) {
-      setCommentError(`Comment must be ${COMMENT_MAX_LENGTH} characters or less.`);
-      return;
-    }
-
-    setSubmittingComment(true);
-    setCommentError(null);
-    try {
-      const result = await api.photos.addComment(photo.id, trimmedComment);
-      const newCommentObj: Comment = {
-        id: result.id,
-        userId: user?.id ?? null,
-        authorName: user?.name ?? 'You',
-        authorProfileColor: user?.profileColor ?? null,
-        content: trimmedComment,
-        createdAt: Math.floor(Date.now() / 1000),
-        isDeleted: false,
-      };
-      setComments((prev) => {
-        const updated = [newCommentObj, ...prev];
-        commentsCache.current.set(photo.id, updated);
-        return updated;
-      });
-      setNewComment('');
-      onPhotoUpdate({ id: photo.id, commentCount: photo.commentCount + 1 });
-    } catch (err) {
-      console.error('Failed to add comment:', err);
-      if (err instanceof ApiError) {
-        setCommentError(err.message || 'Failed to post comment. Please try again.');
-      } else {
-        setCommentError('Failed to post comment. Please try again.');
-      }
-    } finally {
-      setSubmittingComment(false);
-    }
-  };
-
-  const handleDeleteComment = (commentId: string) => {
-    setConfirmDeleteCommentId(commentId);
-    setDeleteCommentError(null);
-  };
-
-  const handleDeleteCommentConfirm = async () => {
-    if (!confirmDeleteCommentId) return;
-
-    setDeletingCommentId(confirmDeleteCommentId);
-    setDeleteCommentError(null);
-
-    try {
-      await api.photos.deleteComment(photo.id, confirmDeleteCommentId);
-      setComments((prev) => {
-        const updated = prev.map((c) =>
-          c.id === confirmDeleteCommentId
-            ? { ...c, isDeleted: true, content: '[deleted]', userId: null }
-            : c
-        );
-        commentsCache.current.set(photo.id, updated);
-        return updated;
-      });
-
-      // Update comment count in the grid (soft-deleted comments shouldn't count)
-      onPhotoUpdate({ id: photo.id, commentCount: photo.commentCount - 1 });
-
-      setConfirmDeleteCommentId(null);
-    } catch (err) {
-      console.error('Failed to delete comment:', err);
-      setDeleteCommentError('Failed to delete comment');
-    } finally {
-      setDeletingCommentId(null);
-    }
-  };
-
-  const handleDeleteCommentCancel = () => {
-    setConfirmDeleteCommentId(null);
-    setDeleteCommentError(null);
-  };
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement === commentInputRef.current) {
@@ -427,7 +155,9 @@ export function Lightbox({
         return;
       }
 
-      if (showReactionPicker) return;
+      // Let an open in-panel menu/picker (reaction picker, sort dropdown) handle
+      // its own arrow/escape keys instead of navigating photos.
+      if ((document.activeElement as Element | null)?.closest('[role="listbox"]')) return;
 
       if (e.key === 'Escape') {
         onClose();
@@ -445,7 +175,7 @@ export function Lightbox({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, onIndexChange, centerIndex, photos.length, showReactionPicker]);
+  }, [onClose, onIndexChange, centerIndex, photos.length]);
 
   return (
     <div
@@ -564,25 +294,13 @@ export function Lightbox({
             reactions={reactions}
             userReaction={userReaction}
             comments={comments}
+            commentCount={photo.commentCount}
             commentsExpanded={commentsExpanded}
             currentUserId={user?.id}
             isAdmin={isAdmin}
+            reactionsKey={photo.id}
             reactionPillsProps={{
-              onReactionClick: (emoji) => {
-                handleReactionClick(emoji);
-                setShowReactionPicker(false);
-                reactionTriggerRef.current?.focus();
-              },
-              onAddClick: () => setShowReactionPicker(!showReactionPicker),
-              showPicker: showReactionPicker,
-              pickerRef: reactionPickerRef,
-              triggerRef: (el) => {
-                reactionTriggerRef.current = el;
-              },
-              setOptionRef: reactionSetOptionRef,
-              onPickerBlur: handleReactionPickerBlur,
-              onTriggerKeyDown: handleReactionTriggerKeyDown,
-              onOptionKeyDown: handleReactionOptionKeyDown,
+              onReactionClick: handleReactionClick,
               pickerPosition: isPortrait ? 'above' : 'below',
               useViewportPositioning: isPortrait,
               reactionDetails: reactionDetails,
@@ -605,13 +323,15 @@ export function Lightbox({
                 { replace: true }
               );
             }}
-            onDeleteComment={handleDeleteComment}
+            onDeleteComment={requestDeleteComment}
             deletingCommentId={deletingCommentId}
             loadingComments={loadingComments}
+            commentsLoadError={commentsLoadError}
+            onRetryLoadComments={retryLoadComments}
             commentInputRef={commentInputRef}
             newComment={newComment}
             onNewCommentChange={setNewComment}
-            onSubmitComment={handleSubmitComment}
+            onSubmitComment={submitComment}
             submittingComment={submittingComment}
             commentError={commentError}
           />
@@ -628,8 +348,8 @@ export function Lightbox({
           confirmLabel="Delete"
           variant="danger"
           isLoading={deletingCommentId === confirmDeleteCommentId}
-          onConfirm={handleDeleteCommentConfirm}
-          onCancel={handleDeleteCommentCancel}
+          onConfirm={confirmDeleteComment}
+          onCancel={cancelDeleteComment}
         />
       )}
     </div>

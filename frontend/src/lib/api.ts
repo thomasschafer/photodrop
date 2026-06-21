@@ -102,11 +102,7 @@ class NativeResponse {
   }
 }
 
-async function fetchWithAuth(
-  url: string,
-  options: RequestInit = {},
-  includeAuth: boolean = true
-): Promise<Response | NativeResponse> {
+function buildHeaders(options: RequestInit, includeAuth: boolean): Record<string, string> {
   const headers: Record<string, string> = {};
 
   if (options.headers) {
@@ -127,6 +123,18 @@ async function fetchWithAuth(
 
   // CSRF protection header
   headers['X-Requested-With'] = 'XMLHttpRequest';
+
+  return headers;
+}
+
+// Execute a single request without 401-refresh handling. Returns the response
+// as-is (including error statuses) so callers can inspect the status code.
+async function executeRequest(
+  url: string,
+  options: RequestInit,
+  includeAuth: boolean
+): Promise<Response | NativeResponse> {
+  const headers = buildHeaders(options, includeAuth);
 
   // Use native HTTP for Capacitor, regular fetch for web
   // EXCEPT for FormData uploads - use regular fetch for those (CapacitorHttp handles it via plugin)
@@ -161,31 +169,121 @@ async function fetchWithAuth(
         response = await CapacitorHttp.get(httpOptions);
     }
 
-    const nativeResponse = new NativeResponse(response);
-    if (!nativeResponse.ok) {
-      const errorData = (await nativeResponse.json()) as { error?: string };
-      throw new ApiError(
-        nativeResponse.status,
-        nativeResponse.statusText,
-        errorData?.error || 'An error occurred'
-      );
-    }
-    return nativeResponse;
+    return new NativeResponse(response);
   }
 
   // Regular fetch for web
-  const response = await fetch(`${API_BASE_URL}${url}`, {
+  return fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers,
     credentials: 'include',
   });
+}
+
+// Single-flight session refresh: every refresh — the 401-retry path below and
+// the bootstrap/interval/foreground refreshes in AuthContext (via
+// api.auth.refresh) — shares one in-flight POST /auth/refresh, so the refresh
+// cookie is never rotated by concurrent calls. Throws on failure, like a normal
+// request.
+let refreshPromise: Promise<AuthResponse> | null = null;
+
+function refreshSession(): Promise<AuthResponse> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      // includeAuth=false so this call never recurses into refresh-on-401.
+      const response = await executeRequest('/auth/refresh', { method: 'POST' }, false);
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new ApiError(
+          response.status,
+          response.statusText,
+          errorData?.error || 'Failed to refresh session'
+        );
+      }
+      return (await response.json()) as AuthResponse;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+// A refresh failure means the session is genuinely gone only when the server
+// explicitly rejects the refresh cookie (401/403). Network errors and 5xxs are
+// transient and tell us nothing about the session, so they must not force a
+// logout. Shared by the 401-retry path here and AuthContext's interval/
+// foreground refresh so both apply the same rule.
+export function isSessionExpired(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+// 401-retry outcome: refresh, then route. A fresh token or a still-valid
+// session that needs group selection both dispatch auth:token-refreshed
+// (AuthContext syncs state / shows the picker); a genuinely dead session
+// dispatches auth:session-expired. Resolves to true when there's a fresh token
+// to retry the original request with. Exported so the authenticated-image
+// fetch (which can't use fetchWithAuth) can recover from a 401 the same way.
+export async function refreshAccessToken(): Promise<boolean> {
+  try {
+    const data = await refreshSession();
+    if (data.accessToken) {
+      localStorage.setItem('accessToken', data.accessToken);
+      window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
+      return true;
+    }
+    // Valid session but no active group (e.g. removed from the current/last
+    // group): hand the response to the app so it can show the group picker or
+    // the no-groups state, rather than logging out. The refresh endpoint only
+    // returns a user when the refresh cookie verified, so a user with no token
+    // always means a live session — regardless of how many groups remain.
+    // There's no token, so the original request can't be retried.
+    if (data.user) {
+      localStorage.removeItem('accessToken');
+      window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
+      return false;
+    }
+    // A 2xx response with neither a token nor a user means the session is gone;
+    // fall through to the teardown below.
+  } catch (error) {
+    // Transient failure: keep the session intact and let the caller's request
+    // fail. The next interval/foreground refresh can recover.
+    if (!isSessionExpired(error)) {
+      return false;
+    }
+    // A genuine expiry falls through to the teardown below.
+  }
+  localStorage.removeItem('accessToken');
+  window.dispatchEvent(new CustomEvent('auth:session-expired'));
+  return false;
+}
+
+async function fetchWithAuth(
+  url: string,
+  options: RequestInit = {},
+  includeAuth: boolean = true,
+  isRetry: boolean = false
+): Promise<Response | NativeResponse> {
+  const response = await executeRequest(url, options, includeAuth);
+
+  // The access token has likely expired. Refresh once via the httpOnly refresh
+  // cookie and retry. Only for authenticated requests — /auth/* calls pass
+  // includeAuth=false, so they never trigger (and can't recurse).
+  if (response.status === 401 && includeAuth && !isRetry) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return fetchWithAuth(url, options, includeAuth, true);
+    }
+    // No fresh token: refreshAccessToken has already handled the outcome
+    // (routed to group selection, or signalled session expiry). Fall through
+    // to surface the original error to the caller.
+  }
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
+    const errorData = (await response.json().catch(() => ({}))) as { error?: string };
     throw new ApiError(
       response.status,
       response.statusText,
-      errorData.error || 'An error occurred'
+      errorData?.error || 'An error occurred'
     );
   }
 
@@ -226,10 +324,9 @@ export const api = {
       return response.json();
     },
 
-    refresh: async (): Promise<AuthResponse> => {
-      const response = await fetchWithAuth('/auth/refresh', { method: 'POST' }, false);
-      return response.json();
-    },
+    // Shares the single-flight refresh with the 401-retry path so concurrent
+    // refreshes never rotate the cookie twice.
+    refresh: (): Promise<AuthResponse> => refreshSession(),
 
     logout: async () => {
       const response = await fetchWithAuth('/auth/logout', {
@@ -325,21 +422,6 @@ export const api = {
 
     getAll: async () => {
       const response = await fetchWithAuth('/users');
-      return response.json();
-    },
-
-    updateRole: async (userId: string, role: 'admin' | 'viewer') => {
-      const response = await fetchWithAuth(`/users/${userId}/role`, {
-        method: 'PATCH',
-        body: JSON.stringify({ role }),
-      });
-      return response.json();
-    },
-
-    delete: async (userId: string) => {
-      const response = await fetchWithAuth(`/users/${userId}`, {
-        method: 'DELETE',
-      });
       return response.json();
     },
 

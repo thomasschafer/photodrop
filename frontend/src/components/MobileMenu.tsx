@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect, useCallback, type JSX } from 'react';
+import { useState, type JSX } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
-import { getNavDirection, isVerticalNavKey } from '../lib/keyboard';
+import { isVerticalNavKey } from '../lib/keyboard';
+import { useDropdown } from '../lib/useDropdown';
 import { useColorSelect } from '../lib/useColorSelect';
 import { Avatar } from './Avatar';
 import { ColorPickerModal } from './ColorPickerModal';
@@ -70,70 +71,16 @@ export function MobileMenu() {
   const [isLoading, setIsLoading] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const buildStamp = import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_GIT_SHA || 'dev';
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const itemCount = groups.length + themes.length + 2;
+  const currentGroupIndex = groups.findIndex((g) => g.id === currentGroup?.id);
 
-  const allItems = [
-    ...groups.map((g) => ({ type: 'group' as const, id: g.id, group: g })),
-    ...themes.map((t) => ({ type: 'theme' as const, id: t.value, theme: t })),
-    { type: 'change-color' as const, id: 'change-color' },
-    { type: 'signout' as const, id: 'signout' },
-  ];
-
-  const focusItem = useCallback(
-    (index: number) => {
-      const clampedIndex = Math.max(0, Math.min(index, allItems.length - 1));
-      itemRefs.current[clampedIndex]?.focus();
-    },
-    [allItems.length]
-  );
-
-  useEffect(() => {
-    if (isOpen) {
-      const currentGroupIndex = groups.findIndex((g) => g.id === currentGroup?.id);
-      focusItem(currentGroupIndex >= 0 ? currentGroupIndex : 0);
-    }
-  }, [isOpen, currentGroup, groups, focusItem]);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-
-    const handleScroll = (e: Event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleEscape);
-      document.addEventListener('scroll', handleScroll, true);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-      document.removeEventListener('scroll', handleScroll, true);
-    };
-  }, [isOpen]);
-
-  const handleBlur = (e: React.FocusEvent) => {
-    if (!dropdownRef.current?.contains(e.relatedTarget as Node)) {
-      setIsOpen(false);
-    }
-  };
+  const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
+    isOpen,
+    onClose: () => setIsOpen(false),
+    itemCount,
+    initialFocusIndex: currentGroupIndex >= 0 ? currentGroupIndex : 0,
+    closeOnScroll: true,
+  });
 
   const handleGroupSelect = async (groupId: string) => {
     if (groupId === currentGroup?.id) {
@@ -165,27 +112,6 @@ export function MobileMenu() {
     logout();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
-    const direction = getNavDirection(e);
-    if (direction === 'down') {
-      e.preventDefault();
-      focusItem(index + 1);
-    } else if (direction === 'up') {
-      e.preventDefault();
-      focusItem(index - 1);
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      focusItem(0);
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      focusItem(allItems.length - 1);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setIsOpen(false);
-      triggerRef.current?.focus();
-    }
-  };
-
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
     if (isVerticalNavKey(e)) {
       e.preventDefault();
@@ -202,7 +128,7 @@ export function MobileMenu() {
 
   return (
     <>
-      <div ref={dropdownRef} className="relative" onBlur={handleBlur}>
+      <div ref={containerRef} className="relative" onBlur={handleBlur}>
         <button
           ref={triggerRef}
           onClick={() => setIsOpen(!isOpen)}
@@ -243,13 +169,11 @@ export function MobileMenu() {
               {groups.map((group, i) => (
                 <button
                   key={group.id}
-                  ref={(el) => {
-                    itemRefs.current[i] = el;
-                  }}
+                  ref={setOptionRef(i)}
                   role="menuitemradio"
                   aria-checked={currentGroup?.id === group.id}
                   onClick={() => handleGroupSelect(group.id)}
-                  onKeyDown={(e) => handleKeyDown(e, i)}
+                  onKeyDown={(e) => handleOptionKeyDown(e, i)}
                   className={`flex items-center justify-between w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary ${
                     currentGroup?.id === group.id
                       ? 'bg-bg-secondary text-text-primary'
@@ -301,13 +225,11 @@ export function MobileMenu() {
                 return (
                   <button
                     key={t.value}
-                    ref={(el) => {
-                      itemRefs.current[idx] = el;
-                    }}
+                    ref={setOptionRef(idx)}
                     role="menuitemradio"
                     aria-checked={theme === t.value}
                     onClick={() => handleThemeSelect(t.value)}
-                    onKeyDown={(e) => handleKeyDown(e, idx)}
+                    onKeyDown={(e) => handleOptionKeyDown(e, idx)}
                     className={`flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm transition-colors hover:bg-bg-tertiary ${
                       theme === t.value
                         ? 'bg-bg-secondary text-text-primary'
@@ -332,15 +254,13 @@ export function MobileMenu() {
                 </span>
               </div>
               <button
-                ref={(el) => {
-                  itemRefs.current[changeColorIdx] = el;
-                }}
+                ref={setOptionRef(changeColorIdx)}
                 role="menuitem"
                 onClick={() => {
                   setIsOpen(false);
                   setShowColorPicker(true);
                 }}
-                onKeyDown={(e) => handleKeyDown(e, changeColorIdx)}
+                onKeyDown={(e) => handleOptionKeyDown(e, changeColorIdx)}
                 className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-text-secondary bg-transparent transition-colors hover:bg-bg-tertiary"
               >
                 <div
@@ -354,12 +274,10 @@ export function MobileMenu() {
                 Version: {buildStamp}
               </div>
               <button
-                ref={(el) => {
-                  itemRefs.current[signOutIdx] = el;
-                }}
+                ref={setOptionRef(signOutIdx)}
                 role="menuitem"
                 onClick={handleSignOut}
-                onKeyDown={(e) => handleKeyDown(e, signOutIdx)}
+                onKeyDown={(e) => handleOptionKeyDown(e, signOutIdx)}
                 className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-accent transition-colors hover:bg-bg-tertiary rounded-b-lg"
               >
                 <svg

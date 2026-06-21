@@ -212,6 +212,46 @@ else
     fi
 fi
 
+EMAIL_FROM="${EMAIL_FROM:-photodrop <noreply@$DOMAIN>}"
+SHELL_EMAIL_FROM=$(printf '%q' "$EMAIL_FROM")
+ESCAPED_EMAIL_FROM="${EMAIL_FROM//\\/\\\\}"
+ESCAPED_EMAIL_FROM="${ESCAPED_EMAIL_FROM//\"/\\\"}"
+
+SECRETS_FILE=$(mktemp)
+cleanup() {
+    rm -f "$SECRETS_FILE"
+}
+trap cleanup EXIT
+
+write_secrets_file() {
+    # Export so the node subprocess can read them via process.env. Generated and
+    # sourced values are plain (unexported) shell variables, so without this the
+    # secrets file is written empty and the Worker deploys with no secrets.
+    export JWT_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY RESEND_API_KEY FIREBASE_SERVICE_ACCOUNT
+    SECRETS_FILE_PATH="$SECRETS_FILE" node <<'NODE'
+const fs = require('fs');
+
+const secretNames = [
+  'JWT_SECRET',
+  'VAPID_PUBLIC_KEY',
+  'VAPID_PRIVATE_KEY',
+  'RESEND_API_KEY',
+  'FIREBASE_SERVICE_ACCOUNT',
+];
+
+const secrets = {};
+for (const name of secretNames) {
+  if (process.env[name]) {
+    secrets[name] = process.env[name];
+  }
+}
+
+fs.writeFileSync(process.env.SECRETS_FILE_PATH, JSON.stringify(secrets));
+NODE
+}
+
+write_secrets_file
+
 # Save prod vars (with domain info)
 cat > .prod.vars << EOF
 # Domain configuration
@@ -232,6 +272,7 @@ VAPID_PRIVATE_KEY=$VAPID_PRIVATE_KEY
 # URLs
 FRONTEND_URL=https://$DOMAIN
 API_URL=https://$API_DOMAIN
+EMAIL_FROM=$SHELL_EMAIL_FROM
 EOF
 chmod 600 .prod.vars
 echo "Saved .prod.vars"
@@ -252,6 +293,7 @@ routes = [
 [vars]
 FRONTEND_URL = "https://$DOMAIN"
 ENVIRONMENT = "production"
+EMAIL_FROM = "$ESCAPED_EMAIL_FROM"
 
 [[d1_databases]]
 binding = "DB"
@@ -271,9 +313,10 @@ echo "Running database migrations..."
 $WRANGLER_CMD d1 migrations apply "$DB_NAME" --remote --config wrangler.prod.toml
 echo ""
 
-# Deploy Worker to create the route (one-time setup)
+# Deploy Worker with secrets in the same deployment. This avoids publishing a
+# routed Worker before required secrets are available.
 echo "Deploying Worker to create route..."
-if ! $WRANGLER_CMD deploy --config wrangler.prod.toml; then
+if ! $WRANGLER_CMD deploy --config wrangler.prod.toml --secrets-file "$SECRETS_FILE"; then
     echo "Error: Initial Worker deployment failed"
     exit 1
 fi

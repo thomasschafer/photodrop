@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ZodError } from 'zod';
 import {
   createPhoto,
   getPhoto,
@@ -11,7 +12,6 @@ import {
   getPhotoReactionsWithUsers,
   getGroupPushSubscriptions,
   getGroupDeviceTokens,
-  getGroup,
   getUserById,
   createComment,
   getCommentsByPhotoId,
@@ -75,19 +75,16 @@ async function sendPhotoUploadNotifications(
   photoId: string,
   caption: string | null
 ): Promise<void> {
-  // Get group and uploader info (shared by both notification types)
-  const [group, uploader] = await Promise.all([
-    getGroup(env.DB, groupId),
-    getUserById(env.DB, uploaderId),
-  ]);
+  // Get uploader info (shared by both notification types)
+  const uploader = await getUserById(env.DB, uploaderId);
 
-  const groupName = group?.name || 'your group';
-  const uploaderName = uploader?.name || 'Someone';
-  const title = `New photo in ${groupName}`;
+  // Use just the first name to keep the notification short and friendly.
+  const uploaderFirstName = uploader?.name?.trim().split(/\s+/)[0] || 'Someone';
+  const title = `New photo`;
   // Sanitize caption to prevent injection in push notifications
   // Push payloads are plain text (not rendered as HTML), so just truncate
-  const sanitizedCaption = caption ? Array.from(caption).slice(0, 200).join('') : null;
-  const body = sanitizedCaption || `${uploaderName} shared a new photo`;
+  const sanitizedCaption = caption ? `"${Array.from(caption).slice(0, 200).join('')}"` : null;
+  const body = `${uploaderFirstName} added ${sanitizedCaption || 'a new photo'}`;
 
   // Send web push notifications
   if (env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
@@ -174,7 +171,6 @@ photos.get('/', requireAuth, async (c) => {
         caption: photo.caption,
         uploadedBy: photo.uploaded_by,
         uploadedAt: photo.uploaded_at,
-        reactionCount: photo.reaction_count,
         commentCount: photo.comment_count,
         reactions: photo.reactions,
         userReaction: photo.user_reaction,
@@ -401,7 +397,16 @@ photos.get('/:id/download', requireAuth, async (c) => {
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
-        'Cache-Control': 'public, max-age=3600',
+        // Private image: no-store keeps it out of all shared/browser/CDN HTTP
+        // caches, and we vary by the auth header. Deliberate per-browser caching
+        // is left to the service worker (CacheFirst + ignoreVary, purged on
+        // logout/group switch) — but only when the request is same-origin with
+        // the controlled page (dev via the Vite /api proxy, or a same-origin
+        // deploy). The default production build points at a separate API
+        // subdomain, so those cross-origin requests bypass the SW caches and are
+        // refetched on cold loads. See frontend/src/sw.ts.
+        'Cache-Control': 'no-store',
+        Vary: 'Authorization',
       },
     });
   } catch (error) {
@@ -459,7 +464,11 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
     return new Response(object.body, {
       headers: {
         'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
-        'Cache-Control': 'public, max-age=86400',
+        // Private image, no shared/browser/CDN HTTP caching; same-origin-only
+        // service-worker caching. See the download route above for the full
+        // rationale and the cross-origin production caveat.
+        'Cache-Control': 'no-store',
+        Vary: 'Authorization',
       },
     });
   } catch (error) {
@@ -571,6 +580,10 @@ photos.post('/:id/react', requireAuth, async (c) => {
   } catch (error) {
     if (error instanceof BadRequestError) {
       return c.json({ error: error.message }, error.statusCode);
+    }
+
+    if (error instanceof ZodError) {
+      throw error;
     }
 
     console.error('Error adding reaction:', error);

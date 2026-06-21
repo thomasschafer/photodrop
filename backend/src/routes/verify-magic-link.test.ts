@@ -12,9 +12,11 @@ const mockGetMembership = vi.fn();
 const mockCreateMembership = vi.fn();
 const mockGetUserMemberships = vi.fn();
 const mockGetGroup = vi.fn();
+const mockCreateMagicLinkToken = vi.fn();
 const mockGenerateAccessToken = vi.fn();
 const mockGenerateRefreshToken = vi.fn();
 const mockGenerateGroupSelectionToken = vi.fn();
+const mockSendLoginLinkEmail = vi.fn();
 
 vi.mock('../lib/magic-links', () => ({
   verifyMagicLink: (...args: unknown[]) => mockVerifyMagicLink(...args),
@@ -30,7 +32,7 @@ vi.mock('../lib/db', () => ({
   createMembership: (...args: unknown[]) => mockCreateMembership(...args),
   getUserMemberships: (...args: unknown[]) => mockGetUserMemberships(...args),
   getGroup: (...args: unknown[]) => mockGetGroup(...args),
-  createMagicLinkToken: vi.fn(),
+  createMagicLinkToken: (...args: unknown[]) => mockCreateMagicLinkToken(...args),
 }));
 
 vi.mock('../lib/jwt', () => ({
@@ -43,7 +45,7 @@ vi.mock('../lib/jwt', () => ({
 
 vi.mock('../lib/email', () => ({
   sendInviteEmail: vi.fn(),
-  sendLoginLinkEmail: vi.fn(),
+  sendLoginLinkEmail: (...args: unknown[]) => mockSendLoginLinkEmail(...args),
 }));
 
 vi.mock('../middleware/rateLimit', () => ({
@@ -128,6 +130,14 @@ function makeLoginToken(overrides = {}) {
 
 async function postVerify(app: Hono, body: Record<string, unknown>) {
   return app.request('/auth/verify-magic-link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+async function postSendLoginLink(app: Hono, body: Record<string, unknown>) {
+  return app.request('/auth/send-login-link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -398,5 +408,52 @@ describe('verify-magic-link endpoint', () => {
     // Zod validation fails, caught by catch block -> 500
     // (The global onError handler isn't mounted here, so ZodErrors become 500)
     expect(res.status).toBe(500);
+  });
+});
+
+describe('send-login-link endpoint', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    app = createApp();
+    mockCreateMagicLinkToken.mockResolvedValue('login-token');
+    mockSendLoginLinkEmail.mockResolvedValue(undefined);
+  });
+
+  it('creates a login token with null group for users with no groups', async () => {
+    mockGetUserByEmail.mockResolvedValue(defaultUser);
+    mockGetUserMemberships.mockResolvedValue([]);
+
+    const res = await postSendLoginLink(app, { email: 'Test@Example.com' });
+
+    expect(res.status).toBe(200);
+    expect(mockCreateMagicLinkToken).toHaveBeenCalledWith(
+      expect.anything(),
+      null,
+      'test@example.com',
+      'login'
+    );
+    expect(mockSendLoginLinkEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      'test@example.com',
+      'Test User',
+      'http://localhost:5173/auth/login-token'
+    );
+  });
+
+  it('creates a group-scoped login token when the user has a group', async () => {
+    mockGetUserByEmail.mockResolvedValue(defaultUser);
+    mockGetUserMemberships.mockResolvedValue([defaultMembership]);
+
+    const res = await postSendLoginLink(app, { email: 'test@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(mockCreateMagicLinkToken).toHaveBeenCalledWith(
+      expect.anything(),
+      'group-1',
+      'test@example.com',
+      'login'
+    );
   });
 });

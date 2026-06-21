@@ -73,7 +73,7 @@ export interface MembershipWithUser extends Membership {
 
 export interface MagicLinkToken {
   token: string;
-  group_id: string;
+  group_id: string | null;
   email: string;
   type: 'invite' | 'login';
   invite_role: MembershipRole | null; // 'admin' or 'member' only
@@ -129,7 +129,6 @@ export interface ReactionSummary {
 }
 
 export interface PhotoWithCounts extends Photo {
-  reaction_count: number;
   comment_count: number;
   reactions: ReactionSummary[];
   user_reaction: string | null;
@@ -351,11 +350,15 @@ export async function updateUserProfileColor(
 // Magic link token functions
 export async function createMagicLinkToken(
   db: D1Database,
-  groupId: string,
+  groupId: string | null,
   email: string,
   type: 'invite' | 'login',
   inviteRole?: 'admin' | 'member'
 ): Promise<string> {
+  if (type === 'invite' && !groupId) {
+    throw new Error('Invite magic links require a group_id');
+  }
+
   const token = generateInviteToken(); // Reuse this for cryptographically random tokens
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 15 * 60; // 15 minutes
@@ -929,15 +932,6 @@ export async function deleteComment(db: D1Database, commentId: string): Promise<
   return result.success;
 }
 
-export async function getCommentCount(db: D1Database, photoId: string): Promise<number> {
-  const result = await db
-    .prepare('SELECT COUNT(*) as count FROM comments WHERE photo_id = ? AND deleted_at IS NULL')
-    .bind(photoId)
-    .first<{ count: number }>();
-
-  return result?.count ?? 0;
-}
-
 // Reaction functions with user details
 export async function getPhotoReactionsWithUsers(
   db: D1Database,
@@ -957,41 +951,9 @@ export async function getPhotoReactionsWithUsers(
   return result.results || [];
 }
 
-export async function getReactionSummary(
-  db: D1Database,
-  photoId: string
-): Promise<ReactionSummary[]> {
-  const result = await db
-    .prepare(
-      `SELECT emoji, COUNT(*) as count
-       FROM photo_reactions
-       WHERE photo_id = ?
-       GROUP BY emoji
-       ORDER BY count DESC, emoji ASC`
-    )
-    .bind(photoId)
-    .all<ReactionSummary>();
-
-  return result.results || [];
-}
-
-export async function getUserReaction(
-  db: D1Database,
-  photoId: string,
-  userId: string
-): Promise<string | null> {
-  const result = await db
-    .prepare('SELECT emoji FROM photo_reactions WHERE photo_id = ? AND user_id = ?')
-    .bind(photoId, userId)
-    .first<{ emoji: string }>();
-
-  return result?.emoji ?? null;
-}
-
 // Internal type for the aggregated query result
 interface PhotoWithCountsRow extends Photo {
   comment_count: number;
-  reaction_count: number;
   user_reaction: string | null;
 }
 
@@ -1015,7 +977,6 @@ export async function listPhotosWithCounts(
         p.uploaded_at,
         p.thumbnail_r2_key,
         COALESCE(c.comment_count, 0) as comment_count,
-        COALESCE(r.reaction_count, 0) as reaction_count,
         ur.emoji as user_reaction
       FROM photos p
       LEFT JOIN (
@@ -1024,11 +985,6 @@ export async function listPhotosWithCounts(
         WHERE deleted_at IS NULL
         GROUP BY photo_id
       ) c ON c.photo_id = p.id
-      LEFT JOIN (
-        SELECT photo_id, COUNT(*) as reaction_count
-        FROM photo_reactions
-        GROUP BY photo_id
-      ) r ON r.photo_id = p.id
       LEFT JOIN photo_reactions ur ON ur.photo_id = p.id AND ur.user_id = ?
       WHERE p.group_id = ?
       ORDER BY p.uploaded_at DESC
@@ -1074,7 +1030,6 @@ export async function listPhotosWithCounts(
     uploaded_by: photo.uploaded_by,
     uploaded_at: photo.uploaded_at,
     thumbnail_r2_key: photo.thumbnail_r2_key,
-    reaction_count: photo.reaction_count,
     comment_count: photo.comment_count,
     reactions: reactionsByPhoto.get(photo.id) || [],
     user_reaction: photo.user_reaction,

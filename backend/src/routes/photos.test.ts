@@ -6,6 +6,7 @@ const mockVerifyJWT = vi.fn();
 const mockGetPhoto = vi.fn();
 const mockGetUserById = vi.fn();
 const mockCreateComment = vi.fn();
+const mockGetMembership = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
@@ -29,16 +30,24 @@ vi.mock('../lib/db', () => ({
   getCommentsByPhotoId: vi.fn(),
   getComment: vi.fn(),
   deleteComment: vi.fn(),
-  getMembership: vi.fn(),
+  getMembership: (...args: unknown[]) => mockGetMembership(...args),
 }));
 
 import photos from './photos';
+import { errorHandler } from '../lib/errorHandler';
 
 describe('POST /photos/:id/comments', () => {
   let app: Hono;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetMembership.mockResolvedValue({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+      joined_at: 1000,
+      image_protection: 1,
+    });
 
     app = new Hono();
     app.use('*', async (c, next) => {
@@ -74,5 +83,58 @@ describe('POST /photos/:id/comments', () => {
     expect(mockGetPhoto).not.toHaveBeenCalled();
     expect(mockGetUserById).not.toHaveBeenCalled();
     expect(mockCreateComment).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /photos/:id/react validation', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = new Hono();
+    app.use('*', async (c, next) => {
+      c.env = {
+        JWT_SECRET: 'test-secret',
+        DB: {},
+      };
+      await next();
+    });
+    app.route('/photos', photos);
+    // Register the same error handler the production app uses, so a re-thrown
+    // ZodError is formatted as 400 rather than falling back to Hono's 500.
+    app.onError(errorHandler);
+
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'user-1',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+    // requireAuth -> authenticateUser looks up membership on every request.
+    mockGetMembership.mockResolvedValue({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+      joined_at: 1000,
+      image_protection: 1,
+    });
+  });
+
+  it('returns 400 (not 500) for an invalid reaction emoji', async () => {
+    const res = await app.request('/photos/photo-1/react', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ emoji: 'not-an-emoji' }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Validation error');
+    // Validation must short-circuit before the handler touches the photo.
+    expect(mockGetPhoto).not.toHaveBeenCalled();
   });
 });

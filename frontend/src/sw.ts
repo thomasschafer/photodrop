@@ -11,7 +11,9 @@ declare let self: ServiceWorkerGlobalScope;
 // Clean up old caches
 cleanupOutdatedCaches();
 
-// Listen for message from client to activate the new SW
+// A new worker waits until the user accepts the update (SwUpdatePrompt posts
+// SKIP_WAITING), so we never reload mid-session unexpectedly. The activate
+// handler below still purges auth-scoped caches when the new worker takes over.
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
@@ -35,16 +37,50 @@ const stripTokenFromCacheKey = {
 // Cache naming convention:
 // - photodrop:group:* = group-scoped (cleared on group switch)
 // - photodrop:user:* = user-scoped (cleared on logout along with group caches)
+const authScopedRuntimeCaches = [
+  'photodrop:group:thumbnails',
+  'photodrop:group:fullsize',
+  'photodrop:group:photo-list',
+  'photodrop:user:api',
+];
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    Promise.all(authScopedRuntimeCaches.map((cacheName) => caches.delete(cacheName)))
+  );
+});
 
 // Match only same-origin requests so we don't intercept cross-origin API/images (e.g. dev API on another port).
 // The SW controls the page and sees all fetches; without this guard, CacheFirst can capture those requests.
+//
+// Consequence: the runtime caches below only engage when the API is same-origin
+// with the page — local dev (Vite proxies /api/* to the backend) or a deploy
+// that fronts the API on the page's own origin. The default production build
+// (scripts/deploy.sh sets VITE_API_URL=https://$API_DOMAIN) talks to a separate
+// API subdomain, so image/API requests are cross-origin and intentionally
+// bypass these caches; combined with the backend's `no-store`, default
+// production has no persistent image cache and refetches on cold loads. In-app
+// images are still deduped/cached in memory for the session by
+// useAuthenticatedImage's blob-URL LRU. Persistent cross-origin caching would
+// require a same-origin /api proxy (or allowlisting the API origin here plus
+// the matching CORS work) and is deliberately left out for now.
 const isSameOrigin = (url: URL) => url.origin === self.location.origin;
+
+// These runtime caches hold authenticated, user-private content. That is safe
+// because each cache is scoped to this browser and is purged on logout and
+// group switch (clearAllUserCaches / clearGroupCaches) and on SW activation
+// (above). Photo URLs are immutable and group-scoped, so a cached entry is only
+// ever valid for the same user's own content.
+
 // Cache thumbnails with cache-first strategy (no expiry, small files ~200KB)
 // (?:api\/)? prefix handles local dev where vite proxies /api/* to backend
 registerRoute(
   ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/thumbnail$/),
   new CacheFirst({
     cacheName: 'photodrop:group:thumbnails',
+    // Image responses set `Vary: Authorization`; ignore it so a refreshed
+    // access token doesn't invalidate every cached image.
+    matchOptions: { ignoreVary: true },
     plugins: [
       stripTokenFromCacheKey,
       new CacheableResponsePlugin({
@@ -59,6 +95,7 @@ registerRoute(
   ({ url }) => isSameOrigin(url) && url.pathname.match(/^\/(?:api\/)?photos\/[^/]+\/download$/),
   new CacheFirst({
     cacheName: 'photodrop:group:fullsize',
+    matchOptions: { ignoreVary: true },
     plugins: [
       stripTokenFromCacheKey,
       new CacheableResponsePlugin({
