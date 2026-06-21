@@ -22,5 +22,5 @@ DROP TABLE photo_reactions;
 
 ALTER TABLE photo_reactions_new RENAME TO photo_reactions;
 
-CREATE INDEX idx_photo_reactions_photo ON photo_reactions(photo_id);
+CREATE INDEX idx_photo_reactions_photo_emoji_user ON photo_reactions(photo_id, emoji, user_id);
 CREATE INDEX idx_photo_reactions_user ON photo_reactions(user_id);

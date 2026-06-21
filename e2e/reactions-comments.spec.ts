@@ -71,11 +71,14 @@ test.describe('Reactions and comments', () => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
     const token = await getAuthToken(page);
+    if (!token) {
+      throw new Error('Expected access token after login');
+    }
 
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
 
     for (const emoji of ['❤️', '😂']) {
-      await request.delete(`${API_BASE}/photos/${photoId}/react`, {
+      const cleanupResponse = await request.delete(`${API_BASE}/photos/${photoId}/react`, {
         headers: {
           Authorization: `Bearer ${token}`,
           'X-Requested-With': 'XMLHttpRequest',
@@ -83,11 +86,12 @@ test.describe('Reactions and comments', () => {
         },
         data: { emoji },
       });
+      expect(cleanupResponse.ok()).toBe(true);
     }
 
     await page.reload();
     await expect(page.getByText('Test photo for reactions')).toBeVisible({ timeout: 10000 });
-    await page.locator('article').first().click();
+    await page.locator(`article[data-photo-id="${photoId}"]`).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 

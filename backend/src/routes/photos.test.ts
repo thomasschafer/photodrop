@@ -130,6 +130,19 @@ describe('POST /photos/:id/react', () => {
     });
 
     expect(res.status).toBe(400);
+    expect(mockGetPhoto).not.toHaveBeenCalled();
+    expect(mockAddPhotoReaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for malformed JSON without touching the database', async () => {
+    const res = await app.request('/photos/photo-1/react', {
+      method: 'POST',
+      headers: authHeaders,
+      body: '{"emoji":',
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockGetPhoto).not.toHaveBeenCalled();
     expect(mockAddPhotoReaction).not.toHaveBeenCalled();
   });
 });
@@ -175,6 +188,19 @@ describe('DELETE /photos/:id/react', () => {
     });
 
     expect(res.status).toBe(400);
+    expect(mockGetPhoto).not.toHaveBeenCalled();
+    expect(mockRemovePhotoReaction).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for malformed JSON without touching the database', async () => {
+    const res = await app.request('/photos/photo-1/react', {
+      method: 'DELETE',
+      headers: authHeaders,
+      body: '{"emoji":',
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockGetPhoto).not.toHaveBeenCalled();
     expect(mockRemovePhotoReaction).not.toHaveBeenCalled();
   });
 });
