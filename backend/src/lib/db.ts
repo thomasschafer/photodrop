@@ -73,7 +73,7 @@ export interface MembershipWithUser extends Membership {
 
 export interface MagicLinkToken {
   token: string;
-  group_id: string;
+  group_id: string | null;
   email: string;
   type: 'invite' | 'login';
   invite_role: MembershipRole | null; // 'admin' or 'member' only
@@ -351,11 +351,15 @@ export async function updateUserProfileColor(
 // Magic link token functions
 export async function createMagicLinkToken(
   db: D1Database,
-  groupId: string,
+  groupId: string | null,
   email: string,
   type: 'invite' | 'login',
   inviteRole?: 'admin' | 'member'
 ): Promise<string> {
+  if (type === 'invite' && !groupId) {
+    throw new Error('Invite magic links require a group_id');
+  }
+
   const token = generateInviteToken(); // Reuse this for cryptographically random tokens
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 15 * 60; // 15 minutes
