@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback, type FormEvent } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
+import { Button, ButtonLink } from '../components/Button';
 
 type VerifyStatus = 'verifying' | 'needs_name' | 'submitting_name' | 'success' | 'error';
 
@@ -209,7 +210,7 @@ function NameInputContent({
             </p>
           )}
         </div>
-        <button type="submit" disabled={isSubmitting} className="btn-primary w-full">
+        <Button type="submit" size="lg" disabled={isSubmitting} className="w-full">
           {isSubmitting ? (
             <span className="flex items-center justify-center gap-2">
               <span className="spinner spinner-sm" />
@@ -218,7 +219,7 @@ function NameInputContent({
           ) : (
             'Continue'
           )}
-        </button>
+        </Button>
       </form>
     </>
   );
@@ -267,9 +268,9 @@ function ErrorContent({ message }: { message: string }) {
       </div>
       <h2 className="text-lg font-medium text-text-primary mb-2">Link not valid</h2>
       <p className="text-sm text-text-secondary mb-6">{message}</p>
-      <Link to="/login" className="btn-primary">
+      <ButtonLink to="/login" size="lg">
         Request a new link
-      </Link>
+      </ButtonLink>
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Button } from './Button';
 
 /**
  * Shows a banner when a new service worker is waiting to activate.
@@ -66,12 +67,9 @@ export function SwUpdatePrompt() {
     <div className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-md">
       <div className="bg-surface border border-border rounded-lg shadow-elevated p-4 flex items-center justify-between gap-3">
         <p className="text-sm text-text-secondary">A new version is available!</p>
-        <button
-          onClick={handleUpdate}
-          className="px-3 py-1.5 rounded-lg bg-accent-solid text-white text-sm font-medium hover:bg-accent-solid-hover transition-colors cursor-pointer flex-shrink-0"
-        >
+        <Button onClick={handleUpdate} size="sm" className="flex-shrink-0">
           Update
-        </button>
+        </Button>
       </div>
     </div>
   );

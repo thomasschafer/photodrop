@@ -7,6 +7,7 @@ import {
   validateImageFile,
   formatFileSize,
 } from '../lib/imageCompression';
+import { Button } from './Button';
 
 interface PhotoUploadProps {
   onUploadComplete?: () => void;
@@ -187,7 +188,7 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
 
           {progress && <p className="text-sm text-text-secondary">{progress}</p>}
 
-          <button onClick={handleUpload} disabled={uploading} className="btn-primary w-full">
+          <Button onClick={handleUpload} size="lg" disabled={uploading} className="w-full">
             {uploading ? (
               <span className="flex items-center gap-2">
                 <span className="spinner spinner-sm" />
@@ -196,7 +197,7 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
             ) : (
               'Upload'
             )}
-          </button>
+          </Button>
         </div>
       )}
     </>

@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { ButtonLink } from '../components/Button';
 
 export function LandingPage() {
   return (
@@ -18,9 +18,9 @@ export function LandingPage() {
           Private photo sharing for families and close friends.
         </p>
 
-        <Link to="/login" className="btn-primary">
+        <ButtonLink to="/login" size="lg">
           Sign in
-        </Link>
+        </ButtonLink>
       </div>
     </div>
   );

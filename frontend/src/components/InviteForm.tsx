@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { api, ApiError } from '../lib/api';
+import { Button } from './Button';
 
 interface InviteFormProps {
   onInviteSent?: (email: string) => void;
@@ -114,7 +115,7 @@ export function InviteForm({ onInviteSent, isModal = false }: InviteFormProps) {
           </p>
         )}
 
-        <button type="submit" disabled={status === 'loading'} className="btn-primary w-full">
+        <Button type="submit" size="lg" disabled={status === 'loading'} className="w-full">
           {status === 'loading' ? (
             <span className="flex items-center gap-2">
               <span className="spinner spinner-sm" />
@@ -123,7 +124,7 @@ export function InviteForm({ onInviteSent, isModal = false }: InviteFormProps) {
           ) : (
             'Send invite'
           )}
-        </button>
+        </Button>
       </form>
     </>
   );

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
+import { Button } from '../components/Button';
 
 export function GroupPickerPage() {
   const { user, groups, selectGroup, logout } = useAuth();
@@ -38,7 +39,7 @@ export function GroupPickerPage() {
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.5"
-                className="text-text-tertiary"
+                className="text-text-muted"
               >
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="9" cy="7" r="4" />
@@ -53,16 +54,13 @@ export function GroupPickerPage() {
               You're not a member of any groups yet. Ask someone to invite you to their group.
             </p>
 
-            <p className="text-sm text-text-tertiary mb-6">
+            <p className="text-sm text-text-muted mb-6">
               Signed in as <span className="font-medium text-text-secondary">{user?.email}</span>
             </p>
 
-            <button
-              onClick={logout}
-              className="text-sm font-medium text-accent hover:text-accent-hover transition-colors"
-            >
+            <Button onClick={logout} variant="text" size="bare">
               Sign out
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -108,7 +106,7 @@ export function GroupPickerPage() {
                   </div>
                   <div className="text-left">
                     <div className="font-medium text-text-primary">{group.name}</div>
-                    <div className="text-xs text-text-tertiary capitalize">{group.role}</div>
+                    <div className="text-xs text-text-muted capitalize">{group.role}</div>
                   </div>
                 </div>
 
@@ -122,7 +120,7 @@ export function GroupPickerPage() {
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="2"
-                    className="text-text-tertiary"
+                    className="text-text-muted"
                   >
                     <path d="M9 18l6-6-6-6" />
                   </svg>
@@ -132,15 +130,12 @@ export function GroupPickerPage() {
           </div>
 
           <div className="mt-6 pt-6 border-t border-border text-center">
-            <p className="text-sm text-text-tertiary mb-2">
+            <p className="text-sm text-text-muted mb-2">
               Signed in as <span className="font-medium text-text-secondary">{user?.email}</span>
             </p>
-            <button
-              onClick={logout}
-              className="text-sm font-medium text-accent hover:text-accent-hover transition-colors"
-            >
+            <Button onClick={logout} variant="text" size="bare">
               Sign out
-            </button>
+            </Button>
           </div>
         </div>
       </div>

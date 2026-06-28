@@ -6,6 +6,7 @@ import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection } from '../lib/keyboard';
 import { useAuthenticatedImage } from '../lib/useAuthenticatedImage';
 import { PullToRefresh } from './PullToRefresh';
+import { Button } from './Button';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { PhotoUpload } from './PhotoUpload';
@@ -360,9 +361,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
         <p className="text-text-secondary mb-4" role="alert">
           {error}
         </p>
-        <button onClick={loadPhotos} className="btn-primary">
+        <Button onClick={loadPhotos} size="lg">
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -378,13 +379,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               : 'Photos will appear here once they are uploaded.'}
           </p>
           {isAdmin && (
-            <button
-              ref={uploadButtonRef}
-              onClick={() => setShowUploadModal(true)}
-              className="btn-primary"
-            >
+            <Button ref={uploadButtonRef} onClick={() => setShowUploadModal(true)} size="lg">
               Upload photo
-            </button>
+            </Button>
           )}
         </div>
         {showUploadModal && (
@@ -401,10 +398,11 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       <PullToRefresh onRefresh={loadPhotos} className="max-w-[540px] mx-auto">
         {isAdmin && (
           <div className="flex justify-end mb-4">
-            <button
+            <Button
               ref={uploadButtonRef}
               onClick={() => setShowUploadModal(true)}
-              className="btn-primary-sm flex items-center gap-2"
+              size="sm"
+              className="gap-2"
             >
               <svg
                 width="16"
@@ -419,7 +417,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                 <line x1="12" y1="3" x2="12" y2="15" />
               </svg>
               Upload
-            </button>
+            </Button>
           </div>
         )}
         {successMessage && (

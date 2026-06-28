@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { Button } from './Button';
 
 interface ConfirmModalProps {
   title: string;
@@ -78,11 +79,6 @@ export function ConfirmModal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onCancel, getFocusableElements]);
 
-  const confirmButtonClasses =
-    variant === 'danger'
-      ? 'bg-red-600 hover:bg-red-700'
-      : 'bg-accent-solid hover:bg-accent-solid-hover';
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -103,33 +99,31 @@ export function ConfirmModal({
         {children && <div className="mb-4">{children}</div>}
         <div className="flex items-center justify-between gap-3">
           {showDontAskAgain && onDontAskAgain ? (
-            <button
-              onClick={onDontAskAgain}
-              disabled={isLoading}
-              className="text-sm text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-50 cursor-pointer"
-            >
+            <Button onClick={onDontAskAgain} disabled={isLoading} variant="link" size="bare">
               Don't ask again
-            </button>
+            </Button>
           ) : (
             <div />
           )}
           <div className="flex items-center gap-3">
-            <button
+            <Button
               ref={cancelButtonRef}
               onClick={onCancel}
               disabled={isLoading}
-              className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 cursor-pointer"
+              variant="secondary"
+              size="md"
             >
               {cancelLabel}
-            </button>
-            <button
+            </Button>
+            <Button
               ref={confirmButtonRef}
               onClick={onConfirm}
               disabled={isLoading || confirmDisabled}
-              className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 cursor-pointer ${confirmButtonClasses}`}
+              variant={variant === 'danger' ? 'danger' : 'primary'}
+              size="md"
             >
               {isLoading ? <span className="spinner spinner-sm" /> : confirmLabel}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

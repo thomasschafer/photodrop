@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { formatRelativeTime } from '../../lib/dateFormat';
 import { Avatar } from '../Avatar';
+import { Button } from '../Button';
 import { SelectDropdown } from '../SelectDropdown';
 import { ReactionPills, type ReactionPillsProps } from './ReactionPills';
 import type { ReactionSummary, Comment } from './types';
@@ -274,13 +275,14 @@ export function CommentPanel({
                 className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-bg-secondary border border-border text-sm focus:outline-none focus:ring-2 focus:ring-accent"
                 disabled={submittingComment}
               />
-              <button
+              <Button
                 type="submit"
+                size="compact"
                 disabled={!newComment.trim() || submittingComment}
-                className="px-3 py-2 rounded-lg bg-accent-solid text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-solid-hover transition-colors cursor-pointer flex-shrink-0"
+                className="flex-shrink-0"
               >
                 {submittingComment ? '...' : 'Post'}
-              </button>
+              </Button>
             </div>
           </form>
         </>

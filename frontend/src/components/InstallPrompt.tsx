@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useFocusRestore } from '../lib/hooks';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
 import { Modal } from './Modal';
+import { Button } from './Button';
 
 // Small button for header - shows when dismissed, allows re-showing the prompt
 export function InstallButton() {
@@ -24,7 +25,7 @@ export function InstallButton() {
       <button
         ref={buttonRef}
         onClick={() => setShowInstructions(true)}
-        className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-secondary transition-colors cursor-pointer"
+        className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
         aria-label="Install app"
         title="Install app"
       >
@@ -45,15 +46,16 @@ export function InstallButton() {
         <Modal title="Install photodrop" onClose={handleClose} maxWidth="md">
           <PlatformInstructions platform={platform} />
           <div className="mt-4">
-            <button
+            <Button
               onClick={() => {
                 dismiss(true);
                 setShowInstructions(false);
               }}
-              className="btn-link"
+              variant="link"
+              size="bare"
             >
               Don't show again
-            </button>
+            </Button>
           </div>
         </Modal>
       )}
@@ -120,9 +122,9 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
                 You can use photodrop directly in your browser - no installation needed.
               </p>
             </div>
-            <button onClick={handleSkip} className="btn-text shrink-0">
+            <Button onClick={handleSkip} variant="text" size="inline" className="shrink-0">
               Got it
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -135,9 +137,9 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
         <Modal title="Install photodrop" onClose={handleInstructionsClose} maxWidth="md">
           <PlatformInstructions platform={platform} />
           <div className="mt-4">
-            <button onClick={() => handleDismiss(true)} className="btn-link">
+            <Button onClick={() => handleDismiss(true)} variant="link" size="bare">
               Don't show again
-            </button>
+            </Button>
           </div>
         </Modal>
       )}
@@ -151,19 +153,15 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
               </p>
             </div>
             <div className="shrink-0 flex items-center gap-3">
-              <button onClick={() => handleDismiss(true)} className="btn-link text-sm">
+              <Button onClick={() => handleDismiss(true)} variant="link" size="bare">
                 Don't show again
-              </button>
-              <button onClick={() => handleDismiss(false)} className="btn-secondary-sm">
+              </Button>
+              <Button onClick={() => handleDismiss(false)} variant="secondary" size="sm">
                 Later
-              </button>
-              <button
-                ref={installButtonRef}
-                onClick={handleInstallClick}
-                className="btn-primary-sm"
-              >
+              </Button>
+              <Button ref={installButtonRef} onClick={handleInstallClick} size="sm">
                 Install
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -206,7 +204,7 @@ function PlatformInstructions({ platform }: { platform: string }) {
               Click <strong>Add to Dock</strong>
             </li>
           </ol>
-          <p className="text-xs text-text-tertiary">
+          <p className="text-xs text-text-muted">
             Or click the Share button and select "Add to Dock"
           </p>
         </div>
@@ -245,7 +243,7 @@ function PlatformInstructions({ platform }: { platform: string }) {
               Click <strong>Install</strong>
             </li>
           </ol>
-          <p className="text-xs text-text-tertiary">
+          <p className="text-xs text-text-muted">
             The install icon appears on the right side of the address bar in Chrome or Edge
           </p>
         </div>

@@ -122,7 +122,7 @@ export function GroupSwitcher() {
                     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                     : group.role === 'admin'
                       ? 'bg-accent/10 text-accent'
-                      : 'bg-bg-tertiary text-text-tertiary'
+                      : 'bg-bg-tertiary text-text-muted'
                 }`}
               >
                 {ROLE_DISPLAY_NAMES[group.ownerId === user?.id ? 'owner' : group.role]}

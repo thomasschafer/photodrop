@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
+import { ButtonLink } from '../components/Button';
 
 export function NotFoundPage() {
   return (
@@ -7,12 +7,9 @@ export function NotFoundPage() {
       <Logo size="sm" />
       <h2 className="mt-8 text-6xl font-bold text-text-primary">404</h2>
       <p className="mt-4 text-lg text-text-secondary">This page doesn't exist.</p>
-      <Link
-        to="/"
-        className="mt-8 px-6 py-3 bg-accent text-white rounded-lg font-medium no-underline hover:opacity-90 transition-opacity"
-      >
+      <ButtonLink to="/" size="lg" className="mt-8">
         Go home
-      </Link>
+      </ButtonLink>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { Button } from '../components/Button';
 
 export function LoginPage() {
   const { user } = useAuth();
@@ -114,7 +115,7 @@ function LoginForm({
         )}
 
         <div className="pt-2">
-          <button type="submit" disabled={status === 'loading'} className="btn-primary w-full">
+          <Button type="submit" size="lg" disabled={status === 'loading'} className="w-full">
             {status === 'loading' ? (
               <span className="flex items-center gap-2">
                 <span className="spinner spinner-sm" />
@@ -123,7 +124,7 @@ function LoginForm({
             ) : (
               'Send sign-in link'
             )}
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -165,9 +166,9 @@ function SuccessState({ email, onReset }: { email: string; onReset: () => void }
         The link expires in 15 minutes. Check spam if you don't see it.
       </p>
 
-      <button onClick={onReset} className="btn-text">
+      <Button onClick={onReset} variant="text" size="inline">
         Try a different email
-      </button>
+      </Button>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import type { ProfileColor } from '../lib/profileColors';
 import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
 import { setNativeScreenshotProtection } from '../lib/privacyScreen';
 import { Avatar } from './Avatar';
+import { Button } from './Button';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { InviteForm } from './InviteForm';
@@ -321,10 +322,11 @@ export function MembersList() {
             {members.length} {members.length === 1 ? 'member' : 'members'} in {currentGroup?.name}
           </p>
         </div>
-        <button
+        <Button
           ref={inviteButtonRef}
           onClick={() => setShowInviteModal(true)}
-          className="btn-primary-sm flex items-center gap-2 -mt-1"
+          size="sm"
+          className="gap-2 -mt-1"
         >
           <svg
             width="16"
@@ -339,7 +341,7 @@ export function MembersList() {
             <path d="M19 8v6M22 11h-6" />
           </svg>
           Invite
-        </button>
+        </Button>
       </div>
 
       {error && (
@@ -441,9 +443,7 @@ export function MembersList() {
                   <div className="min-w-0">
                     <div className="font-medium text-text-primary truncate">
                       {member.name}
-                      {isCurrentUser && (
-                        <span className="ml-2 text-xs text-text-tertiary">(you)</span>
-                      )}
+                      {isCurrentUser && <span className="ml-2 text-xs text-text-muted">(you)</span>}
                     </div>
                     <div className="text-sm text-text-secondary truncate">{member.email}</div>
                   </div>
@@ -460,7 +460,7 @@ export function MembersList() {
                     }}
                     onClick={() => handleEditNameRequest(member.userId, member.name)}
                     disabled={isLoading}
-                    className="p-2 text-text-tertiary hover:text-accent transition-colors disabled:opacity-50 cursor-pointer"
+                    className="p-2 text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer"
                     title="Edit name"
                     aria-label={`Edit ${member.name}'s name`}
                   >
@@ -521,7 +521,7 @@ export function MembersList() {
                     className={`p-2 rounded-md transition-colors disabled:opacity-50 cursor-pointer ${
                       member.imageProtection
                         ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
-                        : 'text-text-tertiary hover:text-text-secondary'
+                        : 'text-text-muted hover:text-text-secondary'
                     }`}
                     title={
                       member.imageProtection
@@ -578,8 +578,8 @@ export function MembersList() {
                     disabled={isLoading || memberIsOwner}
                     className={`p-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                       memberIsOwner
-                        ? 'text-text-tertiary'
-                        : 'text-text-tertiary hover:text-red-600 dark:hover:text-red-400 cursor-pointer'
+                        ? 'text-text-muted'
+                        : 'text-text-muted hover:text-red-600 dark:hover:text-red-400 cursor-pointer'
                     }`}
                     title={memberIsOwner ? 'Owners cannot be removed' : 'Remove from group'}
                     aria-label={
@@ -620,13 +620,14 @@ export function MembersList() {
           <p className="text-sm text-text-secondary mb-4">
             Permanently delete this group and all its photos. This action cannot be undone.
           </p>
-          <button
+          <Button
             ref={deleteGroupButtonRef}
             onClick={openDeleteGroupModal}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
+            variant="danger"
+            size="md"
           >
             Delete group
-          </button>
+          </Button>
         </div>
       )}
 

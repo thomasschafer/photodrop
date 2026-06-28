@@ -50,7 +50,7 @@ export function UserMenu() {
             aria-label="User menu"
             className="absolute top-[calc(100%+0.5rem)] right-0 min-w-[180px] bg-surface border border-border rounded-lg shadow-elevated z-50"
           >
-            <div className="px-3.5 py-2 text-xs text-text-tertiary border-b border-border">
+            <div className="px-3.5 py-2 text-xs text-text-muted border-b border-border">
               Signed in as <span className="font-medium text-text-secondary">{user.name}</span>
             </div>
             <div className="py-1">

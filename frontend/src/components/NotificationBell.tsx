@@ -17,6 +17,7 @@ import {
 import { App as CapApp } from '@capacitor/app';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
+import { Button } from './Button';
 import { useAuth } from '../contexts/AuthContext';
 
 type NotificationState =
@@ -399,9 +400,9 @@ export function NotificationBell() {
           isError
             ? 'border-red-500 bg-red-500/10 text-red-500'
             : isLoading
-              ? 'border-border bg-surface text-text-tertiary'
+              ? 'border-border bg-surface text-text-muted'
               : isDisabled
-                ? 'border-border bg-surface text-text-tertiary hover:border-border-strong hover:text-text-secondary'
+                ? 'border-border bg-surface text-text-muted hover:border-border-strong hover:text-text-secondary'
                 : isSubscribed
                   ? 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
                   : 'border-border bg-surface text-text-secondary hover:border-border-strong'
@@ -494,7 +495,7 @@ ${
     .join('\n') || '(empty)'
 }`}
             </pre>
-            <button
+            <Button
               onClick={async () => {
                 setShowDebug(false);
                 resetPushCrashGuard();
@@ -504,10 +505,11 @@ ${
                   await subscribeWeb();
                 }
               }}
-              className="w-full py-3 px-4 bg-accent-solid text-white rounded-lg font-medium"
+              size="lg"
+              className="w-full"
             >
               Try subscribe (resets crash guard)
-            </button>
+            </Button>
             <button
               onClick={() => setShowDebug(false)}
               className="w-full py-2 px-4 border border-border rounded-lg"
@@ -530,13 +532,14 @@ ${
               </p>
             </div>
 
-            <button
+            <Button
               onClick={sendTestNotification}
               disabled={isSendingTest || !getCurrentToken()}
-              className="w-full py-3 px-4 bg-accent-solid text-white rounded-lg font-medium disabled:opacity-50"
+              size="lg"
+              className="w-full"
             >
               {isSendingTest ? 'Sending...' : 'Send test notification'}
-            </button>
+            </Button>
 
             {testResult && (
               <pre

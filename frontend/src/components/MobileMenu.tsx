@@ -163,7 +163,7 @@ export function MobileMenu() {
           >
             {/* Groups section */}
             <div className="py-1">
-              <div className="px-3.5 py-2 text-xs font-medium text-text-tertiary uppercase tracking-wide">
+              <div className="px-3.5 py-2 text-xs font-medium text-text-muted uppercase tracking-wide">
                 Groups
               </div>
               {groups.map((group, i) => (
@@ -204,7 +204,7 @@ export function MobileMenu() {
                         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                         : group.role === 'admin'
                           ? 'bg-accent/10 text-accent'
-                          : 'bg-bg-tertiary text-text-tertiary'
+                          : 'bg-bg-tertiary text-text-muted'
                     }`}
                   >
                     {ROLE_DISPLAY_NAMES[group.ownerId === user?.id ? 'owner' : group.role]}
@@ -217,7 +217,7 @@ export function MobileMenu() {
 
             {/* Theme section */}
             <div className="py-1">
-              <div className="px-3.5 py-2 text-xs font-medium text-text-tertiary uppercase tracking-wide">
+              <div className="px-3.5 py-2 text-xs font-medium text-text-muted uppercase tracking-wide">
                 Theme
               </div>
               {themes.map((t, i) => {
@@ -247,7 +247,7 @@ export function MobileMenu() {
 
             {/* User section */}
             <div className="py-1">
-              <div className="px-3.5 py-2 flex items-center gap-2 text-xs text-text-tertiary">
+              <div className="px-3.5 py-2 flex items-center gap-2 text-xs text-text-muted">
                 <Avatar name={user.name} color={user.profileColor} size="sm" />
                 <span>
                   Signed in as <span className="font-medium text-text-secondary">{user.name}</span>
