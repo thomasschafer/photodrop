@@ -192,19 +192,23 @@ groups.delete('/:groupId', requireOwner, async (c) => {
     throw new InternalServerError('Failed to delete group from database');
   }
 
-  // Clean up R2 files in parallel batches of 50 (best-effort)
-  const BATCH_SIZE = 50;
+  // Clean up R2 files (best-effort). R2 deletes up to 1000 keys per call, so
+  // batching this way costs one subrequest per 1000 files rather than one per
+  // file — a group with thousands of photos would otherwise risk exhausting
+  // the Worker's subrequest limit midway through cleanup.
+  const BATCH_SIZE = 1000;
   let r2FailureCount = 0;
 
   for (let i = 0; i < allKeys.length; i += BATCH_SIZE) {
     const batch = allKeys.slice(i, i + BATCH_SIZE);
-    const results = await Promise.allSettled(batch.map((key) => c.env.PHOTOS.delete(key)));
-
-    results.forEach((result) => {
-      if (result.status === 'rejected') {
-        r2FailureCount++;
-      }
-    });
+    try {
+      await c.env.PHOTOS.delete(batch);
+    } catch (r2Error) {
+      // A batch delete is all-or-nothing from our side: we can't tell which
+      // keys survived, so count the whole batch as failed.
+      console.error('Failed to clean up a batch of R2 files:', r2Error);
+      r2FailureCount += batch.length;
+    }
   }
 
   if (r2FailureCount > 0) {

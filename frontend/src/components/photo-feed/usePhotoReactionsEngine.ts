@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { api } from '../../lib/api';
 import type { ReactionSummary, ReactionWithUser } from './types';
 import { toggleReaction, type ReactionActor } from './reactions';
@@ -193,13 +193,20 @@ export function usePhotoReactionsEngine() {
     [bumpCacheVersion, beginPendingMutation, endPendingMutation, hasPendingMutation, fetchDetails]
   );
 
-  return {
-    fetchDetails,
-    getCachedDetails,
-    resetCache,
-    loadDetails,
-    toggleReactionForPhoto,
-  };
+  // Every member is individually memoized, so memoize the container too:
+  // consumers depend on the engine's identity being stable (see the effect
+  // dependency arrays in useLightboxReactions and PhotoFeed), and returning a
+  // fresh object literal each render would silently invalidate them.
+  return useMemo(
+    () => ({
+      fetchDetails,
+      getCachedDetails,
+      resetCache,
+      loadDetails,
+      toggleReactionForPhoto,
+    }),
+    [fetchDetails, getCachedDetails, resetCache, loadDetails, toggleReactionForPhoto]
+  );
 }
 
 export type PhotoReactionsEngine = ReturnType<typeof usePhotoReactionsEngine>;

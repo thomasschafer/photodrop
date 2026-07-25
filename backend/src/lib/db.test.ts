@@ -9,6 +9,8 @@ import {
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
+  deletePhoto,
+  updateUserName,
   createPushSubscription,
   getUserPushSubscriptionsForGroup,
   getGroupPushSubscriptions,
@@ -1320,5 +1322,39 @@ describe('Profile color functions', () => {
       expect(db._mocks.mockBind).toHaveBeenCalledWith('sage', 'user-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
+  });
+});
+
+describe('mutations report rows affected rather than statement success', () => {
+  // D1 reports success for a statement that legitimately matched nothing, so
+  // these helpers key off meta.changes instead. Routes surface the false path
+  // as a 404/500, so a helper that reported success for a missing row would
+  // silently turn "nothing to do" into "done".
+  const cases: Array<{ name: string; run: (db: D1Database) => Promise<boolean> }> = [
+    { name: 'deleteGroup', run: (db) => deleteGroup(db, 'group-1') },
+    { name: 'deletePhoto', run: (db) => deletePhoto(db, 'photo-1', 'group-1') },
+    { name: 'updateUserName', run: (db) => updateUserName(db, 'user-1', 'New Name') },
+    { name: 'updateUserProfileColor', run: (db) => updateUserProfileColor(db, 'user-1', 'teal') },
+    { name: 'deleteComment', run: (db) => deleteComment(db, 'comment-1') },
+    {
+      name: 'deleteMembership',
+      run: async (db) => (await deleteMembership(db, 'user-1', 'group-1')).success,
+    },
+    {
+      name: 'updateMembershipRole',
+      run: async (db) => (await updateMembershipRole(db, 'user-1', 'group-1', 'admin')).success,
+    },
+  ];
+
+  it.each(cases)('$name reports false when no row matched', async ({ run }) => {
+    const db = createMockDb();
+    db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
+
+    await expect(run(db)).resolves.toBe(false);
+  });
+
+  it.each(cases)('$name reports true when a row was changed', async ({ run }) => {
+    // createMockDb's default run() reports one changed row.
+    await expect(run(createMockDb())).resolves.toBe(true);
   });
 });

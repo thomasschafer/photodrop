@@ -82,20 +82,30 @@ describe('ReactionPills', () => {
     );
 
     const trigger = screen.getByRole('button', { name: 'Add reaction' });
+
+    // Real browsers fire mousedown before click, so drive them in that order.
+    // fireEvent returns false when the event's default was prevented.
+    expect(fireEvent.mouseDown(trigger)).toBe(false);
     fireEvent.click(trigger);
     const option = screen.getByRole('option', { name: 'React with 😂' });
 
-    // fireEvent returns false when the event's default was prevented.
     expect(fireEvent.mouseDown(option)).toBe(false);
     fireEvent.click(option);
     expect(onReactionClick).toHaveBeenCalledWith('😂');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
 
-    // The trigger is focused explicitly on its own mousedown, replacing the
-    // native focus that preventDefault suppresses, so relatedTarget stays
-    // inside the container and toggling the picker closed keeps working.
+    // Reopen, then press the trigger again: because it focuses itself on
+    // mousedown (replacing the native focus that preventDefault suppresses),
+    // the blur handler sees a relatedTarget inside the container and the
+    // second press toggles the picker shut instead of leaving it open.
+    fireEvent.mouseDown(trigger);
     fireEvent.click(trigger);
-    expect(fireEvent.mouseDown(trigger)).toBe(false);
+    expect(screen.getByRole('listbox', { name: 'Select reaction' })).toBeInTheDocument();
+
+    fireEvent.mouseDown(trigger);
     expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
   it('opens its own picker and selects an emoji from it', () => {

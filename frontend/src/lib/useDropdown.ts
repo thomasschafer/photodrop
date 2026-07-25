@@ -89,6 +89,9 @@ export function useDropdown({
   // This assumes dropdown content is buttons only (true of every consumer):
   // suppressing mousedown's default also suppresses click-to-focus, so a text
   // input added inside a dropdown would need to be exempted here.
+  // Keyed on isOpen (like the listeners above) rather than mount-only: a
+  // consumer that renders its container conditionally would otherwise never
+  // get this listener, and the fix would vanish with nothing failing.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -102,7 +105,7 @@ export function useDropdown({
 
     container.addEventListener('mousedown', handleMouseDown);
     return () => container.removeEventListener('mousedown', handleMouseDown);
-  }, []);
+  }, [isOpen]);
 
   // Handle blur (keyboard tab-out). A null relatedTarget means focus didn't
   // move to another element — notably on iOS Safari, tapping a button doesn't

@@ -43,6 +43,16 @@ export interface NeedsNameResponse {
   groupId: string;
 }
 
+/**
+ * `existingUser` distinguishes an invite email being sent from an existing
+ * account simply being added to the group.
+ */
+export interface InviteSentResponse extends MessageResponse {
+  email: string;
+  role: MembershipRole;
+  existingUser: boolean;
+}
+
 export interface MeResponse extends UserJson {
   createdAt: number;
   lastSeenAt: number | null;

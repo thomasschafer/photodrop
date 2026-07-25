@@ -94,7 +94,13 @@ describe('usePhotoReactionsEngine', () => {
       { emoji: '❤️', userId: 'other', userName: 'Other', profileColor: 'coral' },
     ];
     const staleLoad = deferred<{ reactions: ReactionWithUser[] }>();
-    getReactions.mockReset().mockReturnValueOnce(staleLoad.promise);
+    // The trailing default matters: the mutation below triggers a post-success
+    // detail refresh, and without it that call would resolve undefined and
+    // throw inside the engine's swallowing catch, masking what's under test.
+    getReactions
+      .mockReset()
+      .mockReturnValueOnce(staleLoad.promise)
+      .mockResolvedValue({ reactions: [] });
 
     const { result } = renderHook(() => usePhotoReactionsEngine());
     const onLoaded = vi.fn();
@@ -149,7 +155,7 @@ describe('usePhotoReactionsEngine', () => {
 
   it('deduplicates concurrent loads for the same photo', async () => {
     const load = deferred<{ reactions: ReactionWithUser[] }>();
-    getReactions.mockReset().mockReturnValueOnce(load.promise);
+    getReactions.mockReset().mockReturnValueOnce(load.promise).mockResolvedValue({ reactions: [] });
 
     const { result } = renderHook(() => usePhotoReactionsEngine());
     const onLoaded = vi.fn();

@@ -258,6 +258,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!settled) {
       setAuthState(LOGGED_OUT_STATE);
       clearAllUserCaches();
+      // Match logout/session-expiry teardown so native push re-initialises on
+      // the next sign-in rather than being skipped as already-initialised.
+      nativePushInitialized.current = false;
     }
   }, [refreshAuth]);
 

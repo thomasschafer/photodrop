@@ -47,9 +47,7 @@ export function useLightboxReactions({
     await engine.loadDetails(photo.id, (loaded) => {
       if (currentPhotoIdRef.current === photo.id) setDetails(loaded);
     });
-    // engine is stable for the lifetime of this hook instance.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photo.id]);
+  }, [photo.id, engine]);
 
   // Load details once the active photo is known to have reactions.
   useEffect(() => {
@@ -70,9 +68,7 @@ export function useLightboxReactions({
     };
     prefetch(prevId, prevHasReactions);
     prefetch(nextId, nextHasReactions);
-    // engine is stable for the lifetime of this hook instance.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prevId, nextId, prevHasReactions, nextHasReactions]);
+  }, [prevId, nextId, prevHasReactions, nextHasReactions, engine]);
 
   const handleReactionClick = async (emoji: string) => {
     if (!user) return;

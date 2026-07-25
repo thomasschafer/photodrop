@@ -410,6 +410,11 @@ describe('verify-magic-link endpoint', () => {
   it('rejects empty token', async () => {
     const res = await postVerify(app, { token: '' });
     expect(res.status).toBe(400);
+    // Assert the body too, so this pins schema validation rather than passing
+    // on a 400 thrown by some unrelated branch.
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toMatch(/too small|at least 1/i);
+    expect(mockVerifyMagicLink).not.toHaveBeenCalled();
   });
 });
 

@@ -3,6 +3,7 @@ import { CapacitorHttp, type HttpOptions, type HttpResponse } from '@capacitor/c
 import type {
   AuthResponse,
   NeedsNameResponse,
+  InviteSentResponse,
   MeResponse,
   MessageResponse,
   MembershipRole,
@@ -310,10 +311,7 @@ export const api = {
         false
       ),
 
-    sendInvite: (
-      email: string,
-      role: MembershipRole = 'member'
-    ): Promise<MessageResponse & { email: string; role: MembershipRole; existingUser: boolean }> =>
+    sendInvite: (email: string, role: MembershipRole = 'member'): Promise<InviteSentResponse> =>
       requestJson('/auth/send-invite', {
         method: 'POST',
         body: JSON.stringify({ email, role }),

@@ -139,8 +139,9 @@ describe('DELETE /groups/:groupId', () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { message: string };
     expect(json.message).toBe('Group deleted successfully');
-    expect(mockR2Delete).toHaveBeenCalledWith('photos/abc.jpg');
-    expect(mockR2Delete).toHaveBeenCalledWith('thumbnails/abc.jpg');
+    // Keys are deleted in a single batched R2 call, not one call per key.
+    expect(mockR2Delete).toHaveBeenCalledTimes(1);
+    expect(mockR2Delete).toHaveBeenCalledWith(['photos/abc.jpg', 'thumbnails/abc.jpg']);
     expect(mockDeleteGroup).toHaveBeenCalled();
   });
 

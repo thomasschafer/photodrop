@@ -44,6 +44,7 @@ import {
 import type {
   AuthResponse,
   NeedsNameResponse,
+  InviteSentResponse,
   UserJson,
   GroupJson,
 } from '@photodrop/common/apiTypes';
@@ -171,7 +172,7 @@ auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
     email,
     role,
     existingUser: !!existingUser,
-  });
+  } satisfies InviteSentResponse);
 });
 
 // Send login link (public)
@@ -342,21 +343,17 @@ auth.post('/switch-group', requireAuth, async (c) => {
   const { groupId } = await parseJsonBody(c, switchGroupSchema);
   const currentUser = c.get('user');
 
-  // Verify user has membership in the requested group
-  const membership = await getMembership(c.env.DB, currentUser.id, groupId);
-  if (!membership) {
-    throw new ForbiddenError('You are not a member of this group');
-  }
-
   const user = await getUserById(c.env.DB, currentUser.id);
   if (!user) {
     throw new NotFoundError('User not found');
   }
 
+  // The full membership list is needed for the response anyway, so verify
+  // access from it rather than paying for a separate getMembership lookup.
   const memberships = await getUserMemberships(c.env.DB, user.id);
   const targetMembership = memberships.find((m) => m.group_id === groupId);
   if (!targetMembership) {
-    throw new NotFoundError('Group not found');
+    throw new ForbiddenError('You are not a member of this group');
   }
 
   return issueSessionForGroup(c, user, targetMembership, memberships);
@@ -379,16 +376,12 @@ auth.post('/select-group', async (c) => {
     throw new NotFoundError('User not found');
   }
 
-  // Verify user has membership in the requested group
-  const membership = await getMembership(c.env.DB, userId, groupId);
-  if (!membership) {
-    throw new ForbiddenError('You are not a member of this group');
-  }
-
+  // As in /switch-group: one membership query serves both the access check and
+  // the response body.
   const memberships = await getUserMemberships(c.env.DB, user.id);
   const targetMembership = memberships.find((m) => m.group_id === groupId);
   if (!targetMembership) {
-    throw new NotFoundError('Group not found');
+    throw new ForbiddenError('You are not a member of this group');
   }
 
   return issueSessionForGroup(c, user, targetMembership, memberships);
