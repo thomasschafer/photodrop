@@ -104,6 +104,7 @@ export function Lightbox({
     submittingComment,
     commentError,
     submitComment,
+    postedCommentId,
     deletingCommentId,
     confirmDeleteCommentId,
     deleteCommentError,
@@ -294,6 +295,7 @@ export function Lightbox({
             reactions={reactions}
             userReactions={userReactions}
             comments={comments}
+            highlightedCommentId={postedCommentId}
             commentCount={photo.commentCount}
             commentsExpanded={commentsExpanded}
             currentUserId={user?.id}

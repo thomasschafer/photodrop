@@ -82,6 +82,40 @@ describe('useLightboxComments', () => {
     expect(onPhotoUpdate).toHaveBeenCalledWith({ id: 'p1', commentCount: 1 });
   });
 
+  it('highlights a posted comment, then clears the highlight', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() =>
+        useLightboxComments({
+          photo: makePhoto(),
+          prevPhoto: undefined,
+          nextPhoto: undefined,
+          user,
+          onPhotoUpdate: vi.fn(),
+        })
+      );
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(result.current.postedCommentId).toBeNull();
+
+      act(() => result.current.setNewComment('hello'));
+      await act(async () => {
+        await result.current.submitComment(noopEvent);
+      });
+
+      expect(result.current.postedCommentId).toBe('c-new');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(result.current.postedCommentId).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('tombstones a deleted comment and drops the count', async () => {
     getComments.mockResolvedValue({
       comments: [

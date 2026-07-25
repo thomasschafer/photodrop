@@ -21,6 +21,7 @@ function renderPanel(overrides: Partial<CommentPanelProps> = {}) {
     reactions: [],
     userReactions: [],
     comments: [],
+    highlightedCommentId: null,
     commentCount: 0,
     commentsExpanded: true,
     currentUserId: 'me',
@@ -68,6 +69,24 @@ describe('CommentPanel', () => {
     expect(screen.queryByText('[deleted]')).not.toBeInTheDocument();
     expect(screen.queryByText(/\(deleted\)/)).not.toBeInTheDocument();
     expect(screen.getByText('real comment')).toBeInTheDocument();
+  });
+
+  it('flashes the highlighted comment and scrolls it into view', () => {
+    const scrollIntoView = vi.fn();
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(scrollIntoView);
+
+    const comments = [
+      makeComment({ id: 'a', content: 'older' }),
+      makeComment({ id: 'b', content: 'just posted' }),
+    ];
+    renderPanel({ comments, commentCount: 2, highlightedCommentId: 'b' });
+
+    const highlighted = screen.getByText('just posted').closest('div');
+    expect(highlighted).toHaveClass('comment-flash');
+    expect(screen.getByText('older').closest('div')).not.toHaveClass('comment-flash');
+    expect(scrollIntoView).toHaveBeenCalled();
+
+    vi.restoreAllMocks();
   });
 
   it('offers delete on your own live comment but never on a tombstone', () => {

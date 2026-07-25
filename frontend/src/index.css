@@ -294,11 +294,27 @@
     width: 1rem;
     height: 1rem;
   }
+
+  /* Draws the eye to a just-posted comment. Keep the duration in sync with
+     COMMENT_HIGHLIGHT_MS in useLightboxComments.ts. */
+  .comment-flash {
+    animation: comment-flash 1.4s ease-out;
+  }
 }
 
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes comment-flash {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  15% {
+    background-color: var(--color-accent-light);
   }
 }
 
