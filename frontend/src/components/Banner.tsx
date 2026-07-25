@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 
-export type BannerTone = 'accent' | 'warning';
+export type BannerTone = 'accent' | 'notice' | 'warning';
 
 const toneClasses: Record<BannerTone, string> = {
   accent: 'bg-accent/10 border-accent/20',
+  notice: 'bg-accent-tint border-accent-tint-border text-accent-tint-text',
   warning: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800',
 };
 

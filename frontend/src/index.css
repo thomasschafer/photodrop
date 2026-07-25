@@ -28,6 +28,13 @@
     --color-accent-solid: #9a5434;
     --color-accent-solid-hover: #874829;
 
+    /* Tint — accent surface between the light wash and the solid fill.
+       Saturated rather than mixed into the background, which would go muddy.
+       Pair with tint-text rather than text-primary: 8.6:1 (AAA) vs 6.4:1 */
+    --color-accent-tint: #e1b39d;
+    --color-accent-tint-border: #c89278;
+    --color-accent-tint-text: #241f1d;
+
     /* Surfaces */
     --color-surface: #faf7f4;
     --color-surface-elevated: #fdfbf9;
@@ -83,6 +90,12 @@
     /* Solid variant — darker for 4.8:1 white text on accent backgrounds */
     --color-accent-solid: #9a5e35;
     --color-accent-solid-hover: #84502d;
+
+    /* Tint — deepened rather than lightened, so it reads as a warm surface
+       against the dark background (10.6:1 with tint-text) */
+    --color-accent-tint: #4b3323;
+    --color-accent-tint-border: #603f28;
+    --color-accent-tint-text: #f7f3ef;
 
     /* Surfaces */
     --color-surface: #252320;
