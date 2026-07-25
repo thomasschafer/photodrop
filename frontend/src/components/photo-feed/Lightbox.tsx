@@ -112,7 +112,7 @@ export function Lightbox({
     cancelDeleteComment,
   } = useLightboxComments({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
 
-  const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('oldest');
 
   useLayoutEffect(() => {
     if (initialIndex !== centerIndex) {
