@@ -44,8 +44,9 @@ export interface NeedsNameResponse {
 }
 
 /**
- * `existingUser` distinguishes an invite email being sent from an existing
- * account simply being added to the group.
+ * `existingUser` means the address already belongs to an account, not that the
+ * user has joined the group: membership is created when the invite is redeemed,
+ * so an invite is always pending at this point.
  */
 export interface InviteSentResponse extends MessageResponse {
   email: string;

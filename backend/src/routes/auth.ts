@@ -167,8 +167,11 @@ auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
 
   await sendInviteEmail(c.env, email, existingUser?.name ?? null, group.name, magicLink);
 
+  // Membership is created when the invite is redeemed in /verify-magic-link,
+  // not here — so this reports the invite being sent, never that the user has
+  // joined, even when an account already exists for the address.
   return c.json({
-    message: existingUser ? 'User added to group' : 'Invite sent successfully',
+    message: 'Invite sent successfully',
     email,
     role,
     existingUser: !!existingUser,

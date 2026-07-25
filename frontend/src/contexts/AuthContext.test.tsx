@@ -247,6 +247,25 @@ describe('AuthProvider session resilience', () => {
     expect(localStorage.getItem('accessToken')).toBe('new-token');
   });
 
+  it('clears cached data when an interval refresh finds the session expired', async () => {
+    // Every teardown path must leave the same state behind. This one runs with
+    // no user interaction, so leaving another session's photos in the caches
+    // would be invisible until someone else signs in on the device.
+    const { clearAllUserCaches } = await import('../lib/cache');
+
+    renderApp();
+    await screen.findByText('user:Tom');
+
+    mockRefresh.mockRejectedValue(new ApiError(401, 'Unauthorized', 'Expired'));
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anon'));
+    expect(clearAllUserCaches).toHaveBeenCalled();
+  });
+
   it('logs out cleanly when the post-deletion refresh fails transiently', async () => {
     // The group is already deleted server-side and its access token dropped, so
     // a transient (network / 5xx) refresh failure must not leave the app on the

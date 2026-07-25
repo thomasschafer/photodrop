@@ -118,6 +118,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  // The single teardown for "this session is over": explicit logout, a refresh
+  // the server rejected, the session-expired event, and the post-group-deletion
+  // fallback must all leave exactly the same state behind. Clearing the caches
+  // matters most — they hold another session's photos — and resetting the push
+  // flag is what lets native push register again on the next sign-in.
+  const resetToLoggedOut = useCallback(() => {
+    localStorage.removeItem('accessToken');
+    setAuthState(LOGGED_OUT_STATE);
+    clearAllUserCaches();
+    nativePushInitialized.current = false;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       // Clean up web push subscriptions
@@ -146,13 +158,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      localStorage.removeItem('accessToken');
-      setAuthState(LOGGED_OUT_STATE);
-      clearAllUserCaches();
-      // Reset native push init flag so it re-initializes on next login
-      nativePushInitialized.current = false;
+      resetToLoggedOut();
     }
-  }, []);
+  }, [resetToLoggedOut]);
 
   const refreshAuth = useCallback(async (): Promise<boolean> => {
     try {
@@ -172,11 +180,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!isSessionExpired(error)) {
         return false;
       }
-      localStorage.removeItem('accessToken');
-      setAuthState(LOGGED_OUT_STATE);
+      resetToLoggedOut();
       return true;
     }
-  }, []);
+  }, [resetToLoggedOut]);
 
   const switchGroup = useCallback(async (groupId: string) => {
     try {
@@ -256,13 +263,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // tear down to a clean logged-out state; the user re-authenticates and is
     // routed to the picker or their remaining group from there.
     if (!settled) {
-      setAuthState(LOGGED_OUT_STATE);
-      clearAllUserCaches();
-      // Match logout/session-expiry teardown so native push re-initialises on
-      // the next sign-in rather than being skipped as already-initialised.
-      nativePushInitialized.current = false;
+      resetToLoggedOut();
     }
-  }, [refreshAuth]);
+  }, [refreshAuth, resetToLoggedOut]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -330,10 +333,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const handleSessionExpired = () => {
-      localStorage.removeItem('accessToken');
-      setAuthState(LOGGED_OUT_STATE);
-      clearAllUserCaches();
-      nativePushInitialized.current = false;
+      resetToLoggedOut();
       // Don't redirect away from an in-progress magic-link verification: the
       // verify page owns that flow. Otherwise a stale session in the same
       // browser (e.g. after being removed from a group) would bounce the user
@@ -349,7 +349,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('auth:token-refreshed', handleTokenRefreshed);
       window.removeEventListener('auth:session-expired', handleSessionExpired);
     };
-  }, [navigate]);
+  }, [navigate, resetToLoggedOut]);
 
   // Refresh proactively when the app returns to the foreground. iOS freezes
   // background timers, so the 14-minute interval above can't be relied on for
