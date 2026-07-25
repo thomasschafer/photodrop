@@ -211,18 +211,19 @@
           export PATH="${pkgs.lib.makeBinPath deps}:$PATH"
           set -e
 
+          if [ ! -d node_modules ]; then
+            echo "Installing dependencies..."
+            npm install
+            echo ""
+          fi
+
           cd backend
 
           echo "Running migrations..."
           echo "y" | npx wrangler d1 migrations apply photodrop-db --local
-
-          echo "Seeding test data..."
-          npx wrangler d1 execute photodrop-db --local --file=scripts/seed-test-data.sql
-
           echo ""
-          echo "Test users created:"
-          echo "  owner@test.com (owner)"
-          echo "  member@test.com (member)"
+
+          node scripts/seed-dev-data.mjs "$@"
         '';
 
         secrets-scan = pkgs.writeShellScriptBin "secrets-scan" ''
