@@ -28,6 +28,7 @@ vi.mock('../lib/db', () => ({
 }));
 
 import groups from './groups';
+import { errorHandler } from '../lib/errorHandler';
 
 describe('DELETE /groups/:groupId', () => {
   let app: Hono;
@@ -55,6 +56,7 @@ describe('DELETE /groups/:groupId', () => {
       await next();
     });
     app.route('/groups', groups);
+    app.onError(errorHandler);
   });
 
   it('returns 401 when not authenticated', async () => {
@@ -251,6 +253,7 @@ describe('GET /groups/:groupId/photo-count', () => {
       await next();
     });
     app.route('/groups', groups);
+    app.onError(errorHandler);
   });
 
   it('returns 401 when not authenticated', async () => {
@@ -327,6 +330,7 @@ describe('PATCH /groups/:groupId/members/:userId/image-protection', () => {
       await next();
     });
     app.route('/groups', groups);
+    app.onError(errorHandler);
   });
 
   it('returns 401 when not authenticated', async () => {

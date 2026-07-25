@@ -56,6 +56,7 @@ vi.mock('../middleware/rateLimit', () => ({
 
 // Import auth routes after mocks
 import auth from './auth';
+import { errorHandler } from '../lib/errorHandler';
 
 function createApp() {
   const app = new Hono();
@@ -69,6 +70,9 @@ function createApp() {
     await next();
   });
   app.route('/auth', auth);
+  // Same handler production registers; routes rely on it to format thrown
+  // HttpErrors (e.g. validation failures) into JSON error responses.
+  app.onError(errorHandler);
   return app;
 }
 
@@ -405,9 +409,7 @@ describe('verify-magic-link endpoint', () => {
 
   it('rejects empty token', async () => {
     const res = await postVerify(app, { token: '' });
-    // Zod validation fails, caught by catch block -> 500
-    // (The global onError handler isn't mounted here, so ZodErrors become 500)
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
   });
 });
 

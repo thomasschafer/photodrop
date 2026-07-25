@@ -8,6 +8,18 @@
     "./limits": {
       "types": "./limits.ts",
       "default": "./limits.ts"
+    },
+    "./profileColors": {
+      "types": "./profileColors.ts",
+      "default": "./profileColors.ts"
+    },
+    "./reactions": {
+      "types": "./reactions.ts",
+      "default": "./reactions.ts"
+    },
+    "./apiTypes": {
+      "types": "./apiTypes.ts",
+      "default": "./apiTypes.ts"
     }
   }
 }

@@ -15,6 +15,7 @@ vi.mock('../lib/db', () => ({
 }));
 
 import { requireOwner } from './auth';
+import { errorHandler } from '../lib/errorHandler';
 
 describe('requireOwner middleware', () => {
   let app: Hono;
@@ -38,6 +39,10 @@ describe('requireOwner middleware', () => {
     app.delete('/test', requireOwner, (c) => {
       return c.json({ success: true });
     });
+
+    // Same handler production registers; the middleware relies on it to format
+    // thrown HttpErrors into JSON error responses.
+    app.onError(errorHandler);
   });
 
   it('returns 401 when no authorization header', async () => {
