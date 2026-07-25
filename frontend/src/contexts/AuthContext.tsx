@@ -66,23 +66,20 @@ interface AuthContextType {
     selectionToken?: string | null
   ) => void;
   logout: () => Promise<void>;
-  refreshAuth: () => Promise<void>;
+  // Resolves true when it settled auth state (synced from the server, or tore
+  // down on a genuine expiry); false when a transient failure left the existing
+  // state untouched. See onGroupDeleted for why the caller needs to know.
+  refreshAuth: () => Promise<boolean>;
   switchGroup: (groupId: string) => Promise<void>;
   selectGroup: (groupId: string) => Promise<void>;
-  onGroupDeleted: (deletedGroupId: string) => void;
+  onGroupDeleted: () => Promise<void>;
   updateProfileColor: (color: ProfileColor) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [authState, setAuthState] = useState<AuthState>({
-    user: null,
-    currentGroup: null,
-    groups: [],
-    needsGroupSelection: false,
-    selectionToken: null,
-  });
+  const [authState, setAuthState] = useState<AuthState>(LOGGED_OUT_STATE);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   // Current pathname via a ref so event-driven callbacks read it fresh without
@@ -150,20 +147,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Logout error:', error);
     } finally {
       localStorage.removeItem('accessToken');
-      setAuthState({
-        user: null,
-        currentGroup: null,
-        groups: [],
-        needsGroupSelection: false,
-        selectionToken: null,
-      });
+      setAuthState(LOGGED_OUT_STATE);
       clearAllUserCaches();
       // Reset native push init flag so it re-initializes on next login
       nativePushInitialized.current = false;
     }
   }, []);
 
-  const refreshAuth = useCallback(async () => {
+  const refreshAuth = useCallback(async (): Promise<boolean> => {
     try {
       const data = await api.auth.refresh();
       if (data.accessToken) {
@@ -172,16 +163,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('accessToken');
       }
       setAuthState(refreshedAuthState(data));
+      return true;
     } catch (error) {
       console.error('Refresh error:', error);
       // A transient failure (network / 5xx) must not sign the user out — keep
       // the current session so a later refresh can recover. Only tear down on a
       // genuine expiry (the server rejected the refresh cookie).
       if (!isSessionExpired(error)) {
-        return;
+        return false;
       }
       localStorage.removeItem('accessToken');
       setAuthState(LOGGED_OUT_STATE);
+      return true;
     }
   }, []);
 
@@ -248,20 +241,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const onGroupDeleted = useCallback(
-    (deletedGroupId: string) => {
-      const remainingGroups = authState.groups.filter((g) => g.id !== deletedGroupId);
-      localStorage.removeItem('accessToken');
-      setAuthState({
-        user: authState.user,
-        currentGroup: null,
-        groups: remainingGroups,
-        needsGroupSelection: remainingGroups.length > 0,
-        selectionToken: null,
-      });
-    },
-    [authState.groups, authState.user]
-  );
+  // After the current group is deleted, the access token is dead (it's scoped
+  // to that group). Refresh instead of patching state locally: the refresh
+  // endpoint sees the missing membership and returns the remaining groups plus
+  // the selection token the group picker needs — without it, selecting a new
+  // group would fail.
+  const onGroupDeleted = useCallback(async () => {
+    localStorage.removeItem('accessToken');
+    const settled = await refreshAuth();
+    // If the refresh failed transiently (network / 5xx), refreshAuth leaves the
+    // prior state untouched — but here that state names the group we just
+    // deleted, and its token is already gone. Rather than strand a broken
+    // session (stale currentGroup, no token, MembersList wedged mid-delete),
+    // tear down to a clean logged-out state; the user re-authenticates and is
+    // routed to the picker or their remaining group from there.
+    if (!settled) {
+      setAuthState(LOGGED_OUT_STATE);
+      clearAllUserCaches();
+    }
+  }, [refreshAuth]);
 
   useEffect(() => {
     const initAuth = async () => {

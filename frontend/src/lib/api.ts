@@ -1,47 +1,42 @@
 import { Capacitor } from '@capacitor/core';
 import { CapacitorHttp, type HttpOptions, type HttpResponse } from '@capacitor/core';
+import type {
+  AuthResponse,
+  NeedsNameResponse,
+  MeResponse,
+  MessageResponse,
+  MembershipRole,
+  UserJson,
+  GroupJson,
+  PhotoListResponse,
+  PhotoDetailResponse,
+  PhotoUploadResponse,
+  PhotoViewersResponse,
+  ReactionMutationResponse,
+  ReactionsResponse,
+  CommentsResponse,
+  CommentCreatedResponse,
+  GroupsListResponse,
+  MembersResponse,
+  PhotoCountResponse,
+  GroupDeletedResponse,
+  UsersListResponse,
+  ProfileUpdatedResponse,
+  VapidPublicKeyResponse,
+  PushSubscribedResponse,
+  PushStatusResponse,
+  DeviceStatusResponse,
+} from '@photodrop/common/apiTypes';
 import type { ProfileColor } from './profileColors';
-import type { MembershipRole } from './roles';
 
 // Check if we're in a Capacitor native environment
 const isNative = Capacitor.isNativePlatform();
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  profileColor: ProfileColor;
-}
+export type User = UserJson;
+export type Group = GroupJson;
+export type { AuthResponse };
 
-export interface Group {
-  id: string;
-  name: string;
-  role: MembershipRole;
-  ownerId: string;
-  imageProtection: boolean;
-}
-
-export interface AuthResponse {
-  accessToken: string | null;
-  selectionToken?: string;
-  user: User;
-  currentGroup?: Group | null;
-  groups: Group[];
-  needsGroupSelection?: boolean;
-}
-
-interface VerifyMagicLinkNeedsName {
-  needsName: true;
-  email: string;
-  groupId: string;
-}
-
-export type VerifyMagicLinkResponse = AuthResponse | VerifyMagicLinkNeedsName;
-
-interface GetMeResponse extends User {
-  currentGroup: Group | null;
-  groups: Group[];
-}
+export type VerifyMagicLinkResponse = AuthResponse | NeedsNameResponse;
 
 function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_URL;
@@ -290,157 +285,139 @@ async function fetchWithAuth(
   return response;
 }
 
+// The single typed exit point of the client: perform a request and parse the
+// JSON body as the endpoint's declared response type. The cast is the trust
+// boundary with the server; the shapes themselves live in
+// @photodrop/common/apiTypes, which the backend compiles against.
+async function requestJson<T>(
+  url: string,
+  options: RequestInit = {},
+  includeAuth: boolean = true
+): Promise<T> {
+  const response = await fetchWithAuth(url, options, includeAuth);
+  return (await response.json()) as T;
+}
+
 export const api = {
   auth: {
-    sendLoginLink: async (email: string) => {
-      const response = await fetchWithAuth(
+    sendLoginLink: (email: string): Promise<MessageResponse> =>
+      requestJson(
         '/auth/send-login-link',
         {
           method: 'POST',
           body: JSON.stringify({ email }),
         },
         false
-      );
-      return response.json();
-    },
+      ),
 
-    sendInvite: async (email: string, role: 'admin' | 'member' = 'member') => {
-      const response = await fetchWithAuth('/auth/send-invite', {
+    sendInvite: (
+      email: string,
+      role: MembershipRole = 'member'
+    ): Promise<MessageResponse & { email: string; role: MembershipRole; existingUser: boolean }> =>
+      requestJson('/auth/send-invite', {
         method: 'POST',
         body: JSON.stringify({ email, role }),
-      });
-      return response.json();
-    },
+      }),
 
-    verifyMagicLink: async (token: string, name?: string): Promise<VerifyMagicLinkResponse> => {
-      const response = await fetchWithAuth(
+    verifyMagicLink: (token: string, name?: string): Promise<VerifyMagicLinkResponse> =>
+      requestJson(
         '/auth/verify-magic-link',
         {
           method: 'POST',
           body: JSON.stringify({ token, name }),
         },
         false
-      );
-      return response.json();
-    },
+      ),
 
     // Shares the single-flight refresh with the 401-retry path so concurrent
     // refreshes never rotate the cookie twice.
     refresh: (): Promise<AuthResponse> => refreshSession(),
 
-    logout: async () => {
-      const response = await fetchWithAuth('/auth/logout', {
+    logout: (): Promise<MessageResponse> =>
+      requestJson('/auth/logout', {
         method: 'POST',
-      });
-      return response.json();
-    },
+      }),
 
-    switchGroup: async (groupId: string): Promise<AuthResponse> => {
-      const response = await fetchWithAuth('/auth/switch-group', {
+    switchGroup: (groupId: string): Promise<AuthResponse> =>
+      requestJson('/auth/switch-group', {
         method: 'POST',
         body: JSON.stringify({ groupId }),
-      });
-      return response.json();
-    },
+      }),
 
-    selectGroup: async (selectionToken: string, groupId: string): Promise<AuthResponse> => {
-      const response = await fetchWithAuth(
+    selectGroup: (selectionToken: string, groupId: string): Promise<AuthResponse> =>
+      requestJson(
         '/auth/select-group',
         {
           method: 'POST',
           body: JSON.stringify({ selectionToken, groupId }),
         },
         false
-      );
-      return response.json();
-    },
+      ),
   },
 
   groups: {
-    list: async () => {
-      const response = await fetchWithAuth('/groups');
-      return response.json();
-    },
+    list: (): Promise<GroupsListResponse> => requestJson('/groups'),
 
-    getMembers: async (groupId: string) => {
-      const response = await fetchWithAuth(`/groups/${groupId}/members`);
-      return response.json();
-    },
+    getMembers: (groupId: string): Promise<MembersResponse> =>
+      requestJson(`/groups/${groupId}/members`),
 
-    updateMemberRole: async (groupId: string, userId: string, role: 'admin' | 'member') => {
-      const response = await fetchWithAuth(`/groups/${groupId}/members/${userId}`, {
+    updateMemberRole: (
+      groupId: string,
+      userId: string,
+      role: MembershipRole
+    ): Promise<MessageResponse> =>
+      requestJson(`/groups/${groupId}/members/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ role }),
-      });
-      return response.json();
-    },
+      }),
 
-    updateMemberName: async (groupId: string, userId: string, name: string) => {
-      const response = await fetchWithAuth(`/groups/${groupId}/members/${userId}`, {
+    updateMemberName: (groupId: string, userId: string, name: string): Promise<MessageResponse> =>
+      requestJson(`/groups/${groupId}/members/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ name }),
-      });
-      return response.json();
-    },
+      }),
 
-    removeMember: async (groupId: string, userId: string) => {
-      const response = await fetchWithAuth(`/groups/${groupId}/members/${userId}`, {
+    removeMember: (groupId: string, userId: string): Promise<MessageResponse> =>
+      requestJson(`/groups/${groupId}/members/${userId}`, {
         method: 'DELETE',
-      });
-      return response.json();
-    },
+      }),
 
-    deleteGroup: async (groupId: string) => {
-      const response = await fetchWithAuth(`/groups/${groupId}`, {
+    deleteGroup: (groupId: string): Promise<GroupDeletedResponse> =>
+      requestJson(`/groups/${groupId}`, {
         method: 'DELETE',
-      });
-      return response.json();
-    },
+      }),
 
-    getPhotoCount: async (groupId: string): Promise<{ count: number }> => {
-      const response = await fetchWithAuth(`/groups/${groupId}/photo-count`);
-      return response.json();
-    },
+    getPhotoCount: (groupId: string): Promise<PhotoCountResponse> =>
+      requestJson(`/groups/${groupId}/photo-count`),
 
-    updateMemberImageProtection: async (groupId: string, userId: string, enabled: boolean) => {
-      const response = await fetchWithAuth(
-        `/groups/${groupId}/members/${userId}/image-protection`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ enabled }),
-        }
-      );
-      return response.json();
-    },
+    updateMemberImageProtection: (
+      groupId: string,
+      userId: string,
+      enabled: boolean
+    ): Promise<MessageResponse> =>
+      requestJson(`/groups/${groupId}/members/${userId}/image-protection`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      }),
   },
 
   users: {
-    getMe: async (): Promise<GetMeResponse> => {
-      const response = await fetchWithAuth('/users/me');
-      return response.json();
-    },
+    getMe: (): Promise<MeResponse> => requestJson('/users/me'),
 
-    getAll: async () => {
-      const response = await fetchWithAuth('/users');
-      return response.json();
-    },
+    getAll: (): Promise<UsersListResponse> => requestJson('/users'),
 
-    updateProfile: async (profileColor: ProfileColor) => {
-      const response = await fetchWithAuth('/users/me/profile', {
+    updateProfile: (profileColor: ProfileColor): Promise<ProfileUpdatedResponse> =>
+      requestJson('/users/me/profile', {
         method: 'PATCH',
         body: JSON.stringify({ profileColor }),
-      });
-      return response.json();
-    },
+      }),
   },
 
   photos: {
-    list: async (limit: number = 20, offset: number = 0) => {
-      const response = await fetchWithAuth(`/photos?limit=${limit}&offset=${offset}`);
-      return response.json();
-    },
+    list: (limit: number = 20, offset: number = 0): Promise<PhotoListResponse> =>
+      requestJson(`/photos?limit=${limit}&offset=${offset}`),
 
-    upload: async (photo: File, thumbnail: File, caption?: string) => {
+    upload: (photo: File, thumbnail: File, caption?: string): Promise<PhotoUploadResponse> => {
       const formData = new FormData();
       formData.append('photo', photo);
       formData.append('thumbnail', thumbnail);
@@ -448,121 +425,82 @@ export const api = {
         formData.append('caption', caption);
       }
 
-      const response = await fetchWithAuth('/photos', {
+      return requestJson('/photos', {
         method: 'POST',
         body: formData,
       });
-      return response.json();
     },
 
-    get: async (photoId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}`);
-      return response.json();
-    },
+    get: (photoId: string): Promise<PhotoDetailResponse> => requestJson(`/photos/${photoId}`),
 
-    getUrl: async (photoId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/url`);
-      return response.json();
-    },
-
-    getThumbnailUrl: async (photoId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/thumbnail-url`);
-      return response.json();
-    },
-
-    delete: async (photoId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}`, {
+    delete: (photoId: string): Promise<MessageResponse> =>
+      requestJson(`/photos/${photoId}`, {
         method: 'DELETE',
-      });
-      return response.json();
-    },
+      }),
 
-    recordView: async (photoId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/view`, {
+    recordView: (photoId: string): Promise<MessageResponse> =>
+      requestJson(`/photos/${photoId}/view`, {
         method: 'POST',
-      });
-      return response.json();
-    },
+      }),
 
-    getViewers: async (photoId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/viewers`);
-      return response.json();
-    },
+    getViewers: (photoId: string): Promise<PhotoViewersResponse> =>
+      requestJson(`/photos/${photoId}/viewers`),
 
-    addReaction: async (photoId: string, emoji: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/react`, {
+    addReaction: (photoId: string, emoji: string): Promise<ReactionMutationResponse> =>
+      requestJson(`/photos/${photoId}/react`, {
         method: 'POST',
         body: JSON.stringify({ emoji }),
-      });
-      return response.json();
-    },
+      }),
 
-    removeReaction: async (photoId: string, emoji: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/react`, {
+    removeReaction: (photoId: string, emoji: string): Promise<ReactionMutationResponse> =>
+      requestJson(`/photos/${photoId}/react`, {
         method: 'DELETE',
         body: JSON.stringify({ emoji }),
-      });
-      return response.json();
-    },
+      }),
 
-    getReactions: async (photoId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/reactions`);
-      return response.json();
-    },
+    getReactions: (photoId: string): Promise<ReactionsResponse> =>
+      requestJson(`/photos/${photoId}/reactions`),
 
-    getComments: async (photoId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/comments`);
-      return response.json();
-    },
+    getComments: (photoId: string): Promise<CommentsResponse> =>
+      requestJson(`/photos/${photoId}/comments`),
 
-    addComment: async (photoId: string, content: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/comments`, {
+    addComment: (photoId: string, content: string): Promise<CommentCreatedResponse> =>
+      requestJson(`/photos/${photoId}/comments`, {
         method: 'POST',
         body: JSON.stringify({ content }),
-      });
-      return response.json();
-    },
+      }),
 
-    deleteComment: async (photoId: string, commentId: string) => {
-      const response = await fetchWithAuth(`/photos/${photoId}/comments/${commentId}`, {
+    deleteComment: (photoId: string, commentId: string): Promise<MessageResponse> =>
+      requestJson(`/photos/${photoId}/comments/${commentId}`, {
         method: 'DELETE',
-      });
-      return response.json();
-    },
+      }),
   },
 
   push: {
-    getVapidPublicKey: async (): Promise<{ publicKey: string }> => {
-      const response = await fetchWithAuth('/push/vapid-public-key', {}, false);
-      return response.json();
-    },
+    getVapidPublicKey: (): Promise<VapidPublicKeyResponse> =>
+      requestJson('/push/vapid-public-key', {}, false),
 
-    subscribe: async (subscription: PushSubscriptionJSON) => {
-      const response = await fetchWithAuth('/push/subscribe', {
+    subscribe: async (subscription: PushSubscriptionJSON): Promise<PushSubscribedResponse> => {
+      const data = await requestJson<PushSubscribedResponse>('/push/subscribe', {
         method: 'POST',
         body: JSON.stringify(subscription),
       });
-      const data = await response.json();
       if (data.deletionToken && subscription.endpoint) {
         localStorage.setItem(`push_deletion_token:${subscription.endpoint}`, data.deletionToken);
       }
       return data;
     },
 
-    unsubscribeFromCurrentGroup: async (endpoint: string) => {
-      const response = await fetchWithAuth('/push/subscribe', {
+    unsubscribeFromCurrentGroup: (endpoint: string): Promise<MessageResponse> =>
+      requestJson('/push/subscribe', {
         method: 'DELETE',
         body: JSON.stringify({ endpoint }),
-      });
-      return response.json();
-    },
+      }),
 
-    getStatus: async (endpoint: string): Promise<{ subscribed: boolean }> => {
-      const response = await fetchWithAuth(`/push/status?endpoint=${encodeURIComponent(endpoint)}`);
-      return response.json();
-    },
+    getStatus: (endpoint: string): Promise<PushStatusResponse> =>
+      requestJson(`/push/status?endpoint=${encodeURIComponent(endpoint)}`),
 
-    unsubscribe: async (endpoint: string) => {
+    unsubscribe: async (endpoint: string): Promise<void> => {
       const deletionToken = localStorage.getItem(`push_deletion_token:${endpoint}`);
       if (!deletionToken) {
         console.warn('No deletion token found for endpoint, skipping unsubscribe');
@@ -577,38 +515,29 @@ export const api = {
     },
 
     // Native push (FCM) device token methods
-    registerDevice: async (platform: 'ios' | 'android', token: string) => {
-      const response = await fetchWithAuth('/push/device', {
+    registerDevice: (platform: 'ios' | 'android', token: string): Promise<MessageResponse> =>
+      requestJson('/push/device', {
         method: 'POST',
         body: JSON.stringify({ platform, token }),
-      });
-      return response.json();
-    },
+      }),
 
-    unregisterDevice: async (token: string) => {
-      const response = await fetchWithAuth('/push/device', {
+    unregisterDevice: (token: string): Promise<MessageResponse> =>
+      requestJson('/push/device', {
         method: 'DELETE',
         body: JSON.stringify({ token }),
-      });
-      return response.json();
-    },
+      }),
 
-    getDeviceStatus: async (token: string): Promise<{ registered: boolean }> => {
-      const response = await fetchWithAuth(
-        `/push/device/status?token=${encodeURIComponent(token)}`
-      );
-      return response.json();
-    },
+    getDeviceStatus: (token: string): Promise<DeviceStatusResponse> =>
+      requestJson(`/push/device/status?token=${encodeURIComponent(token)}`),
 
     sendTestNotification: async (
       token: string
     ): Promise<{ success?: boolean; error?: string; message?: string; debug?: unknown }> => {
       try {
-        const response = await fetchWithAuth('/push/test', {
+        return await requestJson('/push/test', {
           method: 'POST',
           body: JSON.stringify({ token }),
         });
-        return response.json();
       } catch (error) {
         // Return error info instead of throwing
         if (error instanceof ApiError) {

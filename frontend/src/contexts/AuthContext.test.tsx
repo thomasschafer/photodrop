@@ -6,6 +6,7 @@ import { ApiError } from '../lib/api';
 
 const mockGetMe = vi.fn();
 const mockRefresh = vi.fn();
+const mockSelectGroup = vi.fn();
 
 // Mock only the network surface (the `api` object); keep the real, pure
 // isSessionExpired/ApiError so the tests exercise production's actual
@@ -20,7 +21,7 @@ vi.mock('../lib/api', async (importActual) => {
         refresh: (...a: unknown[]) => mockRefresh(...a),
         logout: vi.fn().mockResolvedValue({}),
         switchGroup: vi.fn(),
-        selectGroup: vi.fn(),
+        selectGroup: (...a: unknown[]) => mockSelectGroup(...a),
       },
       push: { unsubscribe: vi.fn().mockResolvedValue(undefined) },
     },
@@ -186,6 +187,97 @@ describe('AuthProvider session resilience', () => {
     await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anon'));
     // State is cleared, but the route is left intact for the verify flow.
     expect(screen.getByTestId('path').textContent).toBe('/auth/some-token');
+    expect(localStorage.getItem('accessToken')).toBeNull();
+  });
+
+  it('recovers a selection token after the current group is deleted', async () => {
+    // Deleting the current group invalidates the access token. The provider
+    // must re-sync via /auth/refresh — which returns the selection token the
+    // group picker needs — rather than patching state locally, where a null
+    // selectionToken would make every selectGroup call fail.
+    const otherGroup = { ...currentGroup, id: 'g2', name: 'Friends' };
+    mockRefresh.mockResolvedValue({
+      accessToken: null,
+      selectionToken: 'post-delete-selection-token',
+      user,
+      currentGroup: null,
+      groups: [otherGroup],
+      needsGroupSelection: true,
+    });
+    mockSelectGroup.mockResolvedValue({
+      accessToken: 'new-token',
+      user,
+      currentGroup: otherGroup,
+      groups: [otherGroup],
+    });
+
+    function DeleteFlowConsumer() {
+      const { onGroupDeleted, selectGroup, needsGroupSelection } = useAuth();
+      return (
+        <div>
+          <span data-testid="picker">{needsGroupSelection ? 'picker' : 'no-picker'}</span>
+          <button onClick={() => onGroupDeleted()}>delete</button>
+          <button onClick={() => selectGroup('g2')}>pick</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <DeleteFlowConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('no-picker');
+
+    await act(async () => {
+      screen.getByText('delete').click();
+    });
+
+    await screen.findByText('picker');
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('accessToken')).toBeNull();
+
+    await act(async () => {
+      screen.getByText('pick').click();
+    });
+
+    expect(mockSelectGroup).toHaveBeenCalledWith('post-delete-selection-token', 'g2');
+    expect(localStorage.getItem('accessToken')).toBe('new-token');
+  });
+
+  it('logs out cleanly when the post-deletion refresh fails transiently', async () => {
+    // The group is already deleted server-side and its access token dropped, so
+    // a transient (network / 5xx) refresh failure must not leave the app on the
+    // now-deleted currentGroup. It should fall back to a clean logged-out state.
+    mockRefresh.mockRejectedValue(new Error('network down'));
+
+    function DeleteFlowConsumer() {
+      const { onGroupDeleted, user: u, currentGroup: g } = useAuth();
+      return (
+        <div>
+          <span data-testid="state">{u ? `user:${g ? g.name : 'no-group'}` : 'anon'}</span>
+          <button onClick={() => onGroupDeleted()}>delete</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <DeleteFlowConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('user:Family');
+
+    await act(async () => {
+      screen.getByText('delete').click();
+    });
+
+    // Not stranded on the deleted group: fully logged out, token cleared.
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('anon'));
     expect(localStorage.getItem('accessToken')).toBeNull();
   });
 

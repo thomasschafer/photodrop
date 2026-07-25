@@ -1,0 +1,205 @@
+import { useCallback, useRef } from 'react';
+import { api } from '../../lib/api';
+import type { ReactionSummary, ReactionWithUser } from './types';
+import { toggleReaction, type ReactionActor } from './reactions';
+
+export interface ReactionKeyState {
+  reactions: ReactionSummary[];
+  userReactions: string[];
+  details?: ReactionWithUser[];
+}
+
+interface ToggleReactionCallbacks {
+  /** Apply the optimistic reactions/userReactions/details immediately. */
+  onOptimisticUpdate: (next: ReactionKeyState) => void;
+  /**
+   * Called once the API call confirms the mutation, before the optional
+   * details refetch. Distinct from onOptimisticUpdate because some callers
+   * (the lightbox, syncing the feed's photo list) must not propagate a
+   * mutation that might still be rolled back.
+   */
+  onSuccess?: (next: ReactionKeyState) => void;
+  /** Revert to the pre-toggle state after the API call fails. */
+  onRollback: (previous: ReactionKeyState) => void;
+  /**
+   * Called with a fresh detail list once it's fetched after a mutation that
+   * had no details loaded yet. The caller decides whether it still cares
+   * (e.g. the lightbox only applies this if the user hasn't navigated away).
+   */
+  onDetailsRefreshed?: (details: ReactionWithUser[]) => void;
+}
+
+/**
+ * The optimistic-reaction engine shared by the feed and the lightbox: a
+ * per-photo cache of the detailed (per-user) reaction list, guarded against
+ * a fetch resolving after — and clobbering — a newer optimistic mutation,
+ * plus the toggle-reaction mutation flow itself (optimistic apply, API call,
+ * rollback, and a follow-up detail refresh).
+ *
+ * Summary state (`reactions`/`userReactions`) is NOT owned here — the feed
+ * keeps it on its `photos` array, the lightbox keeps local state synced back
+ * via `onPhotoUpdate` — this only owns the bookkeeping that's identical
+ * either way. Each call site gets its own cache; the feed and the lightbox do
+ * not share one (each already refetches independently).
+ */
+export function usePhotoReactionsEngine() {
+  const cache = useRef<Map<string, ReactionWithUser[]>>(new Map());
+  const cacheVersions = useRef<Map<string, number>>(new Map());
+  const pendingMutationCounts = useRef<Map<string, number>>(new Map());
+  const inFlightLoads = useRef<Set<string>>(new Set());
+
+  const bumpCacheVersion = useCallback((photoId: string) => {
+    cacheVersions.current.set(photoId, (cacheVersions.current.get(photoId) ?? 0) + 1);
+  }, []);
+
+  const beginPendingMutation = useCallback((photoId: string) => {
+    pendingMutationCounts.current.set(
+      photoId,
+      (pendingMutationCounts.current.get(photoId) ?? 0) + 1
+    );
+  }, []);
+
+  const endPendingMutation = useCallback((photoId: string) => {
+    const nextCount = (pendingMutationCounts.current.get(photoId) ?? 1) - 1;
+    if (nextCount > 0) {
+      pendingMutationCounts.current.set(photoId, nextCount);
+    } else {
+      pendingMutationCounts.current.delete(photoId);
+    }
+  }, []);
+
+  const hasPendingMutation = useCallback(
+    (photoId: string) => pendingMutationCounts.current.has(photoId),
+    []
+  );
+
+  const getCachedDetails = useCallback((photoId: string) => cache.current.get(photoId), []);
+
+  // Drop all cached details (but not the version/pending bookkeeping, which
+  // stays valid across a reload). Used when the underlying data may have
+  // changed server-side outside of this engine's own mutations — e.g. a full
+  // feed refresh — so a stale cached entry doesn't serve outdated names.
+  const resetCache = useCallback(() => {
+    cache.current.clear();
+  }, []);
+
+  // Single fetch path shared by load, refresh, and prefetch. A request is
+  // only allowed to write if no optimistic mutation started while it was in
+  // flight — checked both before the request (a mutation already pending)
+  // and after (a mutation began and bumped the version while we awaited).
+  const fetchDetails = useCallback(
+    async (photoId: string): Promise<ReactionWithUser[] | undefined> => {
+      const versionAtStart = cacheVersions.current.get(photoId) ?? 0;
+      const startedDuringMutation = hasPendingMutation(photoId);
+      const data = await api.photos.getReactions(photoId);
+
+      if (startedDuringMutation || (cacheVersions.current.get(photoId) ?? 0) !== versionAtStart) {
+        return undefined;
+      }
+
+      cache.current.set(photoId, data.reactions);
+      return data.reactions;
+    },
+    [hasPendingMutation]
+  );
+
+  // Load details for a photo unless already cached or already in flight.
+  // Deliberately checks the ref cache rather than accepting an
+  // "alreadyLoaded" flag from the caller's React state: callers that must
+  // exclude their state from this function's dependencies (to avoid
+  // reload loops — see useLightboxReactions) would otherwise risk reading a
+  // stale value through a memoized closure. The ref is always current.
+  // Also deduplicates concurrent calls (e.g. two rapid hover events) so only
+  // one fetch happens per photo at a time.
+  const loadDetails = useCallback(
+    async (photoId: string, onLoaded: (details: ReactionWithUser[]) => void) => {
+      if (inFlightLoads.current.has(photoId)) return;
+
+      const cached = cache.current.get(photoId);
+      if (cached !== undefined) {
+        onLoaded(cached);
+        return;
+      }
+
+      inFlightLoads.current.add(photoId);
+      try {
+        const fetched = await fetchDetails(photoId);
+        if (fetched !== undefined) onLoaded(fetched);
+      } catch (err) {
+        console.error('Failed to load reaction details:', err);
+      } finally {
+        inFlightLoads.current.delete(photoId);
+      }
+    },
+    [fetchDetails]
+  );
+
+  const toggleReactionForPhoto = useCallback(
+    async (
+      photoId: string,
+      current: ReactionKeyState,
+      emoji: string,
+      actor: ReactionActor,
+      { onOptimisticUpdate, onSuccess, onRollback, onDetailsRefreshed }: ToggleReactionCallbacks
+    ) => {
+      const previous = current;
+      bumpCacheVersion(photoId);
+      beginPendingMutation(photoId);
+
+      const { reactions, userReactions, details, isRemoving } = toggleReaction(
+        current,
+        emoji,
+        actor
+      );
+
+      onOptimisticUpdate({ reactions, userReactions, details });
+      if (details !== undefined) {
+        cache.current.set(photoId, details);
+      }
+
+      try {
+        if (isRemoving) {
+          await api.photos.removeReaction(photoId, emoji);
+        } else {
+          await api.photos.addReaction(photoId, emoji);
+        }
+      } catch (err) {
+        console.error('Failed to update reaction:', err);
+        endPendingMutation(photoId);
+        bumpCacheVersion(photoId);
+        if (previous.details !== undefined) {
+          cache.current.set(photoId, previous.details);
+        } else {
+          cache.current.delete(photoId);
+        }
+        onRollback(previous);
+        return;
+      }
+
+      onSuccess?.({ reactions, userReactions, details });
+
+      endPendingMutation(photoId);
+      if (previous.details === undefined && !hasPendingMutation(photoId)) {
+        try {
+          const refreshed = await fetchDetails(photoId);
+          if (refreshed !== undefined) {
+            onDetailsRefreshed?.(refreshed);
+          }
+        } catch (err) {
+          console.error('Failed to refresh reaction details:', err);
+        }
+      }
+    },
+    [bumpCacheVersion, beginPendingMutation, endPendingMutation, hasPendingMutation, fetchDetails]
+  );
+
+  return {
+    fetchDetails,
+    getCachedDetails,
+    resetCache,
+    loadDetails,
+    toggleReactionForPhoto,
+  };
+}
+
+export type PhotoReactionsEngine = ReturnType<typeof usePhotoReactionsEngine>;

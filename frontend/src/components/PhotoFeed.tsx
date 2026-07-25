@@ -15,7 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   ReactionPills,
   Lightbox,
-  toggleReaction,
+  usePhotoReactionsEngine,
   type Photo,
   type ReactionWithUser,
 } from './photo-feed';
@@ -65,8 +65,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [feedReactionDetails, setFeedReactionDetails] = useState<Map<string, ReactionWithUser[]>>(
     new Map()
   );
-  const feedReactionDetailVersions = useRef<Map<string, number>>(new Map());
-  const pendingFeedReactionCounts = useRef<Map<string, number>>(new Map());
+  const reactionsEngine = usePhotoReactionsEngine();
   const [uploadButtonRef, restoreUploadFocus] = useFocusRestore<HTMLButtonElement>();
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
@@ -75,64 +74,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const location = useLocation();
   const { photoId } = useParams<{ photoId: string }>();
 
-  const bumpFeedReactionDetailVersion = useCallback((photoId: string) => {
-    feedReactionDetailVersions.current.set(
-      photoId,
-      (feedReactionDetailVersions.current.get(photoId) ?? 0) + 1
-    );
-  }, []);
-
-  const beginPendingFeedReaction = useCallback((photoId: string) => {
-    pendingFeedReactionCounts.current.set(
-      photoId,
-      (pendingFeedReactionCounts.current.get(photoId) ?? 0) + 1
-    );
-  }, []);
-
-  const endPendingFeedReaction = useCallback((photoId: string) => {
-    const nextCount = (pendingFeedReactionCounts.current.get(photoId) ?? 1) - 1;
-    if (nextCount > 0) {
-      pendingFeedReactionCounts.current.set(photoId, nextCount);
-    } else {
-      pendingFeedReactionCounts.current.delete(photoId);
-    }
-  }, []);
-
-  const hasPendingFeedReaction = useCallback(
-    (photoId: string) => pendingFeedReactionCounts.current.has(photoId),
-    []
-  );
-
-  const fetchFeedReactionDetails = useCallback(
-    async (photoId: string) => {
-      const versionAtStart = feedReactionDetailVersions.current.get(photoId) ?? 0;
-      const startedDuringMutation = hasPendingFeedReaction(photoId);
-      const data = await api.photos.getReactions(photoId);
-
-      if (
-        startedDuringMutation ||
-        (feedReactionDetailVersions.current.get(photoId) ?? 0) !== versionAtStart
-      ) {
-        return undefined;
-      }
-
-      setFeedReactionDetails((prev) => new Map(prev).set(photoId, data.reactions));
-      return data.reactions as ReactionWithUser[];
-    },
-    [hasPendingFeedReaction]
-  );
-
   const loadFeedReactionDetails = useCallback(
-    async (photoId: string) => {
-      if (feedReactionDetails.has(photoId)) return;
-
-      try {
-        await fetchFeedReactionDetails(photoId);
-      } catch (err) {
-        console.error('Failed to load reaction details:', err);
-      }
-    },
-    [feedReactionDetails, fetchFeedReactionDetails]
+    (photoId: string) =>
+      reactionsEngine.loadDetails(photoId, (loaded) => {
+        setFeedReactionDetails((prev) => new Map(prev).set(photoId, loaded));
+      }),
+    [reactionsEngine]
   );
 
   const selectedPhotoIndex = photoId ? photos.findIndex((p) => p.id === photoId) : null;
@@ -147,6 +94,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       setPhotos(data.photos);
       setHasMore(data.hasMore ?? false);
       setFeedReactionDetails(new Map());
+      reactionsEngine.resetCache();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load photos');
     } finally {
@@ -278,73 +226,52 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   };
 
+  // Details only feed the names tooltip; the summary counts live on `photos`.
+  const setPhotoReactionDetails = (photoId: string, details: ReactionWithUser[] | undefined) => {
+    setFeedReactionDetails((prev) => {
+      const next = new Map(prev);
+      if (details === undefined) {
+        next.delete(photoId);
+      } else {
+        next.set(photoId, details);
+      }
+      return next;
+    });
+  };
+
   const handleFeedReactionClick = async (photoId: string, emoji: string) => {
     const photo = photos.find((p) => p.id === photoId);
     if (!photo || !user) return;
 
-    const previousReactions = photo.reactions;
-    const previousUserReactions = photo.userReactions;
-    const previousDetails = feedReactionDetails.get(photoId);
-    bumpFeedReactionDetailVersion(photoId);
-    beginPendingFeedReaction(photoId);
-
-    const { reactions, userReactions, details, isRemoving } = toggleReaction(
+    await reactionsEngine.toggleReactionForPhoto(
+      photoId,
       {
-        reactions: previousReactions,
-        userReactions: previousUserReactions,
-        details: previousDetails,
+        reactions: photo.reactions,
+        userReactions: photo.userReactions,
+        details: feedReactionDetails.get(photoId),
       },
       emoji,
-      { id: user.id, name: user.name, profileColor: user.profileColor }
+      { id: user.id, name: user.name, profileColor: user.profileColor },
+      {
+        onOptimisticUpdate: ({ reactions, userReactions, details }) => {
+          setPhotos((prev) =>
+            prev.map((p) => (p.id === photoId ? { ...p, userReactions, reactions } : p))
+          );
+          // Update names in place when already loaded, so they stay correct
+          // without a refetch.
+          if (details !== undefined) {
+            setPhotoReactionDetails(photoId, details);
+          }
+        },
+        onRollback: ({ reactions, userReactions, details }) => {
+          setPhotos((prev) =>
+            prev.map((p) => (p.id === photoId ? { ...p, userReactions, reactions } : p))
+          );
+          setPhotoReactionDetails(photoId, details);
+        },
+        onDetailsRefreshed: (details) => setPhotoReactionDetails(photoId, details),
+      }
     );
-
-    setPhotos((prev) =>
-      prev.map((p) => (p.id === photoId ? { ...p, userReactions, reactions } : p))
-    );
-
-    // Details only feed the names tooltip; update in place when already loaded
-    // so names stay correct without a refetch.
-    if (details !== undefined) {
-      setFeedReactionDetails((prev) => new Map(prev).set(photoId, details));
-    }
-
-    try {
-      if (isRemoving) {
-        await api.photos.removeReaction(photoId, emoji);
-      } else {
-        await api.photos.addReaction(photoId, emoji);
-      }
-    } catch (err) {
-      console.error('Failed to update reaction:', err);
-      endPendingFeedReaction(photoId);
-      bumpFeedReactionDetailVersion(photoId);
-      setPhotos((prev) =>
-        prev.map((p) =>
-          p.id === photoId
-            ? { ...p, userReactions: previousUserReactions, reactions: previousReactions }
-            : p
-        )
-      );
-      if (previousDetails !== undefined) {
-        setFeedReactionDetails((prev) => new Map(prev).set(photoId, previousDetails));
-      } else {
-        setFeedReactionDetails((prev) => {
-          const next = new Map(prev);
-          next.delete(photoId);
-          return next;
-        });
-      }
-      return;
-    }
-
-    endPendingFeedReaction(photoId);
-    if (previousDetails === undefined && !hasPendingFeedReaction(photoId)) {
-      try {
-        await fetchFeedReactionDetails(photoId);
-      } catch (err) {
-        console.error('Failed to refresh reaction details:', err);
-      }
-    }
   };
 
   if (loading) {

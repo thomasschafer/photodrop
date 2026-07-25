@@ -7,3 +7,5 @@ export type { Photo, ReactionSummary, Comment, ReactionWithUser } from './types'
 export { EMOJI_OPTIONS, LONG_PRESS_TIMEOUT_MS } from './types';
 export { toggleReaction } from './reactions';
 export type { ReactionActor, ReactionState, ToggleReactionResult } from './reactions';
+export { usePhotoReactionsEngine } from './usePhotoReactionsEngine';
+export type { ReactionKeyState } from './usePhotoReactionsEngine';
