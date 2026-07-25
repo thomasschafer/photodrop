@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useFocusRestore } from '../lib/hooks';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
+import { Banner } from './Banner';
 import { Modal } from './Modal';
 import { Button } from './Button';
 
@@ -113,20 +114,18 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
   // Firefox can skip install entirely - notifications work in browser
   if (canSkipInstall) {
     return (
-      <div className="bg-accent/10 border-b border-accent/20">
-        <div className="max-w-[900px] mx-auto px-6 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-text-primary">
-                You can use photodrop directly in your browser - no installation needed.
-              </p>
-            </div>
-            <Button onClick={handleSkip} variant="text" size="inline" className="shrink-0">
-              Got it
-            </Button>
+      <Banner>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-text-primary">
+              You can use photodrop directly in your browser - no installation needed.
+            </p>
           </div>
+          <Button onClick={handleSkip} variant="text" size="inline" className="shrink-0">
+            Got it
+          </Button>
         </div>
-      </div>
+      </Banner>
     );
   }
 
