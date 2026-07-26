@@ -1,36 +1,18 @@
-import type { ProfileColor } from '../../lib/profileColors';
+import { ALLOWED_EMOJIS } from '@photodrop/common/reactions';
+import type { ReactionWithUserJson } from '@photodrop/common/apiTypes';
 
-export interface ReactionSummary {
-  emoji: string;
-  count: number;
-}
+export type {
+  PhotoSummary as Photo,
+  ReactionSummary,
+  CommentJson as Comment,
+} from '@photodrop/common/apiTypes';
 
-export interface Photo {
-  id: string;
-  caption: string | null;
-  uploadedBy: string;
-  uploadedAt: number;
-  commentCount: number;
-  reactions: ReactionSummary[];
-  userReactions: string[];
-}
+// The optimistic-update path creates these entries client-side, before the
+// server has assigned a timestamp, so createdAt is omitted from the client
+// type. Server responses (which include it) remain assignable.
+export type ReactionWithUser = Omit<ReactionWithUserJson, 'createdAt'>;
 
-export interface Comment {
-  id: string;
-  userId: string | null;
-  authorName: string;
-  authorProfileColor: ProfileColor | null;
-  content: string;
-  createdAt: number;
-  isDeleted: boolean;
-}
-
-export interface ReactionWithUser {
-  emoji: string;
-  userId: string;
-  userName: string;
-  profileColor: string;
-}
-
-export const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👏', '🔥'];
+// Widened from the const tuple so callers can pass arbitrary user-provided
+// strings to indexOf/includes.
+export const EMOJI_OPTIONS: readonly string[] = ALLOWED_EMOJIS;
 export const LONG_PRESS_TIMEOUT_MS = 500;

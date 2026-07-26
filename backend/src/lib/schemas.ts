@@ -3,8 +3,8 @@
  */
 import { z } from 'zod';
 import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
-
-const EMOJI_VARIATION_SELECTOR = /\uFE0F/g;
+import { ALLOWED_EMOJIS, canonicalizeEmoji } from '@photodrop/common/reactions';
+import { PROFILE_COLORS } from '@photodrop/common/profileColors';
 
 // Email schema with proper validation
 const emailSchema = z
@@ -39,19 +39,6 @@ export const selectGroupSchema = z.object({
 });
 
 // Photo schemas
-export const ALLOWED_EMOJIS = ['❤️', '😂', '😮', '😢', '👏', '🔥'] as const;
-
-export function normalizeEmoji(emoji: string): string {
-  return emoji.replace(EMOJI_VARIATION_SELECTOR, '');
-}
-
-const ALLOWED_EMOJI_MAP = new Map(ALLOWED_EMOJIS.map((emoji) => [normalizeEmoji(emoji), emoji]));
-
-export function canonicalizeEmoji(emoji: string): (typeof ALLOWED_EMOJIS)[number] | null {
-  const normalized = normalizeEmoji(emoji);
-  return ALLOWED_EMOJI_MAP.get(normalized) ?? null;
-}
-
 const emojiSchema = z.preprocess((value) => {
   if (typeof value !== 'string') return value;
   return canonicalizeEmoji(value) ?? value;
@@ -78,21 +65,41 @@ export const subscribeSchema = z.object({
   }),
 });
 
+export const unsubscribeSchema = z.object({
+  endpoint: z.string().min(1, 'Endpoint is required'),
+  deletionToken: z.string().min(1, 'Deletion token is required'),
+});
+
+export const unsubscribeFromGroupSchema = z.object({
+  endpoint: z.string().min(1, 'Endpoint is required'),
+});
+
 export const registerDeviceSchema = z.object({
   platform: z.enum(['ios', 'android']),
   token: z.string().min(1),
 });
 
+export const deviceTokenSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+});
+
 // User schemas
 export const updateProfileSchema = z.object({
-  profileColor: z.string().min(1),
+  profileColor: z.enum(PROFILE_COLORS, { error: 'Invalid profile color' }),
 });
 
 export const updateMemberSchema = z.object({
-  role: z.enum(['admin', 'member']).optional(),
+  role: z
+    .enum(['admin', 'member'], {
+      error: (issue) =>
+        issue.input === 'owner'
+          ? 'Cannot promote to owner — owner is set at group creation only'
+          : undefined,
+    })
+    .optional(),
   name: z.string().trim().min(1).max(100).optional(),
 });
 
 export const imageProtectionSchema = z.object({
-  enabled: z.boolean(),
+  enabled: z.boolean({ error: 'enabled must be a boolean' }),
 });

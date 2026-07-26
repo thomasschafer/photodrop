@@ -17,8 +17,9 @@ vi.mock('../../lib/api', () => ({
 
 import { useLightboxReactions } from './useLightboxReactions';
 import type { Photo, ReactionWithUser } from './types';
+import type { ReactionActor } from './reactions';
 
-const user = { id: 'me', name: 'Me', profileColor: 'teal' };
+const user: ReactionActor = { id: 'me', name: 'Me', profileColor: 'teal' };
 
 function makePhoto(over: Partial<Photo> = {}): Photo {
   return {

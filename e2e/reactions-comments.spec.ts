@@ -446,8 +446,12 @@ test.describe('Reactions and comments', () => {
     await expect(heartPill).toBeVisible();
     await heartPill.hover();
 
-    // The tooltip should show "You"
-    const tooltip = photoCard.locator('.absolute.whitespace-nowrap');
+    // Scope to the hovered pill's own wrapper: every pill on the photo renders
+    // its own tooltip, so a card-wide locator matches one per reaction and the
+    // assertion depends on how many reactions earlier tests happened to leave.
+    const tooltip = photoCard
+      .locator('div.group', { has: page.getByRole('button', { name: /❤️ reaction/i }) })
+      .locator('.absolute.whitespace-nowrap');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText('You');
   });
@@ -479,8 +483,10 @@ test.describe('Reactions and comments', () => {
     await expect(heartPill).toBeVisible();
     await heartPill.hover();
 
-    // The tooltip should show "You"
-    const tooltip = dialog.locator('.absolute.whitespace-nowrap');
+    // Scoped to the hovered pill for the same reason as the feed case above.
+    const tooltip = dialog
+      .locator('div.group', { has: page.getByRole('button', { name: /❤️ reaction/i }) })
+      .locator('.absolute.whitespace-nowrap');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText('You');
   });

@@ -36,6 +36,7 @@ vi.mock('../lib/db', () => ({
 }));
 
 import photos from './photos';
+import { errorHandler } from '../lib/errorHandler';
 
 function createTestApp(): Hono {
   const app = new Hono();
@@ -47,6 +48,9 @@ function createTestApp(): Hono {
     await next();
   });
   app.route('/photos', photos);
+  // Same handler production registers; routes rely on it to format thrown
+  // HttpErrors (e.g. validation failures) into JSON error responses.
+  app.onError(errorHandler);
   return app;
 }
 
