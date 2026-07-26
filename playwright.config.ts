@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { E2E_BACKEND_PORT, E2E_FRONTEND_PORT } from './e2e/helpers/ports';
+import { INSTALL_PROMPT_STORAGE_KEY, INSTALL_PROMPT_DISMISSED } from '@photodrop/common/storage';
 
 export default defineConfig({
   testDir: './e2e',
@@ -13,6 +14,22 @@ export default defineConfig({
     baseURL: `http://localhost:${E2E_FRONTEND_PORT}`,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    // The install prompt opens as a modal on a browser that has never seen it,
+    // and its backdrop would swallow every click. Start already dismissed.
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: `http://localhost:${E2E_FRONTEND_PORT}`,
+          localStorage: [
+            {
+              name: INSTALL_PROMPT_STORAGE_KEY,
+              value: JSON.stringify(INSTALL_PROMPT_DISMISSED),
+            },
+          ],
+        },
+      ],
+    },
   },
 
   projects: [

@@ -8,6 +8,10 @@
     "./limits": {
       "types": "./limits.ts",
       "default": "./limits.ts"
+    },
+    "./storage": {
+      "types": "./storage.ts",
+      "default": "./storage.ts"
     }
   }
 }
