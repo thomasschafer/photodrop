@@ -7,9 +7,9 @@
 @layer base {
   :root {
     /* Backgrounds */
-    --color-bg-primary: #f6f1eb;
-    --color-bg-secondary: #efe9e3;
-    --color-bg-tertiary: #e6e0d9;
+    --color-bg-primary: #f4f0eb;
+    --color-bg-secondary: #efe9e1;
+    --color-bg-tertiary: #e8dfd4;
 
     /* Text */
     --color-text-primary: #3a3632;
@@ -36,8 +36,8 @@
     --color-accent-tint-text: #241f1d;
 
     /* Surfaces */
-    --color-surface: #faf7f4;
-    --color-surface-elevated: #fdfbf9;
+    --color-surface: #f7f4f0;
+    --color-surface-elevated: #faf8f5;
 
     /* Status colors */
     --color-error: #c45454;
@@ -93,7 +93,7 @@
 
     /* Tint — deepened rather than lightened, so it reads as a warm surface
        against the dark background (10.6:1 with tint-text) */
-    --color-accent-tint: #4b3323;
+    --color-accent-tint: #57351e;
     --color-accent-tint-border: #603f28;
     --color-accent-tint-text: #f7f3ef;
 
