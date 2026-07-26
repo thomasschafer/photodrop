@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -247,10 +248,60 @@ describe('AuthProvider session resilience', () => {
     expect(localStorage.getItem('accessToken')).toBe('new-token');
   });
 
-  it('clears cached data when an interval refresh finds the session expired', async () => {
+  it('does not resolve logout until cached photos have been cleared', async () => {
+    // clearAllUserCaches only drops the in-memory image cache once the Cache
+    // API deletion resolves, so teardown must await it — otherwise logout
+    // reports success while decoded photos are still held in memory.
+    const { clearAllUserCaches } = await import('../lib/cache');
+    let finishCacheClear!: () => void;
+    vi.mocked(clearAllUserCaches).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishCacheClear = resolve;
+      })
+    );
+
+    const logoutRef: { current: (() => Promise<void>) | null } = { current: null };
+    function LogoutConsumer() {
+      const { logout } = useAuth();
+      useEffect(() => {
+        logoutRef.current = logout;
+      }, [logout]);
+      return null;
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <LogoutConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(logoutRef.current).not.toBeNull());
+
+    let loggedOut = false;
+    const pending = logoutRef.current!().then(() => {
+      loggedOut = true;
+    });
+
+    // Let every already-resolved promise in logout settle; it must still be
+    // parked on the cache cleanup.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(loggedOut).toBe(false);
+
+    finishCacheClear();
+    await act(async () => {
+      await pending;
+    });
+    expect(loggedOut).toBe(true);
+  });
+
+  it('clears cached data when a foreground refresh finds the session expired', async () => {
     // Every teardown path must leave the same state behind. This one runs with
     // no user interaction, so leaving another session's photos in the caches
-    // would be invisible until someone else signs in on the device.
+    // would be invisible until someone else signs in on the device. The
+    // interval refresh shares this code path via refreshAuth.
     const { clearAllUserCaches } = await import('../lib/cache');
 
     renderApp();

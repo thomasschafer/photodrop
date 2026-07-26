@@ -123,11 +123,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // fallback must all leave exactly the same state behind. Clearing the caches
   // matters most — they hold another session's photos — and resetting the push
   // flag is what lets native push register again on the next sign-in.
-  const resetToLoggedOut = useCallback(() => {
+  //
+  // Awaited rather than fire-and-forget: clearAllUserCaches only drops the
+  // in-memory image cache after the Cache API deletion resolves, so ignoring
+  // the promise would let teardown "finish" with decoded photos still held.
+  const resetToLoggedOut = useCallback(async () => {
     localStorage.removeItem('accessToken');
     setAuthState(LOGGED_OUT_STATE);
-    clearAllUserCaches();
     nativePushInitialized.current = false;
+    await clearAllUserCaches();
   }, []);
 
   const logout = useCallback(async () => {
@@ -158,7 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      resetToLoggedOut();
+      await resetToLoggedOut();
     }
   }, [resetToLoggedOut]);
 
@@ -180,7 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!isSessionExpired(error)) {
         return false;
       }
-      resetToLoggedOut();
+      await resetToLoggedOut();
       return true;
     }
   }, [resetToLoggedOut]);
@@ -199,7 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         needsGroupSelection: false,
         selectionToken: null,
       });
-      clearGroupCaches();
+      await clearGroupCaches();
 
       // Re-register native push for new group
       if (isNativePlatform()) {
@@ -232,7 +236,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           needsGroupSelection: false,
           selectionToken: null,
         });
-        clearGroupCaches();
+        await clearGroupCaches();
       } catch (error) {
         console.error('Select group error:', error);
         throw error;
@@ -263,7 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // tear down to a clean logged-out state; the user re-authenticates and is
     // routed to the picker or their remaining group from there.
     if (!settled) {
-      resetToLoggedOut();
+      await resetToLoggedOut();
     }
   }, [refreshAuth, resetToLoggedOut]);
 
@@ -332,8 +336,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthState(refreshedAuthState(data));
     };
 
-    const handleSessionExpired = () => {
-      resetToLoggedOut();
+    const handleSessionExpired = async () => {
+      await resetToLoggedOut();
       // Don't redirect away from an in-progress magic-link verification: the
       // verify page owns that flow. Otherwise a stale session in the same
       // browser (e.g. after being removed from a group) would bounce the user
