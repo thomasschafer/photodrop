@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Photo, ReactionSummary, ReactionWithUser } from './types';
+import type { Photo } from './types';
 import type { ReactionActor } from './reactions';
-import { usePhotoReactionsEngine } from './usePhotoReactionsEngine';
+import { usePhotoReactionsEngine, type ReactionKeyState } from './usePhotoReactionsEngine';
 
 interface UseLightboxReactionsArgs {
   photo: Photo;
@@ -17,6 +17,11 @@ interface UseLightboxReactionsArgs {
  * lazily), and — via usePhotoReactionsEngine — a shared cache used to
  * prefetch neighbours so swiping is instant. All async work is guarded
  * against the user navigating away mid-flight.
+ *
+ * The summary, the user's own reactions, and the detail list are kept in one
+ * ReactionKeyState (rather than three separate useState calls) so a rollback
+ * can read-and-write all three atomically via a single functional update —
+ * see the onRollback handler in handleReactionClick.
  */
 export function useLightboxReactions({
   photo,
@@ -25,9 +30,11 @@ export function useLightboxReactions({
   user,
   onPhotoUpdate,
 }: UseLightboxReactionsArgs) {
-  const [userReactions, setUserReactions] = useState<string[]>(photo.userReactions);
-  const [reactions, setReactions] = useState<ReactionSummary[]>(photo.reactions);
-  const [details, setDetails] = useState<ReactionWithUser[] | undefined>();
+  const [reactionState, setReactionState] = useState<ReactionKeyState>({
+    reactions: photo.reactions,
+    userReactions: photo.userReactions,
+    details: undefined,
+  });
 
   const engine = usePhotoReactionsEngine();
   const currentPhotoIdRef = useRef(photo.id);
@@ -36,23 +43,27 @@ export function useLightboxReactions({
   // we have them). Runs before the load effects below.
   useLayoutEffect(() => {
     currentPhotoIdRef.current = photo.id;
-    setUserReactions(photo.userReactions);
-    setReactions(photo.reactions);
-    setDetails(engine.getCachedDetails(photo.id));
+    setReactionState({
+      reactions: photo.reactions,
+      userReactions: photo.userReactions,
+      details: engine.getCachedDetails(photo.id),
+    });
     // Intentionally keyed on photo.id only: optimistic updates must not reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.id]);
 
   const loadReactionDetails = useCallback(async () => {
     await engine.loadDetails(photo.id, (loaded) => {
-      if (currentPhotoIdRef.current === photo.id) setDetails(loaded);
+      if (currentPhotoIdRef.current === photo.id) {
+        setReactionState((prev) => ({ ...prev, details: loaded }));
+      }
     });
   }, [photo.id, engine]);
 
   // Load details once the active photo is known to have reactions.
   useEffect(() => {
-    if (reactions.length > 0) loadReactionDetails();
-  }, [reactions.length, loadReactionDetails]);
+    if (reactionState.reactions.length > 0) loadReactionDetails();
+  }, [reactionState.reactions.length, loadReactionDetails]);
 
   // Prefetch neighbours that have reactions so their names are ready on swipe.
   const prevId = prevPhoto?.id;
@@ -74,43 +85,32 @@ export function useLightboxReactions({
     if (!user) return;
 
     const photoId = photo.id;
-    await engine.toggleReactionForPhoto(
-      photoId,
-      { reactions, userReactions, details },
-      emoji,
-      user,
-      {
-        onOptimisticUpdate: (next) => {
-          setUserReactions(next.userReactions);
-          setReactions(next.reactions);
-          if (next.details !== undefined) setDetails(next.details);
-        },
-        onSuccess: (next) => {
-          onPhotoUpdate({
-            id: photoId,
-            userReactions: next.userReactions,
-            reactions: next.reactions,
-          });
-        },
-        onRollback: (previous) => {
-          // Only roll the visible state back if we're still on this photo.
-          if (currentPhotoIdRef.current === photoId) {
-            setUserReactions(previous.userReactions);
-            setReactions(previous.reactions);
-            setDetails(previous.details);
-          }
-        },
-        onDetailsRefreshed: (refreshed) => {
-          if (currentPhotoIdRef.current === photoId) setDetails(refreshed);
-        },
-      }
-    );
+    await engine.toggleReactionForPhoto(photoId, reactionState, emoji, user, {
+      onOptimisticUpdate: (next) => setReactionState(next),
+      onSuccess: (next) => {
+        onPhotoUpdate({
+          id: photoId,
+          userReactions: next.userReactions,
+          reactions: next.reactions,
+        });
+      },
+      onRollback: (reconcile) => {
+        // Only roll the visible state back if we're still on this photo.
+        if (currentPhotoIdRef.current !== photoId) return;
+        setReactionState((prev) => reconcile(prev));
+      },
+      onDetailsRefreshed: (refreshed) => {
+        if (currentPhotoIdRef.current === photoId) {
+          setReactionState((prev) => ({ ...prev, details: refreshed }));
+        }
+      },
+    });
   };
 
   return {
-    userReactions,
-    reactions,
-    reactionDetails: details,
+    userReactions: reactionState.userReactions,
+    reactions: reactionState.reactions,
+    reactionDetails: reactionState.details,
     loadReactionDetails,
     handleReactionClick,
   };

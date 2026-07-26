@@ -263,11 +263,38 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             setPhotoReactionDetails(photoId, details);
           }
         },
-        onRollback: ({ reactions, userReactions, details }) => {
+        onRollback: (reconcile) => {
+          // reactions/userReactions live on `photos`, details live in the
+          // separate feedReactionDetails map, so the reconciler is applied to
+          // each independently, reading each one's own live value via its
+          // functional state update. This is safe because reconcile derives
+          // reactions/userReactions/details from their own counterparts only
+          // (see the doc comment on ToggleReactionCallbacks.onRollback).
           setPhotos((prev) =>
-            prev.map((p) => (p.id === photoId ? { ...p, userReactions, reactions } : p))
+            prev.map((p) => {
+              if (p.id !== photoId) return p;
+              const { reactions, userReactions } = reconcile({
+                reactions: p.reactions,
+                userReactions: p.userReactions,
+                details: undefined,
+              });
+              return { ...p, reactions, userReactions };
+            })
           );
-          setPhotoReactionDetails(photoId, details);
+          setFeedReactionDetails((prev) => {
+            const { details } = reconcile({
+              reactions: [],
+              userReactions: [],
+              details: prev.get(photoId),
+            });
+            const next = new Map(prev);
+            if (details === undefined) {
+              next.delete(photoId);
+            } else {
+              next.set(photoId, details);
+            }
+            return next;
+          });
         },
         onDetailsRefreshed: (details) => setPhotoReactionDetails(photoId, details),
       }
