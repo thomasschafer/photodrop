@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
+import {
+  INSTALL_PROMPT_STORAGE_KEY,
+  INSTALL_PROMPT_DISMISSED,
+  type InstallPromptState,
+} from '@photodrop/common/storage';
 
 type Platform = 'ios' | 'android' | 'macos-safari' | 'desktop' | 'firefox' | 'unknown';
 
@@ -16,27 +21,21 @@ interface InstallState {
   deferredPrompt: BeforeInstallPromptEvent | null;
 }
 
-const STORAGE_KEY = 'installPrompt';
 const DISMISS_EVENT = 'installPromptDismissed';
 
-interface StoredState {
-  dismissed?: boolean;
-  dismissedAt?: number;
-}
-
-function getStoredState(): StoredState {
+function getStoredState(): InstallPromptState {
   if (typeof window === 'undefined') return {};
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(INSTALL_PROMPT_STORAGE_KEY);
     return stored ? JSON.parse(stored) : {};
   } catch {
     return {};
   }
 }
 
-function saveStoredState(state: StoredState): void {
+function saveStoredState(state: InstallPromptState): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(INSTALL_PROMPT_STORAGE_KEY, JSON.stringify(state));
 }
 
 function detectPlatform(): Platform {
@@ -160,7 +159,7 @@ export function useInstallPrompt() {
 
   const dismiss = useCallback((permanently = false) => {
     if (permanently) {
-      saveStoredState({ dismissed: true, dismissedAt: Date.now() });
+      saveStoredState({ ...INSTALL_PROMPT_DISMISSED, dismissedAt: Date.now() });
     }
     setState((prev) => ({ ...prev, isDismissed: true }));
     window.dispatchEvent(new Event(DISMISS_EVENT));

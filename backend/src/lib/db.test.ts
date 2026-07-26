@@ -1102,6 +1102,55 @@ describe('listPhotosWithCounts', () => {
     expect(result[0].reactions[1]).toEqual({ emoji: '😂', count: 3 });
   });
 
+  it('carries the uploader through, and nulls when their account is gone', async () => {
+    const photos = [
+      {
+        id: 'photo-1',
+        group_id: 'group-1',
+        r2_key: 'photos/1.jpg',
+        caption: 'Has an uploader',
+        uploaded_by: 'user-1',
+        uploaded_at: 1000,
+        thumbnail_r2_key: 'thumbs/1.jpg',
+        comment_count: 0,
+        uploader_name: 'Alice',
+        uploader_profile_color: 'teal',
+      },
+      {
+        id: 'photo-2',
+        group_id: 'group-1',
+        r2_key: 'photos/2.jpg',
+        caption: 'Uploader deleted',
+        uploaded_by: 'user-gone',
+        uploaded_at: 900,
+        thumbnail_r2_key: 'thumbs/2.jpg',
+        comment_count: 0,
+        uploader_name: null,
+        uploader_profile_color: null,
+      },
+    ];
+    const db = createSequentialAllMockDb([photos, []]);
+
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+
+    expect(result[0].uploader_name).toBe('Alice');
+    expect(result[0].uploader_profile_color).toBe('teal');
+    expect(result[1].uploader_name).toBeNull();
+    expect(result[1].uploader_profile_color).toBeNull();
+
+    // The mocked rows would map through even if the query stopped asking for
+    // the uploader, so pin the projection and the join that produce them.
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining('u.name as uploader_name')
+    );
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining('u.profile_color as uploader_profile_color')
+    );
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining('LEFT JOIN users u ON u.id = p.uploaded_by')
+    );
+  });
+
   it('returns multiple user reactions for a photo', async () => {
     const photos = [
       {

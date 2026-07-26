@@ -4,6 +4,10 @@ import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 import type { User } from '../../lib/api';
 import type { Photo, Comment } from './types';
 
+/** How long a freshly posted comment stays highlighted. Must be at least as
+ *  long as the `.comment-flash` animation in index.css. */
+const COMMENT_HIGHLIGHT_MS = 1600;
+
 interface UseLightboxCommentsArgs {
   photo: Photo;
   prevPhoto: Photo | undefined;
@@ -35,6 +39,7 @@ export function useLightboxComments({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [postedCommentId, setPostedCommentId] = useState<string | null>(null);
 
   const cache = useRef<Map<string, Comment[]>>(new Map());
   const currentPhotoIdRef = useRef(photo.id);
@@ -47,7 +52,15 @@ export function useLightboxComments({
     setSubmitError(null);
     setLoadError(false);
     setDeleteError(null);
+    setPostedCommentId(null);
   }, [photo.id]);
+
+  // Highlight the new comment briefly, then let it settle in with the rest.
+  useEffect(() => {
+    if (!postedCommentId) return;
+    const timer = setTimeout(() => setPostedCommentId(null), COMMENT_HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [postedCommentId]);
 
   // Single fetch path shared by load and prefetch: fetch, cache, return.
   const fetchComments = useCallback(async (photoId: string): Promise<Comment[]> => {
@@ -129,6 +142,7 @@ export function useLightboxComments({
       if (currentPhotoIdRef.current === photoId) {
         setComments(updated);
         setNewComment('');
+        setPostedCommentId(created.id);
       }
     } catch (err) {
       console.error('Failed to add comment:', err);
@@ -191,6 +205,7 @@ export function useLightboxComments({
     submittingComment: submitting,
     commentError: submitError,
     submitComment,
+    postedCommentId,
     deletingCommentId: deletingId,
     confirmDeleteCommentId: confirmDeleteId,
     deleteCommentError: deleteError,

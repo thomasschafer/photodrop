@@ -12,6 +12,7 @@ import { NotificationBell } from './components/NotificationBell';
 import { UserMenu } from './components/UserMenu';
 import { NotificationPrompt } from './components/NotificationPrompt';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { PhotoPrivacyNotice } from './components/PhotoPrivacyNotice';
 import { SwUpdatePrompt } from './components/SwUpdatePrompt';
 import { LoginPage } from './pages/LoginPage';
 import { AuthVerifyPage } from './pages/AuthVerifyPage';
@@ -142,6 +143,7 @@ function MainApp() {
         </div>
       </header>
 
+      <PhotoPrivacyNotice />
       <OfflineIndicator />
       <SwUpdatePrompt />
       <InstallPrompt />

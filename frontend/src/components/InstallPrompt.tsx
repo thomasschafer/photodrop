@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useFocusRestore } from '../lib/hooks';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
+import { Banner } from './Banner';
 import { Modal } from './Modal';
 import { Button } from './Button';
 
@@ -79,7 +80,6 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
   } = useInstallPrompt();
 
   const [showInstructions, setShowInstructions] = useState(false);
-  const [installButtonRef, restoreInstallFocus] = useFocusRestore<HTMLButtonElement>();
 
   if (!shouldShowPrompt) {
     return null;
@@ -96,9 +96,9 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
     }
   };
 
+  // Returns to the install popup, which takes focus again as it remounts.
   const handleInstructionsClose = () => {
     setShowInstructions(false);
-    restoreInstallFocus();
   };
 
   const handleDismiss = (permanently: boolean) => {
@@ -114,59 +114,65 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
   // Firefox can skip install entirely - notifications work in browser
   if (canSkipInstall) {
     return (
-      <div className="bg-accent/10 border-b border-accent/20">
-        <div className="max-w-[900px] mx-auto px-6 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-text-primary">
-                You can use photodrop directly in your browser - no installation needed.
-              </p>
-            </div>
-            <Button onClick={handleSkip} variant="text" size="inline" className="shrink-0">
-              Got it
-            </Button>
+      <Banner>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-text-primary">
+              You can use photodrop directly in your browser - no installation needed.
+            </p>
           </div>
+          <Button onClick={handleSkip} variant="text" size="inline" className="shrink-0">
+            Got it
+          </Button>
         </div>
-      </div>
+      </Banner>
+    );
+  }
+
+  // The instructions replace the prompt rather than stacking on top of it, so
+  // only one dialog is ever open.
+  if (showInstructions) {
+    return (
+      <Modal
+        title="Install photodrop"
+        onClose={handleInstructionsClose}
+        maxWidth="md"
+        elevation="raised"
+      >
+        <PlatformInstructions platform={platform} />
+        <div className="mt-4">
+          <Button onClick={() => handleDismiss(true)} variant="link" size="bare">
+            Don't show again
+          </Button>
+        </div>
+      </Modal>
     );
   }
 
   return (
-    <>
-      {showInstructions && (
-        <Modal title="Install photodrop" onClose={handleInstructionsClose} maxWidth="md">
-          <PlatformInstructions platform={platform} />
-          <div className="mt-4">
-            <Button onClick={() => handleDismiss(true)} variant="link" size="bare">
-              Don't show again
-            </Button>
-          </div>
-        </Modal>
-      )}
-      <div className="bg-accent/10 border-b border-accent/20">
-        <div className="max-w-[900px] mx-auto px-6 py-3">
-          <div className="flex flex-col mobile:flex-row mobile:items-center mobile:justify-between gap-3 mobile:gap-4">
-            <div className="min-w-0">
-              <p className="text-sm text-text-primary">
-                <span className="font-medium">Install photodrop</span>
-                <span className="text-text-secondary"> for easy access and notifications</span>
-              </p>
-            </div>
-            <div className="shrink-0 flex items-center gap-3">
-              <Button onClick={() => handleDismiss(true)} variant="link" size="bare">
-                Don't show again
-              </Button>
-              <Button onClick={() => handleDismiss(false)} variant="secondary" size="sm">
-                Later
-              </Button>
-              <Button ref={installButtonRef} onClick={handleInstallClick} size="sm">
-                Install
-              </Button>
-            </div>
-          </div>
+    <Modal
+      title="Install photodrop"
+      onClose={() => handleDismiss(false)}
+      maxWidth="sm"
+      elevation="raised"
+    >
+      <p className="text-sm text-text-secondary">
+        Add photodrop to your home screen for easy access and notifications.
+      </p>
+      <div className="mt-6 flex flex-col mobile:flex-row mobile:items-center mobile:justify-between gap-4">
+        <Button onClick={() => handleDismiss(true)} variant="link" size="bare">
+          Don't show again
+        </Button>
+        <div className="flex items-center justify-end gap-3">
+          <Button onClick={() => handleDismiss(false)} variant="secondary" size="sm">
+            Later
+          </Button>
+          <Button onClick={handleInstallClick} size="sm">
+            Install
+          </Button>
         </div>
       </div>
-    </>
+    </Modal>
   );
 }
 

@@ -38,6 +38,9 @@ export default {
           DEFAULT: 'var(--color-accent)',
           hover: 'var(--color-accent-hover)',
           light: 'var(--color-accent-light)',
+          tint: 'var(--color-accent-tint)',
+          'tint-border': 'var(--color-accent-tint-border)',
+          'tint-text': 'var(--color-accent-tint-text)',
           solid: 'var(--color-accent-solid)',
           'solid-hover': 'var(--color-accent-solid-hover)',
         },
@@ -66,6 +69,7 @@ export default {
         soft: '0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03)',
         card: '0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02)',
         elevated: '0 4px 12px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.03)',
+        modal: '0 16px 36px rgba(0, 0, 0, 0.18), 0 4px 10px rgba(0, 0, 0, 0.08)',
       },
       maxWidth: {
         form: '24rem', // 384px - good for forms

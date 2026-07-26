@@ -8,6 +8,7 @@ import { ProtectedImage } from '../ProtectedImage';
 import { ConfirmModal } from '../ConfirmModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { CommentPanel } from './CommentPanel';
+import { UploaderByline } from './UploaderByline';
 import type { Photo } from './types';
 import { useLightboxReactions } from './useLightboxReactions';
 import { useLightboxComments } from './useLightboxComments';
@@ -104,6 +105,7 @@ export function Lightbox({
     submittingComment,
     commentError,
     submitComment,
+    postedCommentId,
     deletingCommentId,
     confirmDeleteCommentId,
     deleteCommentError,
@@ -112,7 +114,7 @@ export function Lightbox({
     cancelDeleteComment,
   } = useLightboxComments({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
 
-  const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('oldest');
 
   useLayoutEffect(() => {
     if (initialIndex !== centerIndex) {
@@ -190,6 +192,18 @@ export function Lightbox({
             commentsExpanded ? 'h-[55%] landscape:h-full' : ''
           }`}
         >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2-safe left-4 z-10 max-w-[calc(100%-4rem)]"
+          >
+            <UploaderByline
+              name={photo.uploaderName}
+              color={photo.uploaderProfileColor}
+              uploadedAt={photo.uploadedAt}
+              variant="overlay"
+            />
+          </div>
+
           <button
             ref={closeButtonRef}
             onClick={onClose}
@@ -294,6 +308,7 @@ export function Lightbox({
             reactions={reactions}
             userReactions={userReactions}
             comments={comments}
+            highlightedCommentId={postedCommentId}
             commentCount={photo.commentCount}
             commentsExpanded={commentsExpanded}
             currentUserId={user?.id}

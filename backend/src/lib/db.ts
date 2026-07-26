@@ -96,6 +96,9 @@ export interface PhotoWithCounts extends Photo {
   comment_count: number;
   reactions: ReactionSummary[];
   user_reactions: string[];
+  /** Null when the uploader's account has since been deleted. */
+  uploader_name: string | null;
+  uploader_profile_color: ProfileColor | null;
 }
 
 // Group functions
@@ -840,9 +843,12 @@ export async function getPhotoReactionsWithUsers(
   return result.results || [];
 }
 
-// Internal type for the aggregated query result
+// Internal type for the aggregated query result. The uploader columns come from
+// a LEFT JOIN, so they are null once that account no longer exists.
 interface PhotoWithCountsRow extends Photo {
   comment_count: number;
+  uploader_name: string | null;
+  uploader_profile_color: ProfileColor | null;
 }
 
 // List photos with reaction and comment counts (optimized: 2 queries instead of 1+3N)
@@ -864,7 +870,9 @@ export async function listPhotosWithCounts(
         p.uploaded_by,
         p.uploaded_at,
         p.thumbnail_r2_key,
-        COALESCE(c.comment_count, 0) as comment_count
+        COALESCE(c.comment_count, 0) as comment_count,
+        u.name as uploader_name,
+        u.profile_color as uploader_profile_color
       FROM photos p
       LEFT JOIN (
         SELECT photo_id, COUNT(*) as comment_count
@@ -872,6 +880,7 @@ export async function listPhotosWithCounts(
         WHERE deleted_at IS NULL
         GROUP BY photo_id
       ) c ON c.photo_id = p.id
+      LEFT JOIN users u ON u.id = p.uploaded_by
       WHERE p.group_id = ?
       ORDER BY p.uploaded_at DESC
       LIMIT ? OFFSET ?`
@@ -936,5 +945,7 @@ export async function listPhotosWithCounts(
     comment_count: photo.comment_count,
     reactions: reactionsByPhoto.get(photo.id) || [],
     user_reactions: userReactionsByPhoto.get(photo.id) || [],
+    uploader_name: photo.uploader_name,
+    uploader_profile_color: photo.uploader_profile_color,
   }));
 }

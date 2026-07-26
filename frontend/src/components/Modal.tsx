@@ -1,13 +1,36 @@
 import { useEffect, useRef, useCallback, type ReactNode } from 'react';
 
+/**
+ * `raised` lifts the modal further off the page — a stronger shadow and a
+ * dimmer, blurred backdrop — for modals the user did not open themselves.
+ */
+export type ModalElevation = 'default' | 'raised';
+
 interface ModalProps {
   title: string;
   children: ReactNode;
   onClose: () => void;
   maxWidth?: 'sm' | 'md' | 'lg';
+  elevation?: ModalElevation;
 }
 
-export function Modal({ title, children, onClose, maxWidth = 'sm' }: ModalProps) {
+const backdropClasses: Record<ModalElevation, string> = {
+  default: 'bg-black/50',
+  raised: 'bg-black/60 backdrop-blur-[2px]',
+};
+
+const panelShadowClasses: Record<ModalElevation, string> = {
+  default: 'shadow-elevated',
+  raised: 'shadow-modal',
+};
+
+export function Modal({
+  title,
+  children,
+  onClose,
+  maxWidth = 'sm',
+  elevation = 'default',
+}: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
   const getFocusableElements = useCallback(() => {
@@ -66,13 +89,17 @@ export function Modal({ title, children, onClose, maxWidth = 'sm' }: ModalProps)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" aria-hidden="true" onClick={onClose} />
+      <div
+        className={`absolute inset-0 ${backdropClasses[elevation]}`}
+        aria-hidden="true"
+        onClick={onClose}
+      />
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className={`relative bg-surface rounded-xl shadow-elevated p-6 ${maxWidthClass} w-full mx-4 border border-border`}
+        className={`relative bg-surface rounded-xl ${panelShadowClasses[elevation]} p-6 ${maxWidthClass} w-full mx-4 border border-border`}
       >
         <div className="flex items-center justify-between mb-4">
           <h3 id="modal-title" className="text-lg font-medium text-text-primary">

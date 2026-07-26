@@ -41,6 +41,8 @@ function makePhoto(over: Partial<Photo> = {}): Photo {
     id: 'p1',
     caption: null,
     uploadedBy: 'u',
+    uploaderName: 'Uploader',
+    uploaderProfileColor: 'teal',
     uploadedAt: 1,
     commentCount: 0,
     reactions: [],
@@ -80,6 +82,47 @@ describe('useLightboxComments', () => {
     expect(result.current.comments[0].content).toBe('hello');
     expect(result.current.newComment).toBe('');
     expect(onPhotoUpdate).toHaveBeenCalledWith({ id: 'p1', commentCount: 1 });
+  });
+
+  it('highlights a posted comment, then clears the highlight', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() =>
+        useLightboxComments({
+          photo: makePhoto(),
+          prevPhoto: undefined,
+          nextPhoto: undefined,
+          user,
+          onPhotoUpdate: vi.fn(),
+        })
+      );
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(result.current.postedCommentId).toBeNull();
+
+      act(() => result.current.setNewComment('hello'));
+      await act(async () => {
+        await result.current.submitComment(noopEvent);
+      });
+
+      expect(result.current.postedCommentId).toBe('c-new');
+
+      // The highlight has to outlast the 1.4s `.comment-flash` animation in
+      // index.css, or the row would go flat mid-flash.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1400);
+      });
+      expect(result.current.postedCommentId).toBe('c-new');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      expect(result.current.postedCommentId).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('tombstones a deleted comment and drops the count', async () => {

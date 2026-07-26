@@ -176,6 +176,8 @@ photos.get('/', requireAuth, async (c) => {
       id: photo.id,
       caption: photo.caption,
       uploadedBy: photo.uploaded_by,
+      uploaderName: photo.uploader_name,
+      uploaderProfileColor: photo.uploader_profile_color,
       uploadedAt: photo.uploaded_at,
       commentCount: photo.comment_count,
       reactions: photo.reactions,

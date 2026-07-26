@@ -31,13 +31,18 @@ This outputs a magic link. Click it to log in as the group owner.
 
 ### Testing with seed data
 
-For quick testing, seed the database with test users:
+For quick testing, seed the database with a test group, five test users, and a feed of photos with reactions and comments:
 
 ```bash
 nix run .#db-seed
+nix run .#db-seed -- --photos 50
 ```
 
-Then go to http://localhost:5173/login, enter `admin@test.com`, and copy the magic link from the backend console.
+Then go to http://localhost:5173/login, enter `owner@test.com`, and copy the magic link from the backend console.
+
+Photos default to 10 and are synthesised when the command runs, so no image files are stored in the repository. Pass `--group <id>` to seed photos into a different group, and `--seed <n>` to reproduce a previous run.
+
+The command is idempotent: re-running replaces the previously seeded photos, along with their reactions and comments, rather than adding another batch. Photos uploaded through the app are left alone.
 
 ## Available commands
 
@@ -45,7 +50,7 @@ Then go to http://localhost:5173/login, enter `admin@test.com`, and copy the mag
 | -------------------------------------------------- | -------------------------------------- |
 | `nix run .#dev`                                    | Start development servers              |
 | `nix run .#create-group -- <name> <owner> <email>` | Create a new group                     |
-| `nix run .#db-seed`                                | Seed local DB with test users          |
+| `nix run .#db-seed -- [--photos n]`                | Seed local DB with test data           |
 | `nix run .#test`                                   | Run unit tests                         |
 | `nix run .#test-e2e`                               | Run end-to-end tests                   |
 | `nix run .#setup-prod`                             | Create production Cloudflare resources |

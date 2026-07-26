@@ -17,6 +17,10 @@
       "types": "./reactions.ts",
       "default": "./reactions.ts"
     },
+    "./storage": {
+      "types": "./storage.ts",
+      "default": "./storage.ts"
+    },
     "./apiTypes": {
       "types": "./apiTypes.ts",
       "default": "./apiTypes.ts"

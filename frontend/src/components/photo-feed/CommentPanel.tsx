@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { formatRelativeTime } from '../../lib/dateFormat';
 import { Avatar } from '../Avatar';
 import { Button } from '../Button';
@@ -15,6 +15,8 @@ export interface CommentPanelProps {
   reactions: ReactionSummary[];
   userReactions: string[];
   comments: Comment[];
+  /** Comment to scroll to and flash — set briefly after the user posts one. */
+  highlightedCommentId: string | null;
   /**
    * Authoritative count of non-deleted comments (from `photo.commentCount`).
    * Used for the badge so it matches the feed and stays correct through
@@ -48,6 +50,7 @@ export function CommentPanel({
   reactions,
   userReactions,
   comments,
+  highlightedCommentId,
   commentCount,
   commentsExpanded,
   currentUserId,
@@ -76,6 +79,14 @@ export function CommentPanel({
       ),
     [comments, commentSortOrder]
   );
+
+  const highlightedRef = useRef<HTMLDivElement>(null);
+
+  // A new comment can land off-screen in a long thread, so bring it into view.
+  useEffect(() => {
+    if (!highlightedCommentId) return;
+    highlightedRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [highlightedCommentId, commentsExpanded]);
 
   const reactionPillsElement = (
     <ReactionPills
@@ -220,9 +231,16 @@ export function CommentPanel({
                   // was removed (distinct from the comment being deleted).
                   const isAuthorDeleted = !comment.userId;
                   const canDelete = comment.userId === currentUserId || isAdmin;
+                  const isHighlighted = comment.id === highlightedCommentId;
 
                   return (
-                    <div key={comment.id} className="text-sm py-3 first:pt-0 last:pb-0">
+                    <div
+                      key={comment.id}
+                      ref={isHighlighted ? highlightedRef : undefined}
+                      className={`text-sm py-3 first:pt-0 last:pb-0 ${
+                        isHighlighted ? 'comment-flash' : ''
+                      }`}
+                    >
                       <div className="flex justify-between items-center gap-2">
                         <span className="flex items-center gap-1.5">
                           {comment.authorProfileColor && !isAuthorDeleted && (
