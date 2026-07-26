@@ -1,6 +1,7 @@
 import type { ErrorHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
+import { HttpError } from './http';
 import { logger } from './logger';
 
 /**
@@ -12,6 +13,12 @@ import { logger } from './logger';
  * back to Hono's default 500 when mounted in isolation.
  */
 export const errorHandler: ErrorHandler = (err, c) => {
+  // Errors that routes/middleware deliberately raise with a client-safe
+  // message and status (BadRequestError, NotFoundError, ...).
+  if (err instanceof HttpError) {
+    return c.json({ error: err.message }, err.statusCode);
+  }
+
   if (err instanceof ZodError) {
     const messages = err.issues.map((e) => `${e.path.join('.')}: ${e.message}`);
     return c.json({ error: 'Validation error', details: messages }, 400);

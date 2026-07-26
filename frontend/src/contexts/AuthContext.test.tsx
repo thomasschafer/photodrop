@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -6,6 +7,7 @@ import { ApiError } from '../lib/api';
 
 const mockGetMe = vi.fn();
 const mockRefresh = vi.fn();
+const mockSelectGroup = vi.fn();
 
 // Mock only the network surface (the `api` object); keep the real, pure
 // isSessionExpired/ApiError so the tests exercise production's actual
@@ -20,7 +22,7 @@ vi.mock('../lib/api', async (importActual) => {
         refresh: (...a: unknown[]) => mockRefresh(...a),
         logout: vi.fn().mockResolvedValue({}),
         switchGroup: vi.fn(),
-        selectGroup: vi.fn(),
+        selectGroup: (...a: unknown[]) => mockSelectGroup(...a),
       },
       push: { unsubscribe: vi.fn().mockResolvedValue(undefined) },
     },
@@ -87,6 +89,23 @@ function renderApp(initialPath = '/') {
   );
 }
 
+/**
+ * Render and wait until the provider is signed in *and* its effects have run.
+ *
+ * The signed-in state arrives from a promise continuation inside initAuth that
+ * isn't wrapped in act, so findByText can resolve as soon as the DOM updates —
+ * before React has flushed the passive effects that attach the
+ * visibilitychange and auth-event listeners. A test that dispatched into that
+ * gap saw its event go nowhere, which made these tests fail intermittently on
+ * slower CI runners. The empty act() flushes those effects.
+ */
+async function renderSignedIn(initialPath = '/') {
+  const utils = renderApp(initialPath);
+  await screen.findByText('user:Tom');
+  await act(async () => {});
+  return utils;
+}
+
 describe('AuthProvider session resilience', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -101,8 +120,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('refreshes the session when the app returns to the foreground', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     // Bootstrapping uses getMe, not refresh.
     expect(mockRefresh).not.toHaveBeenCalled();
@@ -115,8 +133,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('throttles foreground refreshes that fire in quick succession', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
@@ -129,8 +146,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('stays logged in when a foreground refresh fails transiently', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     // A network blip / 5xx on the foreground refresh must not sign the user out.
     mockRefresh.mockRejectedValue(new Error('network down'));
@@ -145,8 +161,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('logs out when a foreground refresh is rejected as expired (401)', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     mockRefresh.mockRejectedValue(new ApiError(401, 'Unauthorized', 'Expired'));
 
@@ -159,8 +174,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('clears state and routes to /login when the session expires', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     act(() => {
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
@@ -176,8 +190,7 @@ describe('AuthProvider session resilience', () => {
   it('does not redirect away from a magic-link route when the session expires', async () => {
     // A stale session in the same browser must not bounce the user off the
     // /auth/:token verify page they just opened.
-    renderApp('/auth/some-token');
-    await screen.findByText('user:Tom');
+    await renderSignedIn('/auth/some-token');
 
     act(() => {
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
@@ -186,6 +199,165 @@ describe('AuthProvider session resilience', () => {
     await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anon'));
     // State is cleared, but the route is left intact for the verify flow.
     expect(screen.getByTestId('path').textContent).toBe('/auth/some-token');
+    expect(localStorage.getItem('accessToken')).toBeNull();
+  });
+
+  it('recovers a selection token after the current group is deleted', async () => {
+    // Deleting the current group invalidates the access token. The provider
+    // must re-sync via /auth/refresh — which returns the selection token the
+    // group picker needs — rather than patching state locally, where a null
+    // selectionToken would make every selectGroup call fail.
+    const otherGroup = { ...currentGroup, id: 'g2', name: 'Friends' };
+    mockRefresh.mockResolvedValue({
+      accessToken: null,
+      selectionToken: 'post-delete-selection-token',
+      user,
+      currentGroup: null,
+      groups: [otherGroup],
+      needsGroupSelection: true,
+    });
+    mockSelectGroup.mockResolvedValue({
+      accessToken: 'new-token',
+      user,
+      currentGroup: otherGroup,
+      groups: [otherGroup],
+    });
+
+    function DeleteFlowConsumer() {
+      const { onGroupDeleted, selectGroup, needsGroupSelection } = useAuth();
+      return (
+        <div>
+          <span data-testid="picker">{needsGroupSelection ? 'picker' : 'no-picker'}</span>
+          <button onClick={() => onGroupDeleted()}>delete</button>
+          <button onClick={() => selectGroup('g2')}>pick</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <DeleteFlowConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('no-picker');
+
+    await act(async () => {
+      screen.getByText('delete').click();
+    });
+
+    await screen.findByText('picker');
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('accessToken')).toBeNull();
+
+    await act(async () => {
+      screen.getByText('pick').click();
+    });
+
+    expect(mockSelectGroup).toHaveBeenCalledWith('post-delete-selection-token', 'g2');
+    expect(localStorage.getItem('accessToken')).toBe('new-token');
+  });
+
+  it('does not resolve logout until cached photos have been cleared', async () => {
+    // clearAllUserCaches only drops the in-memory image cache once the Cache
+    // API deletion resolves, so teardown must await it — otherwise logout
+    // reports success while decoded photos are still held in memory.
+    const { clearAllUserCaches } = await import('../lib/cache');
+    let finishCacheClear!: () => void;
+    vi.mocked(clearAllUserCaches).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishCacheClear = resolve;
+      })
+    );
+
+    const logoutRef: { current: (() => Promise<void>) | null } = { current: null };
+    function LogoutConsumer() {
+      const { logout } = useAuth();
+      useEffect(() => {
+        logoutRef.current = logout;
+      }, [logout]);
+      return null;
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <LogoutConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(logoutRef.current).not.toBeNull());
+
+    let loggedOut = false;
+    const pending = logoutRef.current!().then(() => {
+      loggedOut = true;
+    });
+
+    // Let every already-resolved promise in logout settle; it must still be
+    // parked on the cache cleanup.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(loggedOut).toBe(false);
+
+    finishCacheClear();
+    await act(async () => {
+      await pending;
+    });
+    expect(loggedOut).toBe(true);
+  });
+
+  it('clears cached data when a foreground refresh finds the session expired', async () => {
+    // Every teardown path must leave the same state behind. This one runs with
+    // no user interaction, so leaving another session's photos in the caches
+    // would be invisible until someone else signs in on the device. The
+    // interval refresh shares this code path via refreshAuth.
+    const { clearAllUserCaches } = await import('../lib/cache');
+
+    await renderSignedIn();
+
+    mockRefresh.mockRejectedValue(new ApiError(401, 'Unauthorized', 'Expired'));
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anon'));
+    expect(clearAllUserCaches).toHaveBeenCalled();
+  });
+
+  it('logs out cleanly when the post-deletion refresh fails transiently', async () => {
+    // The group is already deleted server-side and its access token dropped, so
+    // a transient (network / 5xx) refresh failure must not leave the app on the
+    // now-deleted currentGroup. It should fall back to a clean logged-out state.
+    mockRefresh.mockRejectedValue(new Error('network down'));
+
+    function DeleteFlowConsumer() {
+      const { onGroupDeleted, user: u, currentGroup: g } = useAuth();
+      return (
+        <div>
+          <span data-testid="state">{u ? `user:${g ? g.name : 'no-group'}` : 'anon'}</span>
+          <button onClick={() => onGroupDeleted()}>delete</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <DeleteFlowConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('user:Family');
+
+    await act(async () => {
+      screen.getByText('delete').click();
+    });
+
+    // Not stranded on the deleted group: fully logged out, token cleared.
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('anon'));
     expect(localStorage.getItem('accessToken')).toBeNull();
   });
 

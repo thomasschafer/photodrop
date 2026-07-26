@@ -290,7 +290,7 @@ export function MembersList() {
 
     try {
       await api.groups.deleteGroup(currentGroup.id);
-      onGroupDeleted(currentGroup.id);
+      await onGroupDeleted();
     } catch (err) {
       console.error('Failed to delete group:', err);
       let errorMessage = 'Failed to delete group';

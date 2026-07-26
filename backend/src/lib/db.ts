@@ -1,38 +1,8 @@
+import { getRandomProfileColor, type ProfileColor } from '@photodrop/common/profileColors';
+import type { MembershipRole, ReactionSummary } from '@photodrop/common/apiTypes';
 import { generateId, generateInviteToken } from './crypto';
 
-// Keep in sync with frontend/src/lib/profileColors.ts
-export const PROFILE_COLORS = [
-  'terracotta',
-  'coral',
-  'amber',
-  'rust',
-  'clay',
-  'copper',
-  'sienna',
-  'sage',
-  'olive',
-  'forest',
-  'moss',
-  'jade',
-  'slate',
-  'ocean',
-  'teal',
-  'indigo',
-  'plum',
-  'wine',
-  'mauve',
-  'rose',
-] as const;
-
-export type ProfileColor = (typeof PROFILE_COLORS)[number];
-
-export function isProfileColor(value: string): value is ProfileColor {
-  return (PROFILE_COLORS as readonly string[]).includes(value);
-}
-
-export function getRandomProfileColor(): ProfileColor {
-  return PROFILE_COLORS[Math.floor(Math.random() * PROFILE_COLORS.length)];
-}
+export type { MembershipRole, ReactionSummary };
 
 export interface Group {
   id: string;
@@ -49,8 +19,6 @@ export interface User {
   created_at: number;
   last_seen_at: number | null;
 }
-
-export type MembershipRole = 'admin' | 'member';
 
 export interface Membership {
   user_id: string;
@@ -123,11 +91,6 @@ export interface Comment {
   deleted_at: number | null;
 }
 
-export interface ReactionSummary {
-  emoji: string;
-  count: number;
-}
-
 export interface PhotoWithCounts extends Photo {
   reaction_count: number;
   comment_count: number;
@@ -167,7 +130,7 @@ export async function updateMemberImageProtection(
     .prepare('UPDATE memberships SET image_protection = ? WHERE user_id = ? AND group_id = ?')
     .bind(enabled ? 1 : 0, userId, groupId)
     .run();
-  return result.success;
+  return result.meta.changes > 0;
 }
 
 // User functions
@@ -278,7 +241,7 @@ export async function updateMembershipRole(
     .bind(role, userId, groupId)
     .run();
 
-  return { success: result.success };
+  return { success: result.meta.changes > 0 };
 }
 
 export async function deleteMembership(
@@ -297,7 +260,7 @@ export async function deleteMembership(
     .bind(userId, groupId)
     .run();
 
-  return { success: result.success };
+  return { success: result.meta.changes > 0 };
 }
 
 export async function getUserById(db: D1Database, userId: string): Promise<User | null> {
@@ -332,7 +295,7 @@ export async function updateUserName(
     .bind(name, userId)
     .run();
 
-  return result.success;
+  return result.meta.changes > 0;
 }
 
 export async function updateUserProfileColor(
@@ -345,7 +308,7 @@ export async function updateUserProfileColor(
     .bind(color, userId)
     .run();
 
-  return result.success;
+  return result.meta.changes > 0;
 }
 
 // Magic link token functions
@@ -463,20 +426,6 @@ export async function getPhoto(
   return result;
 }
 
-export async function listPhotos(
-  db: D1Database,
-  groupId: string,
-  limit: number = 20,
-  offset: number = 0
-): Promise<Photo[]> {
-  const result = await db
-    .prepare('SELECT * FROM photos WHERE group_id = ? ORDER BY uploaded_at DESC LIMIT ? OFFSET ?')
-    .bind(groupId, limit, offset)
-    .all<Photo>();
-
-  return result.results || [];
-}
-
 export async function deletePhoto(
   db: D1Database,
   photoId: string,
@@ -488,7 +437,7 @@ export async function deletePhoto(
     .bind(photoId, groupId)
     .run();
 
-  return result.success;
+  return result.meta.changes > 0;
 }
 
 export async function recordPhotoView(
@@ -580,7 +529,7 @@ export async function getGroupPhotoCount(db: D1Database, groupId: string): Promi
 export async function deleteGroup(db: D1Database, groupId: string): Promise<boolean> {
   const result = await db.prepare('DELETE FROM groups WHERE id = ?').bind(groupId).run();
 
-  return result.success;
+  return result.meta.changes > 0;
 }
 
 // Push subscription types and functions
@@ -595,6 +544,9 @@ export interface PushSubscription {
   created_at: number;
 }
 
+// The generated id only survives for fresh inserts — on conflict the existing
+// row keeps its id — so only the deletion token (which IS updated on conflict)
+// is returned.
 export async function createPushSubscription(
   db: D1Database,
   userId: string,
@@ -602,7 +554,7 @@ export async function createPushSubscription(
   endpoint: string,
   p256dh: string,
   auth: string
-): Promise<{ id: string; deletionToken: string }> {
+): Promise<{ deletionToken: string }> {
   const id = generateId();
   const deletionToken = generateId();
   const now = Math.floor(Date.now() / 1000);
@@ -620,33 +572,7 @@ export async function createPushSubscription(
     .bind(id, userId, groupId, endpoint, p256dh, auth, deletionToken, now)
     .run();
 
-  return { id, deletionToken };
-}
-
-export async function getPushSubscription(
-  db: D1Database,
-  userId: string,
-  groupId: string,
-  endpoint: string
-): Promise<PushSubscription | null> {
-  const result = await db
-    .prepare('SELECT * FROM push_subscriptions WHERE user_id = ? AND group_id = ? AND endpoint = ?')
-    .bind(userId, groupId, endpoint)
-    .first<PushSubscription>();
-
-  return result;
-}
-
-export async function getPushSubscriptionByEndpoint(
-  db: D1Database,
-  endpoint: string
-): Promise<PushSubscription | null> {
-  const result = await db
-    .prepare('SELECT * FROM push_subscriptions WHERE endpoint = ?')
-    .bind(endpoint)
-    .first<PushSubscription>();
-
-  return result;
+  return { deletionToken };
 }
 
 export async function getUserPushSubscriptionsForGroup(
@@ -667,57 +593,45 @@ export async function getGroupPushSubscriptions(
   groupId: string,
   excludeUserId?: string
 ): Promise<PushSubscription[]> {
-  if (excludeUserId) {
-    const result = await db
-      .prepare('SELECT * FROM push_subscriptions WHERE group_id = ? AND user_id != ?')
-      .bind(groupId, excludeUserId)
-      .all<PushSubscription>();
-    return result.results || [];
-  }
+  const statement = excludeUserId
+    ? db
+        .prepare('SELECT * FROM push_subscriptions WHERE group_id = ? AND user_id != ?')
+        .bind(groupId, excludeUserId)
+    : db.prepare('SELECT * FROM push_subscriptions WHERE group_id = ?').bind(groupId);
 
-  const result = await db
-    .prepare('SELECT * FROM push_subscriptions WHERE group_id = ?')
-    .bind(groupId)
-    .all<PushSubscription>();
-
+  const result = await statement.all<PushSubscription>();
   return result.results || [];
 }
 
-export async function deletePushSubscription(db: D1Database, endpoint: string): Promise<boolean> {
-  const result = await db
-    .prepare('DELETE FROM push_subscriptions WHERE endpoint = ?')
-    .bind(endpoint)
-    .run();
-
-  return result.success;
+// Best-effort cleanup of an expired/rejected endpoint; deleting zero rows is fine.
+export async function deletePushSubscription(db: D1Database, endpoint: string): Promise<void> {
+  await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(endpoint).run();
 }
 
 /**
  * Deletes ALL push subscriptions for an endpoint if the provided token matches
  * any subscription for that endpoint. Used during logout to clean up all
  * subscriptions from the current browser - the token proves ownership of
- * the endpoint without requiring authentication.
+ * the endpoint without requiring authentication. Returns whether the token
+ * was valid (and the endpoint's subscriptions therefore deleted).
  */
 export async function deleteAllPushSubscriptionsForEndpointWithToken(
   db: D1Database,
   endpoint: string,
   deletionToken: string
-): Promise<{ success: boolean; tokenValid: boolean }> {
+): Promise<{ tokenValid: boolean }> {
   const subscription = await db
     .prepare('SELECT id FROM push_subscriptions WHERE endpoint = ? AND deletion_token = ?')
     .bind(endpoint, deletionToken)
     .first();
 
   if (!subscription) {
-    return { success: false, tokenValid: false };
+    return { tokenValid: false };
   }
 
-  const result = await db
-    .prepare('DELETE FROM push_subscriptions WHERE endpoint = ?')
-    .bind(endpoint)
-    .run();
+  await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(endpoint).run();
 
-  return { success: result.success, tokenValid: true };
+  return { tokenValid: true };
 }
 
 export async function deletePushSubscriptionForGroup(
@@ -731,20 +645,19 @@ export async function deletePushSubscriptionForGroup(
     .bind(userId, groupId, endpoint)
     .run();
 
-  return result.success;
+  return result.meta.changes > 0;
 }
 
+// Bulk cleanup when a member leaves or is removed; deleting zero rows is fine.
 export async function deleteAllUserPushSubscriptionsForGroup(
   db: D1Database,
   userId: string,
   groupId: string
-): Promise<boolean> {
-  const result = await db
+): Promise<void> {
+  await db
     .prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND group_id = ?')
     .bind(userId, groupId)
     .run();
-
-  return result.success;
 }
 
 // Device token types and functions (native push notifications)
@@ -820,19 +733,13 @@ export async function getGroupDeviceTokens(
   groupId: string,
   excludeUserId?: string
 ): Promise<DeviceToken[]> {
-  if (excludeUserId) {
-    const result = await db
-      .prepare('SELECT * FROM device_tokens WHERE group_id = ? AND user_id != ?')
-      .bind(groupId, excludeUserId)
-      .all<DeviceToken>();
-    return result.results || [];
-  }
+  const statement = excludeUserId
+    ? db
+        .prepare('SELECT * FROM device_tokens WHERE group_id = ? AND user_id != ?')
+        .bind(groupId, excludeUserId)
+    : db.prepare('SELECT * FROM device_tokens WHERE group_id = ?').bind(groupId);
 
-  const result = await db
-    .prepare('SELECT * FROM device_tokens WHERE group_id = ?')
-    .bind(groupId)
-    .all<DeviceToken>();
-
+  const result = await statement.all<DeviceToken>();
   return result.results || [];
 }
 
@@ -847,19 +754,12 @@ export async function deleteDeviceToken(
     .bind(userId, groupId, token)
     .run();
 
-  return result.success;
+  return result.meta.changes > 0;
 }
 
-export async function deleteAllUserDeviceTokens(db: D1Database, userId: string): Promise<boolean> {
-  const result = await db.prepare('DELETE FROM device_tokens WHERE user_id = ?').bind(userId).run();
-
-  return result.success;
-}
-
-export async function deleteDeviceTokenByToken(db: D1Database, token: string): Promise<boolean> {
-  const result = await db.prepare('DELETE FROM device_tokens WHERE token = ?').bind(token).run();
-
-  return result.success;
+// Best-effort cleanup of a token FCM reports as invalid; deleting zero rows is fine.
+export async function deleteDeviceTokenByToken(db: D1Database, token: string): Promise<void> {
+  await db.prepare('DELETE FROM device_tokens WHERE token = ?').bind(token).run();
 }
 
 // Comment functions
@@ -918,16 +818,7 @@ export async function deleteComment(db: D1Database, commentId: string): Promise<
     .bind(now, commentId)
     .run();
 
-  return result.success;
-}
-
-export async function getCommentCount(db: D1Database, photoId: string): Promise<number> {
-  const result = await db
-    .prepare('SELECT COUNT(*) as count FROM comments WHERE photo_id = ? AND deleted_at IS NULL')
-    .bind(photoId)
-    .first<{ count: number }>();
-
-  return result?.count ?? 0;
+  return result.meta.changes > 0;
 }
 
 // Reaction functions with user details

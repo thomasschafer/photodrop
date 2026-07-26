@@ -9,8 +9,9 @@ import {
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
+  deletePhoto,
+  updateUserName,
   createPushSubscription,
-  getPushSubscription,
   getUserPushSubscriptionsForGroup,
   getGroupPushSubscriptions,
   deletePushSubscription,
@@ -20,22 +21,22 @@ import {
   getDeviceToken,
   getGroupDeviceTokens,
   deleteDeviceToken,
-  deleteAllUserDeviceTokens,
   deleteDeviceTokenByToken,
   countUserDeviceTokensSince,
   createComment,
   getCommentsByPhotoId,
   getComment,
   deleteComment,
-  getCommentCount,
   getPhotoReactionsWithUsers,
   listPhotosWithCounts,
   createUser,
   updateUserProfileColor,
+} from './db';
+import {
   getRandomProfileColor,
   PROFILE_COLORS,
   type ProfileColor,
-} from './db';
+} from '@photodrop/common/profileColors';
 
 function createMockDb(results: unknown[] = [], error?: Error) {
   const mockFirst = vi.fn().mockImplementation(() => {
@@ -50,7 +51,7 @@ function createMockDb(results: unknown[] = [], error?: Error) {
 
   const mockRun = vi.fn().mockImplementation(() => {
     if (error) throw error;
-    return Promise.resolve({ success: true, changes: 1 });
+    return Promise.resolve({ success: true, meta: { changes: 1 } });
   });
 
   const mockBind = vi.fn().mockReturnValue({
@@ -95,7 +96,7 @@ function createSequentialMockDb(firstResults: (unknown | null)[], error?: Error)
 
   const mockRun = vi.fn().mockImplementation(() => {
     if (error) throw error;
-    return Promise.resolve({ success: true, changes: 1 });
+    return Promise.resolve({ success: true, meta: { changes: 1 } });
   });
 
   const mockBind = vi.fn().mockReturnValue({
@@ -140,7 +141,7 @@ function createSequentialAllMockDb(allResults: unknown[][], error?: Error) {
 
   const mockRun = vi.fn().mockImplementation(() => {
     if (error) throw error;
-    return Promise.resolve({ success: true, changes: 1 });
+    return Promise.resolve({ success: true, meta: { changes: 1 } });
   });
 
   const mockBind = vi.fn().mockReturnValue({
@@ -415,9 +416,9 @@ describe('Membership functions', () => {
       expect(db._mocks.mockBind).toHaveBeenCalledWith(0, 'user-1', 'group-1');
     });
 
-    it('returns false on database error', async () => {
+    it('returns false when no row was updated', async () => {
       const db = createMockDb([], undefined);
-      db._mocks.mockRun.mockResolvedValueOnce({ success: false });
+      db._mocks.mockRun.mockResolvedValueOnce({ success: true, meta: { changes: 0 } });
 
       const result = await updateMemberImageProtection(db, 'user-1', 'group-1', true);
 
@@ -583,50 +584,6 @@ describe('Push subscription functions', () => {
     });
   });
 
-  describe('getPushSubscription', () => {
-    it('returns subscription for user+group+endpoint', async () => {
-      const subscription = {
-        id: 'sub-1',
-        user_id: 'user-1',
-        group_id: 'group-1',
-        endpoint: 'https://push.example.com/abc',
-        p256dh: 'p256dh-key',
-        auth: 'auth-key',
-        created_at: 1000,
-      };
-      const db = createMockDb([subscription]);
-
-      const result = await getPushSubscription(
-        db,
-        'user-1',
-        'group-1',
-        'https://push.example.com/abc'
-      );
-
-      expect(result).not.toBeNull();
-      expect(result?.id).toBe('sub-1');
-      expect(result?.endpoint).toBe('https://push.example.com/abc');
-      expect(db._mocks.mockBind).toHaveBeenCalledWith(
-        'user-1',
-        'group-1',
-        'https://push.example.com/abc'
-      );
-    });
-
-    it('returns null for non-existent subscription', async () => {
-      const db = createMockDb([]);
-
-      const result = await getPushSubscription(
-        db,
-        'user-1',
-        'group-1',
-        'https://push.example.com/nonexistent'
-      );
-
-      expect(result).toBeNull();
-    });
-  });
-
   describe('getUserPushSubscriptionsForGroup', () => {
     it('returns all subscriptions for user in group', async () => {
       const subscriptions = [
@@ -732,9 +689,8 @@ describe('Push subscription functions', () => {
     it('removes subscription by endpoint', async () => {
       const db = createMockDb([]);
 
-      const result = await deletePushSubscription(db, 'https://push.example.com/abc');
+      await deletePushSubscription(db, 'https://push.example.com/abc');
 
-      expect(result).toBe(true);
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
         'DELETE FROM push_subscriptions WHERE endpoint = ?'
       );
@@ -771,9 +727,8 @@ describe('Push subscription functions', () => {
     it('removes all subscriptions for a user in a specific group', async () => {
       const db = createMockDb([]);
 
-      const result = await deleteAllUserPushSubscriptionsForGroup(db, 'user-1', 'group-1');
+      await deleteAllUserPushSubscriptionsForGroup(db, 'user-1', 'group-1');
 
-      expect(result).toBe(true);
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
         'DELETE FROM push_subscriptions WHERE user_id = ? AND group_id = ?'
       );
@@ -931,28 +886,12 @@ describe('Device token functions (native push)', () => {
     });
   });
 
-  describe('deleteAllUserDeviceTokens', () => {
-    it('removes all tokens for a user', async () => {
-      const db = createMockDb([]);
-
-      const result = await deleteAllUserDeviceTokens(db, 'user-1');
-
-      expect(result).toBe(true);
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        'DELETE FROM device_tokens WHERE user_id = ?'
-      );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1');
-      expect(db._mocks.mockRun).toHaveBeenCalled();
-    });
-  });
-
   describe('deleteDeviceTokenByToken', () => {
     it('removes token by token value only', async () => {
       const db = createMockDb([]);
 
-      const result = await deleteDeviceTokenByToken(db, 'fcm-token-123');
+      await deleteDeviceTokenByToken(db, 'fcm-token-123');
 
-      expect(result).toBe(true);
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
         'DELETE FROM device_tokens WHERE token = ?'
       );
@@ -1086,28 +1025,6 @@ describe('Comment functions', () => {
       );
       expect(db._mocks.mockBind).toHaveBeenCalledWith(expect.any(Number), 'comment-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
-    });
-  });
-
-  describe('getCommentCount', () => {
-    it('returns count for photo with comments', async () => {
-      const db = createMockDb([{ count: 5 }]);
-
-      const result = await getCommentCount(db, 'photo-1');
-
-      expect(result).toBe(5);
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        expect.stringContaining('deleted_at IS NULL')
-      );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('photo-1');
-    });
-
-    it('returns 0 for photo with no comments', async () => {
-      const db = createMockDb([{ count: 0 }]);
-
-      const result = await getCommentCount(db, 'photo-empty');
-
-      expect(result).toBe(0);
     });
   });
 });
@@ -1405,5 +1322,39 @@ describe('Profile color functions', () => {
       expect(db._mocks.mockBind).toHaveBeenCalledWith('sage', 'user-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
+  });
+});
+
+describe('mutations report rows affected rather than statement success', () => {
+  // D1 reports success for a statement that legitimately matched nothing, so
+  // these helpers key off meta.changes instead. Routes surface the false path
+  // as a 404/500, so a helper that reported success for a missing row would
+  // silently turn "nothing to do" into "done".
+  const cases: Array<{ name: string; run: (db: D1Database) => Promise<boolean> }> = [
+    { name: 'deleteGroup', run: (db) => deleteGroup(db, 'group-1') },
+    { name: 'deletePhoto', run: (db) => deletePhoto(db, 'photo-1', 'group-1') },
+    { name: 'updateUserName', run: (db) => updateUserName(db, 'user-1', 'New Name') },
+    { name: 'updateUserProfileColor', run: (db) => updateUserProfileColor(db, 'user-1', 'teal') },
+    { name: 'deleteComment', run: (db) => deleteComment(db, 'comment-1') },
+    {
+      name: 'deleteMembership',
+      run: async (db) => (await deleteMembership(db, 'user-1', 'group-1')).success,
+    },
+    {
+      name: 'updateMembershipRole',
+      run: async (db) => (await updateMembershipRole(db, 'user-1', 'group-1', 'admin')).success,
+    },
+  ];
+
+  it.each(cases)('$name reports false when no row matched', async ({ run }) => {
+    const db = createMockDb();
+    db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
+
+    await expect(run(db)).resolves.toBe(false);
+  });
+
+  it.each(cases)('$name reports true when a row was changed', async ({ run }) => {
+    // createMockDb's default run() reports one changed row.
+    await expect(run(createMockDb())).resolves.toBe(true);
   });
 });

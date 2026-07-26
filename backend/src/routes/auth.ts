@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { ZodError } from 'zod';
+import type { Context } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import {
   createMagicLinkToken,
@@ -12,6 +12,8 @@ import {
   getUserMemberships,
   markMagicLinkTokenUsed,
   markMagicLinkTokenPending,
+  type User,
+  type MembershipWithGroup,
 } from '../lib/db';
 import {
   generateAccessToken,
@@ -31,6 +33,21 @@ import {
   switchGroupSchema,
   selectGroupSchema,
 } from '../lib/schemas';
+import {
+  BadRequestError,
+  UnauthorizedError,
+  NotFoundError,
+  ForbiddenError,
+  InternalServerError,
+  parseJsonBody,
+} from '../lib/http';
+import type {
+  AuthResponse,
+  NeedsNameResponse,
+  InviteSentResponse,
+  UserJson,
+  GroupJson,
+} from '@photodrop/common/apiTypes';
 import type { AppEnv } from '../types';
 
 const auth = new Hono<AppEnv>();
@@ -54,629 +71,368 @@ const verifyMagicLinkRateLimit = createRateLimitMiddleware({
   keyFn: (c) => `verify:${getClientIP(c)}`,
 });
 
+// Response-shape helpers: every auth endpoint returns the same user and group
+// JSON, so build it in one place, typed against the shared wire types.
+function userJson(user: User): UserJson {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    profileColor: user.profile_color,
+  };
+}
+
+function membershipGroupJson(m: MembershipWithGroup): GroupJson {
+  return {
+    id: m.group_id,
+    name: m.group_name,
+    role: m.role,
+    ownerId: m.group_owner_id,
+    imageProtection: m.image_protection === 1,
+  };
+}
+
+function groupsJson(memberships: MembershipWithGroup[]): GroupJson[] {
+  return memberships.map(membershipGroupJson);
+}
+
+function setRefreshCookie(c: Context, refreshToken: string): void {
+  setCookie(c, 'refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    maxAge: 30 * 24 * 60 * 60,
+    path: '/',
+  });
+}
+
+// Issue an access token for the given group, rotate the refresh cookie, and
+// build the standard auth response body.
+async function issueSessionForGroup(
+  c: Context<AppEnv>,
+  user: User,
+  membership: MembershipWithGroup,
+  memberships: MembershipWithGroup[],
+  extra: Partial<AuthResponse> = {}
+) {
+  const accessToken = await generateAccessToken(
+    user.id,
+    membership.group_id,
+    membership.role,
+    c.env.JWT_SECRET
+  );
+  const refreshToken = await generateRefreshToken(
+    user.id,
+    membership.group_id,
+    membership.role,
+    c.env.JWT_SECRET
+  );
+
+  setRefreshCookie(c, refreshToken);
+
+  return c.json({
+    accessToken,
+    user: userJson(user),
+    currentGroup: membershipGroupJson(membership),
+    groups: groupsJson(memberships),
+    ...extra,
+  } satisfies AuthResponse);
+}
+
 // Send invite email (admin only)
 auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
-  try {
-    const body = await c.req.json();
-    const { email, role } = sendInviteSchema.parse(body);
+  const { email, role } = await parseJsonBody(c, sendInviteSchema);
+  const user = c.get('user');
 
-    // Get admin's group from JWT
-    const user = c.get('user');
-    if (!user || !user.groupId) {
-      return c.json({ error: 'Invalid user context' }, 401);
+  // Check if user already exists in this group
+  const existingUser = await getUserByEmail(c.env.DB, email);
+  if (existingUser) {
+    const existingMembership = await getMembership(c.env.DB, existingUser.id, user.groupId);
+    if (existingMembership) {
+      throw new BadRequestError('User is already a member of this group');
     }
-
-    // Check if user already exists in this group
-    const existingUser = await getUserByEmail(c.env.DB, email);
-    if (existingUser) {
-      const existingMembership = await getMembership(c.env.DB, existingUser.id, user.groupId);
-      if (existingMembership) {
-        return c.json({ error: 'User is already a member of this group' }, 400);
-      }
-    }
-
-    // Get group info for email
-    const group = await getGroup(c.env.DB, user.groupId);
-    if (!group) {
-      return c.json({ error: 'Group not found' }, 404);
-    }
-
-    // Create magic link token
-    const token = await createMagicLinkToken(c.env.DB, user.groupId, email, 'invite', role);
-
-    // Generate magic link URL
-    const magicLink = `${c.env.FRONTEND_URL}/auth/${token}`;
-
-    await sendInviteEmail(c.env, email, existingUser?.name ?? null, group.name, magicLink);
-
-    return c.json({
-      message: existingUser ? 'User added to group' : 'Invite sent successfully',
-      email,
-      role,
-      existingUser: !!existingUser,
-    });
-  } catch (error) {
-    if (error instanceof ZodError) {
-      throw error;
-    }
-    console.error('Error sending invite:', error);
-    return c.json({ error: 'Failed to send invite' }, 500);
   }
+
+  // Get group info for email
+  const group = await getGroup(c.env.DB, user.groupId);
+  if (!group) {
+    throw new NotFoundError('Group not found');
+  }
+
+  // Create magic link token
+  const token = await createMagicLinkToken(c.env.DB, user.groupId, email, 'invite', role);
+
+  // Generate magic link URL
+  const magicLink = `${c.env.FRONTEND_URL}/auth/${token}`;
+
+  await sendInviteEmail(c.env, email, existingUser?.name ?? null, group.name, magicLink);
+
+  // Membership is created when the invite is redeemed in /verify-magic-link,
+  // not here — so this reports the invite being sent, never that the user has
+  // joined, even when an account already exists for the address.
+  return c.json({
+    message: 'Invite sent successfully',
+    email,
+    role,
+    existingUser: !!existingUser,
+  } satisfies InviteSentResponse);
 });
 
 // Send login link (public)
 auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
-  try {
-    const body = await c.req.json();
-    const { email } = sendLoginLinkSchema.parse(body);
+  const { email } = await parseJsonBody(c, sendLoginLinkSchema);
 
-    // Get user by email
-    const user = await getUserByEmail(c.env.DB, email);
-    if (!user) {
-      // Don't reveal if user exists or not (security)
-      return c.json({ message: 'If that email exists, a login link has been sent' });
-    }
-
-    // Get user's memberships to find a group for the magic link
-    const memberships = await getUserMemberships(c.env.DB, user.id);
-
-    // Login tokens do not need to be group-scoped when the user has no groups.
-    const groupId = memberships.length > 0 ? memberships[0].group_id : null;
-
-    // Create magic link token
-    const token = await createMagicLinkToken(c.env.DB, groupId, email, 'login');
-
-    // Generate magic link URL
-    const magicLink = `${c.env.FRONTEND_URL}/auth/${token}`;
-
-    // Send login email
-    await sendLoginLinkEmail(c.env, email, user.name, magicLink);
-
+  // Get user by email
+  const user = await getUserByEmail(c.env.DB, email);
+  if (!user) {
+    // Don't reveal if user exists or not (security)
     return c.json({ message: 'If that email exists, a login link has been sent' });
-  } catch (error) {
-    if (error instanceof ZodError) {
-      throw error;
-    }
-    console.error('Error sending login link:', error);
-    return c.json({ error: 'Failed to send login link' }, 500);
   }
+
+  // Get user's memberships to find a group for the magic link
+  const memberships = await getUserMemberships(c.env.DB, user.id);
+
+  // Login tokens do not need to be group-scoped when the user has no groups.
+  const groupId = memberships.length > 0 ? memberships[0].group_id : null;
+
+  // Create magic link token
+  const token = await createMagicLinkToken(c.env.DB, groupId, email, 'login');
+
+  // Generate magic link URL
+  const magicLink = `${c.env.FRONTEND_URL}/auth/${token}`;
+
+  // Send login email
+  await sendLoginLinkEmail(c.env, email, user.name, magicLink);
+
+  return c.json({ message: 'If that email exists, a login link has been sent' });
 });
 
 // Verify magic link and issue JWT
 auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
-  try {
-    const body = await c.req.json();
-    const { token, name } = verifyMagicLinkSchema.parse(body);
+  const { token, name } = await parseJsonBody(c, verifyMagicLinkSchema);
 
-    // Check if this is a name submission (user providing their name after needsName response)
-    const isNameSubmission = !!(name && name.trim());
+  // Check if this is a name submission (user providing their name after needsName response)
+  const isNameSubmission = !!(name && name.trim());
 
-    // Verify token - allow pending state for name submissions since we set pending on first request
-    const result = await verifyMagicLink(c.env.DB, token, isNameSubmission);
+  // Verify token - allow pending state for name submissions since we set pending on first request
+  const result = await verifyMagicLink(c.env.DB, token, isNameSubmission);
 
-    if (!result.valid || !result.token) {
-      const errorMessages: Record<string, string> = {
-        not_found: 'Invalid token',
-        expired: 'Token has expired',
-        already_used: 'Token has already been used',
-        pending: 'This link is already being processed. Please wait a moment and try again.',
-        invalid: 'Invalid token',
-      };
-      const message = result.error ? errorMessages[result.error] : 'Invalid token';
-      return c.json({ error: message }, 400);
-    }
-
-    const magicToken = result.token;
-
-    // Mark token as pending to prevent concurrent use (race condition protection).
-    // For name submissions, the token is already pending from the initial request.
-    const canProceed = await markMagicLinkTokenPending(c.env.DB, token);
-    if (!canProceed && !isNameSubmission) {
-      return c.json({ error: 'This link is already being used. Please try again.' }, 400);
-    }
-
-    let user;
-    let memberships;
-
-    if (magicToken.type === 'invite') {
-      if (!magicToken.group_id) {
-        return c.json({ error: 'Invalid invite token' }, 400);
-      }
-
-      // Check if user already exists
-      const existingUser = await getUserByEmail(c.env.DB, magicToken.email);
-
-      if (existingUser) {
-        // User exists, just create membership
-        user = existingUser;
-      } else {
-        // New user - name must be provided in request
-        if (!name) {
-          // Don't consume token yet - user needs to provide name
-          // (Token is already marked pending at the start of this handler)
-          return c.json({
-            needsName: true,
-            email: magicToken.email,
-            groupId: magicToken.group_id,
-          });
-        }
-
-        const userName = name;
-
-        // Create new user with name
-        if (!magicToken.invite_role) {
-          return c.json({ error: 'Invalid invite token' }, 400);
-        }
-
-        const userId = await createUser(c.env.DB, userName, magicToken.email);
-
-        user = await getUserById(c.env.DB, userId);
-      }
-
-      if (!user) {
-        return c.json({ error: 'Failed to create user' }, 500);
-      }
-
-      // Create membership for the group
-      const existingMembership = await getMembership(c.env.DB, user.id, magicToken.group_id);
-      if (!existingMembership) {
-        await createMembership(
-          c.env.DB,
-          user.id,
-          magicToken.group_id,
-          magicToken.invite_role || 'member'
-        );
-      }
-
-      // Get updated memberships
-      memberships = await getUserMemberships(c.env.DB, user.id);
-
-      // Mark token as used now that we've successfully processed the invite
-      await markMagicLinkTokenUsed(c.env.DB, token);
-
-      // For invites, always go directly to the invited group
-      const invitedGroupMembership = memberships.find((m) => m.group_id === magicToken.group_id);
-      if (!invitedGroupMembership) {
-        return c.json({ error: 'Membership not found' }, 500);
-      }
-
-      const group = await getGroup(c.env.DB, magicToken.group_id);
-
-      const accessToken = await generateAccessToken(
-        user.id,
-        magicToken.group_id,
-        invitedGroupMembership.role,
-        c.env.JWT_SECRET
-      );
-      const refreshToken = await generateRefreshToken(
-        user.id,
-        magicToken.group_id,
-        invitedGroupMembership.role,
-        c.env.JWT_SECRET
-      );
-
-      setCookie(c, 'refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'Lax',
-        maxAge: 30 * 24 * 60 * 60,
-        path: '/',
-      });
-
-      return c.json({
-        accessToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          profileColor: user.profile_color,
-        },
-        currentGroup: {
-          id: magicToken.group_id,
-          name: group?.name || invitedGroupMembership.group_name,
-          role: invitedGroupMembership.role,
-          ownerId: group?.owner_id || invitedGroupMembership.group_owner_id,
-          imageProtection: invitedGroupMembership.image_protection === 1,
-        },
-        groups: memberships.map((m) => ({
-          id: m.group_id,
-          name: m.group_name,
-          role: m.role,
-          ownerId: m.group_owner_id,
-          imageProtection: m.image_protection === 1,
-        })),
-        needsGroupSelection: false,
-      });
-    } else {
-      // Login existing user
-      user = await getUserByEmail(c.env.DB, magicToken.email);
-
-      if (!user) {
-        return c.json({ error: 'User not found' }, 400);
-      }
-
-      memberships = await getUserMemberships(c.env.DB, user.id);
-
-      // Mark token as used now that we've successfully identified the user
-      await markMagicLinkTokenUsed(c.env.DB, token);
-
-      // Handle different membership scenarios for login
-      if (memberships.length === 0) {
-        // No groups - user has no memberships, nothing to select
-        return c.json({
-          accessToken: null,
-          user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            profileColor: user.profile_color,
-          },
-          groups: [],
-          needsGroupSelection: false,
-        });
-      }
-
-      if (memberships.length === 1) {
-        const membership = memberships[0];
-
-        const accessToken = await generateAccessToken(
-          user.id,
-          membership.group_id,
-          membership.role,
-          c.env.JWT_SECRET
-        );
-        const refreshToken = await generateRefreshToken(
-          user.id,
-          membership.group_id,
-          membership.role,
-          c.env.JWT_SECRET
-        );
-
-        setCookie(c, 'refreshToken', refreshToken, {
-          httpOnly: true,
-          secure: true,
-          sameSite: 'Lax',
-          maxAge: 30 * 24 * 60 * 60,
-          path: '/',
-        });
-
-        return c.json({
-          accessToken,
-          user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            profileColor: user.profile_color,
-          },
-          currentGroup: {
-            id: membership.group_id,
-            name: membership.group_name,
-            role: membership.role,
-            ownerId: membership.group_owner_id,
-            imageProtection: membership.image_protection === 1,
-          },
-          groups: memberships.map((m) => ({
-            id: m.group_id,
-            name: m.group_name,
-            role: m.role,
-            ownerId: m.group_owner_id,
-            imageProtection: m.image_protection === 1,
-          })),
-          needsGroupSelection: false,
-        });
-      }
-
-      // Multiple groups - return selection token and groups, frontend shows picker
-      const selectionToken = await generateGroupSelectionToken(user.id, c.env.JWT_SECRET);
-      return c.json({
-        accessToken: null,
-        selectionToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          profileColor: user.profile_color,
-        },
-        groups: memberships.map((m) => ({
-          id: m.group_id,
-          name: m.group_name,
-          role: m.role,
-          ownerId: m.group_owner_id,
-          imageProtection: m.image_protection === 1,
-        })),
-        needsGroupSelection: true,
-      });
-    }
-  } catch (error) {
-    if (error instanceof ZodError) {
-      throw error;
-    }
-    console.error('Error verifying magic link:', error);
-    return c.json({ error: 'Failed to verify magic link' }, 500);
+  if (!result.valid || !result.token) {
+    const errorMessages: Record<string, string> = {
+      not_found: 'Invalid token',
+      expired: 'Token has expired',
+      already_used: 'Token has already been used',
+      pending: 'This link is already being processed. Please wait a moment and try again.',
+      invalid: 'Invalid token',
+    };
+    throw new BadRequestError(result.error ? errorMessages[result.error] : 'Invalid token');
   }
+
+  const magicToken = result.token;
+
+  // Mark token as pending to prevent concurrent use (race condition protection).
+  // For name submissions, the token is already pending from the initial request.
+  const canProceed = await markMagicLinkTokenPending(c.env.DB, token);
+  if (!canProceed && !isNameSubmission) {
+    throw new BadRequestError('This link is already being used. Please try again.');
+  }
+
+  if (magicToken.type === 'invite') {
+    if (!magicToken.group_id) {
+      throw new BadRequestError('Invalid invite token');
+    }
+
+    // Check if user already exists
+    const existingUser = await getUserByEmail(c.env.DB, magicToken.email);
+
+    let user: User | null;
+    if (existingUser) {
+      // User exists, just create membership
+      user = existingUser;
+    } else {
+      // New user - name must be provided in request
+      if (!name) {
+        // Don't consume token yet - user needs to provide name
+        // (Token is already marked pending at the start of this handler)
+        return c.json({
+          needsName: true,
+          email: magicToken.email,
+          groupId: magicToken.group_id,
+        } satisfies NeedsNameResponse);
+      }
+
+      // Create new user with name
+      if (!magicToken.invite_role) {
+        throw new BadRequestError('Invalid invite token');
+      }
+
+      const userId = await createUser(c.env.DB, name, magicToken.email);
+      user = await getUserById(c.env.DB, userId);
+    }
+
+    if (!user) {
+      throw new InternalServerError('Failed to create user');
+    }
+
+    // Create membership for the group
+    const existingMembership = await getMembership(c.env.DB, user.id, magicToken.group_id);
+    if (!existingMembership) {
+      await createMembership(
+        c.env.DB,
+        user.id,
+        magicToken.group_id,
+        magicToken.invite_role || 'member'
+      );
+    }
+
+    // Get updated memberships
+    const memberships = await getUserMemberships(c.env.DB, user.id);
+
+    // Mark token as used now that we've successfully processed the invite
+    await markMagicLinkTokenUsed(c.env.DB, token);
+
+    // For invites, always go directly to the invited group
+    const invitedGroupMembership = memberships.find((m) => m.group_id === magicToken.group_id);
+    if (!invitedGroupMembership) {
+      throw new InternalServerError('Membership not found');
+    }
+
+    return issueSessionForGroup(c, user, invitedGroupMembership, memberships, {
+      needsGroupSelection: false,
+    });
+  }
+
+  // Login existing user
+  const user = await getUserByEmail(c.env.DB, magicToken.email);
+
+  if (!user) {
+    throw new BadRequestError('User not found');
+  }
+
+  const memberships = await getUserMemberships(c.env.DB, user.id);
+
+  // Mark token as used now that we've successfully identified the user
+  await markMagicLinkTokenUsed(c.env.DB, token);
+
+  // No groups - user has no memberships, nothing to select
+  if (memberships.length === 0) {
+    return c.json({
+      accessToken: null,
+      user: userJson(user),
+      groups: [],
+      needsGroupSelection: false,
+    } satisfies AuthResponse);
+  }
+
+  if (memberships.length === 1) {
+    return issueSessionForGroup(c, user, memberships[0], memberships, {
+      needsGroupSelection: false,
+    });
+  }
+
+  // Multiple groups - return selection token and groups, frontend shows picker
+  const selectionToken = await generateGroupSelectionToken(user.id, c.env.JWT_SECRET);
+  return c.json({
+    accessToken: null,
+    selectionToken,
+    user: userJson(user),
+    groups: groupsJson(memberships),
+    needsGroupSelection: true,
+  } satisfies AuthResponse);
 });
 
 // Switch to a different group
 auth.post('/switch-group', requireAuth, async (c) => {
-  try {
-    const body = await c.req.json();
-    const { groupId } = switchGroupSchema.parse(body);
+  const { groupId } = await parseJsonBody(c, switchGroupSchema);
+  const currentUser = c.get('user');
 
-    const currentUser = c.get('user');
-
-    // Verify user has membership in the requested group
-    const membership = await getMembership(c.env.DB, currentUser.id, groupId);
-    if (!membership) {
-      return c.json({ error: 'You are not a member of this group' }, 403);
-    }
-
-    // Get group info
-    const group = await getGroup(c.env.DB, groupId);
-    if (!group) {
-      return c.json({ error: 'Group not found' }, 404);
-    }
-
-    // Get user info
-    const user = await getUserById(c.env.DB, currentUser.id);
-    if (!user) {
-      return c.json({ error: 'User not found' }, 404);
-    }
-
-    // Generate new tokens for the new group
-    const accessToken = await generateAccessToken(
-      user.id,
-      groupId,
-      membership.role,
-      c.env.JWT_SECRET
-    );
-    const refreshToken = await generateRefreshToken(
-      user.id,
-      groupId,
-      membership.role,
-      c.env.JWT_SECRET
-    );
-
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'Lax',
-      maxAge: 30 * 24 * 60 * 60,
-      path: '/',
-    });
-
-    // Get all memberships for the response
-    const memberships = await getUserMemberships(c.env.DB, user.id);
-
-    return c.json({
-      accessToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        profileColor: user.profile_color,
-      },
-      currentGroup: {
-        id: groupId,
-        name: group.name,
-        role: membership.role,
-        ownerId: group.owner_id,
-        imageProtection: membership.image_protection === 1,
-      },
-      groups: memberships.map((m) => ({
-        id: m.group_id,
-        name: m.group_name,
-        role: m.role,
-        ownerId: m.group_owner_id,
-        imageProtection: m.image_protection === 1,
-      })),
-    });
-  } catch (error) {
-    if (error instanceof ZodError) {
-      throw error;
-    }
-    console.error('Error switching group:', error);
-    return c.json({ error: 'Failed to switch group' }, 500);
+  const user = await getUserById(c.env.DB, currentUser.id);
+  if (!user) {
+    throw new NotFoundError('User not found');
   }
+
+  // The full membership list is needed for the response anyway, so verify
+  // access from it rather than paying for a separate getMembership lookup.
+  const memberships = await getUserMemberships(c.env.DB, user.id);
+  const targetMembership = memberships.find((m) => m.group_id === groupId);
+  if (!targetMembership) {
+    throw new ForbiddenError('You are not a member of this group');
+  }
+
+  return issueSessionForGroup(c, user, targetMembership, memberships);
 });
 
 // Select initial group (for users with multiple groups after login)
 auth.post('/select-group', async (c) => {
-  try {
-    const body = await c.req.json();
-    const { selectionToken, groupId } = selectGroupSchema.parse(body);
+  const { selectionToken, groupId } = await parseJsonBody(c, selectGroupSchema);
 
-    // Verify the selection token and extract userId
-    const tokenResult = await verifyGroupSelectionToken(selectionToken, c.env.JWT_SECRET);
-    if (!tokenResult.valid) {
-      return c.json({ error: 'Invalid or expired selection token' }, 401);
-    }
-
-    const userId = tokenResult.userId;
-
-    // Get user
-    const user = await getUserById(c.env.DB, userId);
-    if (!user) {
-      return c.json({ error: 'User not found' }, 404);
-    }
-
-    // Verify user has membership in the requested group
-    const membership = await getMembership(c.env.DB, userId, groupId);
-    if (!membership) {
-      return c.json({ error: 'You are not a member of this group' }, 403);
-    }
-
-    // Get group info
-    const group = await getGroup(c.env.DB, groupId);
-    if (!group) {
-      return c.json({ error: 'Group not found' }, 404);
-    }
-
-    // Generate tokens
-    const accessToken = await generateAccessToken(
-      user.id,
-      groupId,
-      membership.role,
-      c.env.JWT_SECRET
-    );
-    const refreshToken = await generateRefreshToken(
-      user.id,
-      groupId,
-      membership.role,
-      c.env.JWT_SECRET
-    );
-
-    setCookie(c, 'refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'Lax',
-      maxAge: 30 * 24 * 60 * 60,
-      path: '/',
-    });
-
-    // Get all memberships for the response
-    const memberships = await getUserMemberships(c.env.DB, user.id);
-
-    return c.json({
-      accessToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        profileColor: user.profile_color,
-      },
-      currentGroup: {
-        id: groupId,
-        name: group.name,
-        role: membership.role,
-        ownerId: group.owner_id,
-        imageProtection: membership.image_protection === 1,
-      },
-      groups: memberships.map((m) => ({
-        id: m.group_id,
-        name: m.group_name,
-        role: m.role,
-        ownerId: m.group_owner_id,
-        imageProtection: m.image_protection === 1,
-      })),
-    });
-  } catch (error) {
-    if (error instanceof ZodError) {
-      throw error;
-    }
-    console.error('Error selecting group:', error);
-    return c.json({ error: 'Failed to select group' }, 500);
+  // Verify the selection token and extract userId
+  const tokenResult = await verifyGroupSelectionToken(selectionToken, c.env.JWT_SECRET);
+  if (!tokenResult.valid) {
+    throw new UnauthorizedError('Invalid or expired selection token');
   }
+
+  const userId = tokenResult.userId;
+
+  const user = await getUserById(c.env.DB, userId);
+  if (!user) {
+    throw new NotFoundError('User not found');
+  }
+
+  // As in /switch-group: one membership query serves both the access check and
+  // the response body.
+  const memberships = await getUserMemberships(c.env.DB, user.id);
+  const targetMembership = memberships.find((m) => m.group_id === groupId);
+  if (!targetMembership) {
+    throw new ForbiddenError('You are not a member of this group');
+  }
+
+  return issueSessionForGroup(c, user, targetMembership, memberships);
 });
 
 // Refresh access token
 auth.post('/refresh', async (c) => {
-  try {
-    const refreshToken = getCookie(c, 'refreshToken');
+  const refreshToken = getCookie(c, 'refreshToken');
 
-    if (!refreshToken) {
-      return c.json({ error: 'No refresh token provided' }, 401);
-    }
-
-    const payload = await verifyJWT(refreshToken, c.env.JWT_SECRET);
-
-    if (!payload || payload.type !== 'refresh') {
-      return c.json({ error: 'Invalid refresh token' }, 401);
-    }
-
-    // Get user data
-    const user = await getUserById(c.env.DB, payload.sub);
-
-    if (!user) {
-      return c.json({ error: 'User not found' }, 401);
-    }
-
-    // Get membership for the group in the token
-    const membership = await getMembership(c.env.DB, user.id, payload.groupId);
-
-    // Get all memberships for the response
-    const memberships = await getUserMemberships(c.env.DB, user.id);
-
-    if (!membership) {
-      // User is no longer a member of this group (e.g., group was deleted)
-      // Return user info with their remaining groups so they can pick a new one
-      const selectionToken =
-        memberships.length > 0
-          ? await generateGroupSelectionToken(user.id, c.env.JWT_SECRET)
-          : null;
-      return c.json({
-        accessToken: null,
-        selectionToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          profileColor: user.profile_color,
-        },
-        currentGroup: null,
-        groups: memberships.map((m) => ({
-          id: m.group_id,
-          name: m.group_name,
-          role: m.role,
-          ownerId: m.group_owner_id,
-          imageProtection: m.image_protection === 1,
-        })),
-        needsGroupSelection: memberships.length > 0,
-      });
-    }
-
-    // Get group info
-    const group = await getGroup(c.env.DB, payload.groupId);
-
-    // Generate new tokens with current role from membership
-    const accessToken = await generateAccessToken(
-      user.id,
-      payload.groupId,
-      membership.role,
-      c.env.JWT_SECRET
-    );
-
-    const newRefreshToken = await generateRefreshToken(
-      user.id,
-      payload.groupId,
-      membership.role,
-      c.env.JWT_SECRET
-    );
-
-    setCookie(c, 'refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'Lax',
-      maxAge: 30 * 24 * 60 * 60,
-      path: '/',
-    });
-
-    return c.json({
-      accessToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        profileColor: user.profile_color,
-      },
-      currentGroup: {
-        id: payload.groupId,
-        name: group?.name || 'Unknown',
-        role: membership.role,
-        ownerId: group?.owner_id,
-        imageProtection: membership.image_protection === 1,
-      },
-      groups: memberships.map((m) => ({
-        id: m.group_id,
-        name: m.group_name,
-        role: m.role,
-        ownerId: m.group_owner_id,
-        imageProtection: m.image_protection === 1,
-      })),
-    });
-  } catch (error) {
-    console.error('Error refreshing token:', error);
-    return c.json({ error: 'Failed to refresh token' }, 500);
+  if (!refreshToken) {
+    throw new UnauthorizedError('No refresh token provided');
   }
+
+  const payload = await verifyJWT(refreshToken, c.env.JWT_SECRET);
+
+  if (!payload || payload.type !== 'refresh') {
+    throw new UnauthorizedError('Invalid refresh token');
+  }
+
+  // Get user data
+  const user = await getUserById(c.env.DB, payload.sub);
+
+  if (!user) {
+    throw new UnauthorizedError('User not found');
+  }
+
+  // Get all memberships for the response
+  const memberships = await getUserMemberships(c.env.DB, user.id);
+
+  // Get membership for the group in the token
+  const membership = memberships.find((m) => m.group_id === payload.groupId);
+
+  if (!membership) {
+    // User is no longer a member of this group (e.g., group was deleted)
+    // Return user info with their remaining groups so they can pick a new one
+    const selectionToken =
+      memberships.length > 0 ? await generateGroupSelectionToken(user.id, c.env.JWT_SECRET) : null;
+    return c.json({
+      accessToken: null,
+      selectionToken,
+      user: userJson(user),
+      currentGroup: null,
+      groups: groupsJson(memberships),
+      needsGroupSelection: memberships.length > 0,
+    } satisfies AuthResponse);
+  }
+
+  return issueSessionForGroup(c, user, membership, memberships);
 });
 
 // Logout

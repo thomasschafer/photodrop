@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { ZodError } from 'zod';
+import type { Context } from 'hono';
 import {
   createPhoto,
   getPhoto,
@@ -18,6 +18,7 @@ import {
   getComment,
   deleteComment as dbDeleteComment,
   getMembership,
+  type Photo,
 } from '../lib/db';
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -31,7 +32,23 @@ import {
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
 import { addReactionSchema, addCommentSchema } from '../lib/schemas';
-import { BadRequestError, requireParam, parseJsonBody } from '../lib/http';
+import {
+  BadRequestError,
+  NotFoundError,
+  ForbiddenError,
+  requireParam,
+  parseJsonBody,
+} from '../lib/http';
+import type {
+  PhotoListResponse,
+  PhotoUploadResponse,
+  PhotoDetailResponse,
+  PhotoViewersResponse,
+  ReactionMutationResponse,
+  ReactionsResponse,
+  CommentsResponse,
+  CommentCreatedResponse,
+} from '@photodrop/common/apiTypes';
 import type { Bindings, AppEnv } from '../types';
 
 // Rate limit for comments: 100 per user per 15 minutes
@@ -49,6 +66,19 @@ const uploadRateLimit = createRateLimitMiddleware({
 });
 
 const photos = new Hono<AppEnv>();
+
+// Load the photo from the `:id` route param, scoped to the requesting user's
+// group (which also enforces group isolation), or fail with a 404.
+async function requirePhoto(c: Context<AppEnv>): Promise<Photo> {
+  const photoId = requireParam(c.req.param('id'), 'id');
+  const photo = await getPhoto(c.env.DB, photoId, c.get('user').groupId);
+
+  if (!photo) {
+    throw new NotFoundError('Photo not found');
+  }
+
+  return photo;
+}
 
 // Send push notifications in background (non-blocking)
 async function sendPhotoUploadNotifications(
@@ -131,45 +161,30 @@ async function sendPhotoUploadNotifications(
 }
 
 photos.get('/', requireAuth, async (c) => {
-  try {
-    // Clamp limit to 1-100, offset to >= 0
-    const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '20', 10) || 20, 1), 100);
-    const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0);
-    const user = c.get('user');
+  // Clamp limit to 1-100, offset to >= 0
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '20', 10) || 20, 1), 100);
+  const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0);
+  const user = c.get('user');
 
-    // Fetch one extra to determine if there are more photos
-    const photoList = await listPhotosWithCounts(
-      c.env.DB,
-      user.groupId,
-      user.id,
-      limit + 1,
-      offset
-    );
-    const hasMore = photoList.length > limit;
-    const photosToReturn = hasMore ? photoList.slice(0, limit) : photoList;
+  // Fetch one extra to determine if there are more photos
+  const photoList = await listPhotosWithCounts(c.env.DB, user.groupId, user.id, limit + 1, offset);
+  const hasMore = photoList.length > limit;
+  const photosToReturn = hasMore ? photoList.slice(0, limit) : photoList;
 
-    return c.json({
-      photos: photosToReturn.map((photo) => ({
-        id: photo.id,
-        caption: photo.caption,
-        uploadedBy: photo.uploaded_by,
-        uploadedAt: photo.uploaded_at,
-        commentCount: photo.comment_count,
-        reactions: photo.reactions,
-        userReactions: photo.user_reactions,
-      })),
-      limit,
-      offset,
-      hasMore,
-    });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error listing photos:', error);
-    return c.json({ error: 'Failed to list photos' }, 500);
-  }
+  return c.json({
+    photos: photosToReturn.map((photo) => ({
+      id: photo.id,
+      caption: photo.caption,
+      uploadedBy: photo.uploaded_by,
+      uploadedAt: photo.uploaded_at,
+      commentCount: photo.comment_count,
+      reactions: photo.reactions,
+      userReactions: photo.user_reactions,
+    })),
+    limit,
+    offset,
+    hasMore,
+  } satisfies PhotoListResponse);
 });
 
 photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
@@ -249,19 +264,26 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
     photoR2Key = `photos/${generateId()}-${Date.now()}.${photoExt}`;
     thumbnailR2Key = `thumbnails/${generateId()}-${Date.now()}.${thumbExt}`;
 
-    // Upload photo to R2
-    await c.env.PHOTOS.put(photoR2Key, photoBuffer, {
-      httpMetadata: {
-        contentType: photoMagicType,
-      },
-    });
+    // Upload photo and thumbnail to R2 in parallel. Use allSettled rather than
+    // Promise.all so both writes are guaranteed to have finished before we act
+    // on a failure: with Promise.all, a rejection would enter the catch block
+    // and delete both keys while the other put is still in flight, and that
+    // write could then land after the delete and orphan an object.
+    const [photoUpload, thumbnailUpload] = await Promise.allSettled([
+      c.env.PHOTOS.put(photoR2Key, photoBuffer, {
+        httpMetadata: {
+          contentType: photoMagicType,
+        },
+      }),
+      c.env.PHOTOS.put(thumbnailR2Key, thumbnailBuffer, {
+        httpMetadata: {
+          contentType: thumbnailMagicType,
+        },
+      }),
+    ]);
 
-    // Upload thumbnail to R2
-    await c.env.PHOTOS.put(thumbnailR2Key, thumbnailBuffer, {
-      httpMetadata: {
-        contentType: thumbnailMagicType,
-      },
-    });
+    if (photoUpload.status === 'rejected') throw photoUpload.reason;
+    if (thumbnailUpload.status === 'rejected') throw thumbnailUpload.reason;
 
     // Create DB entry - if this fails, we'll clean up R2 in catch block
     const photoId = await createPhoto(
@@ -282,7 +304,7 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
       {
         id: photoId,
         message: 'Photo uploaded successfully',
-      },
+      } satisfies PhotoUploadResponse,
       201
     );
   } catch (error) {
@@ -305,449 +327,211 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
 });
 
 photos.get('/:id', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
+  const photo = await requirePhoto(c);
 
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
-
-    return c.json({
-      id: photo.id,
-      caption: photo.caption,
-      uploadedBy: photo.uploaded_by,
-      uploadedAt: photo.uploaded_at,
-    });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error fetching photo:', error);
-    return c.json({ error: 'Failed to fetch photo' }, 500);
-  }
-});
-
-photos.get('/:id/url', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
-
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
-
-    const object = await c.env.PHOTOS.get(photo.r2_key);
-    if (!object) {
-      return c.json({ error: 'Photo file not found in storage' }, 404);
-    }
-
-    const url = new URL(c.req.url);
-    const signedUrl = `${url.origin}/photos/${photoId}/download`;
-
-    return c.json({
-      url: signedUrl,
-      expiresIn: 3600,
-    });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error generating photo URL:', error);
-    return c.json({ error: 'Failed to generate photo URL' }, 500);
-  }
+  return c.json({
+    id: photo.id,
+    caption: photo.caption,
+    uploadedBy: photo.uploaded_by,
+    uploadedAt: photo.uploaded_at,
+  } satisfies PhotoDetailResponse);
 });
 
 photos.get('/:id/download', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
+  const photo = await requirePhoto(c);
 
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
-
-    const object = await c.env.PHOTOS.get(photo.r2_key);
-    if (!object) {
-      return c.json({ error: 'Photo file not found in storage' }, 404);
-    }
-
-    return new Response(object.body, {
-      headers: {
-        'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
-        // Private image: no-store keeps it out of all shared/browser/CDN HTTP
-        // caches, and we vary by the auth header. Deliberate per-browser caching
-        // is left to the service worker (CacheFirst + ignoreVary, purged on
-        // logout/group switch) — but only when the request is same-origin with
-        // the controlled page (dev via the Vite /api proxy, or a same-origin
-        // deploy). The default production build points at a separate API
-        // subdomain, so those cross-origin requests bypass the SW caches and are
-        // refetched on cold loads. See frontend/src/sw.ts.
-        'Cache-Control': 'no-store',
-        Vary: 'Authorization',
-      },
-    });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error downloading photo:', error);
-    return c.json({ error: 'Failed to download photo' }, 500);
+  const object = await c.env.PHOTOS.get(photo.r2_key);
+  if (!object) {
+    throw new NotFoundError('Photo file not found in storage');
   }
-});
 
-photos.get('/:id/thumbnail-url', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
-
-    if (!photo || !photo.thumbnail_r2_key) {
-      return c.json({ error: 'Photo or thumbnail not found' }, 404);
-    }
-
-    const url = new URL(c.req.url);
-    const signedUrl = `${url.origin}/photos/${photoId}/thumbnail`;
-
-    return c.json({
-      url: signedUrl,
-      expiresIn: 3600,
-    });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error generating thumbnail URL:', error);
-    return c.json({ error: 'Failed to generate thumbnail URL' }, 500);
-  }
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
+      // Private image: no-store keeps it out of all shared/browser/CDN HTTP
+      // caches, and we vary by the auth header. Deliberate per-browser caching
+      // is left to the service worker (CacheFirst + ignoreVary, purged on
+      // logout/group switch) — but only when the request is same-origin with
+      // the controlled page (dev via the Vite /api proxy, or a same-origin
+      // deploy). The default production build points at a separate API
+      // subdomain, so those cross-origin requests bypass the SW caches and are
+      // refetched on cold loads. See frontend/src/sw.ts.
+      'Cache-Control': 'no-store',
+      Vary: 'Authorization',
+    },
+  });
 });
 
 photos.get('/:id/thumbnail', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
-
-    if (!photo || !photo.thumbnail_r2_key) {
-      return c.json({ error: 'Photo or thumbnail not found' }, 404);
-    }
-
-    const object = await c.env.PHOTOS.get(photo.thumbnail_r2_key);
-    if (!object) {
-      return c.json({ error: 'Thumbnail file not found in storage' }, 404);
-    }
-
-    return new Response(object.body, {
-      headers: {
-        'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
-        // Private image, no shared/browser/CDN HTTP caching; same-origin-only
-        // service-worker caching. See the download route above for the full
-        // rationale and the cross-origin production caveat.
-        'Cache-Control': 'no-store',
-        Vary: 'Authorization',
-      },
-    });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error downloading thumbnail:', error);
-    return c.json({ error: 'Failed to download thumbnail' }, 500);
+  const photo = await requirePhoto(c);
+  if (!photo.thumbnail_r2_key) {
+    throw new NotFoundError('Photo or thumbnail not found');
   }
+
+  const object = await c.env.PHOTOS.get(photo.thumbnail_r2_key);
+  if (!object) {
+    throw new NotFoundError('Thumbnail file not found in storage');
+  }
+
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
+      // Private image, no shared/browser/CDN HTTP caching; same-origin-only
+      // service-worker caching. See the download route above for the full
+      // rationale and the cross-origin production caveat.
+      'Cache-Control': 'no-store',
+      Vary: 'Authorization',
+    },
+  });
 });
 
 photos.delete('/:id', requireAdmin, async (c) => {
+  const photo = await requirePhoto(c);
+
+  // Delete DB record first, then R2 files. If R2 cleanup fails,
+  // we have orphaned files (harmless) rather than DB rows pointing to missing files.
+  await dbDeletePhoto(c.env.DB, photo.id, c.get('user').groupId);
+
   try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
-
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
+    await c.env.PHOTOS.delete(photo.r2_key);
+    if (photo.thumbnail_r2_key) {
+      await c.env.PHOTOS.delete(photo.thumbnail_r2_key);
     }
-
-    // Delete DB record first, then R2 files. If R2 cleanup fails,
-    // we have orphaned files (harmless) rather than DB rows pointing to missing files.
-    await dbDeletePhoto(c.env.DB, photoId, user.groupId);
-
-    try {
-      await c.env.PHOTOS.delete(photo.r2_key);
-      if (photo.thumbnail_r2_key) {
-        await c.env.PHOTOS.delete(photo.thumbnail_r2_key);
-      }
-    } catch (r2Error) {
-      console.error('Failed to clean up R2 files after photo deletion:', r2Error);
-      // DB record already deleted, R2 orphans are harmless
-    }
-
-    return c.json({ message: 'Photo deleted successfully' });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error deleting photo:', error);
-    return c.json({ error: 'Failed to delete photo' }, 500);
+  } catch (r2Error) {
+    console.error('Failed to clean up R2 files after photo deletion:', r2Error);
+    // DB record already deleted, R2 orphans are harmless
   }
+
+  return c.json({ message: 'Photo deleted successfully' });
 });
 
 photos.post('/:id/view', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const currentUser = c.get('user');
+  const photo = await requirePhoto(c);
 
-    const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
+  await recordPhotoView(c.env.DB, photo.id, c.get('user').id);
 
-    await recordPhotoView(c.env.DB, photoId, currentUser.id);
-
-    return c.json({ message: 'View recorded' });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error recording view:', error);
-    return c.json({ error: 'Failed to record view' }, 500);
-  }
+  return c.json({ message: 'View recorded' });
 });
 
 photos.get('/:id/viewers', requireAdmin, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
+  const photo = await requirePhoto(c);
 
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
+  const viewers = await getPhotoViewers(c.env.DB, photo.id);
 
-    const viewers = await getPhotoViewers(c.env.DB, photoId);
-
-    return c.json({ viewers });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error fetching viewers:', error);
-    return c.json({ error: 'Failed to fetch viewers' }, 500);
-  }
+  return c.json({ viewers } satisfies PhotoViewersResponse);
 });
 
 photos.post('/:id/react', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const currentUser = c.get('user');
-    const { emoji } = await parseJsonBody(c, addReactionSchema);
+  const { emoji } = await parseJsonBody(c, addReactionSchema);
+  const photo = await requirePhoto(c);
 
-    const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
+  await addPhotoReaction(c.env.DB, photo.id, c.get('user').id, emoji);
 
-    await addPhotoReaction(c.env.DB, photoId, currentUser.id, emoji);
-
-    return c.json({ message: 'Reaction added', emoji });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    if (error instanceof ZodError) {
-      throw error;
-    }
-
-    console.error('Error adding reaction:', error);
-    return c.json({ error: 'Failed to add reaction' }, 500);
-  }
+  return c.json({ message: 'Reaction added', emoji } satisfies ReactionMutationResponse);
 });
 
 photos.delete('/:id/react', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const currentUser = c.get('user');
-    const { emoji } = await parseJsonBody(c, addReactionSchema);
+  const { emoji } = await parseJsonBody(c, addReactionSchema);
+  const photo = await requirePhoto(c);
 
-    const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
+  await removePhotoReaction(c.env.DB, photo.id, c.get('user').id, emoji);
 
-    await removePhotoReaction(c.env.DB, photoId, currentUser.id, emoji);
-
-    return c.json({ message: 'Reaction removed', emoji });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error removing reaction:', error);
-    return c.json({ error: 'Failed to remove reaction' }, 500);
-  }
+  return c.json({ message: 'Reaction removed', emoji } satisfies ReactionMutationResponse);
 });
 
 photos.get('/:id/reactions', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
+  const photo = await requirePhoto(c);
 
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
+  const reactions = await getPhotoReactionsWithUsers(c.env.DB, photo.id);
 
-    const reactions = await getPhotoReactionsWithUsers(c.env.DB, photoId);
-
-    return c.json({
-      reactions: reactions.map((r) => ({
-        emoji: r.emoji,
-        userId: r.user_id,
-        userName: r.user_name,
-        profileColor: r.user_profile_color,
-        createdAt: r.created_at,
-      })),
-    });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error fetching reactions:', error);
-    return c.json({ error: 'Failed to fetch reactions' }, 500);
-  }
+  return c.json({
+    reactions: reactions.map((r) => ({
+      emoji: r.emoji,
+      userId: r.user_id,
+      userName: r.user_name,
+      profileColor: r.user_profile_color,
+      createdAt: r.created_at,
+    })),
+  } satisfies ReactionsResponse);
 });
 
 // Comment endpoints
 photos.get('/:id/comments', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const user = c.get('user');
+  const photo = await requirePhoto(c);
 
-    const photo = await getPhoto(c.env.DB, photoId, user.groupId);
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
+  const comments = await getCommentsByPhotoId(c.env.DB, photo.id);
 
-    const comments = await getCommentsByPhotoId(c.env.DB, photoId);
+  return c.json({
+    comments: comments.map((comment) => {
+      const isDeleted = comment.deleted_at !== null;
+      const isUserDeleted = !comment.user_id;
+      const authorName = isUserDeleted
+        ? 'Deleted user'
+        : (comment.user_name ?? comment.author_name);
 
-    return c.json({
-      comments: comments.map((comment) => {
-        const isDeleted = comment.deleted_at !== null;
-        const isUserDeleted = !comment.user_id;
-        const authorName = isUserDeleted
-          ? 'Deleted user'
-          : (comment.user_name ?? comment.author_name);
-
-        return {
-          id: comment.id,
-          userId: comment.user_id,
-          authorName,
-          authorProfileColor: comment.author_profile_color,
-          content: comment.content,
-          createdAt: comment.created_at,
-          isDeleted,
-        };
-      }),
-    });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error fetching comments:', error);
-    return c.json({ error: 'Failed to fetch comments' }, 500);
-  }
+      return {
+        id: comment.id,
+        userId: comment.user_id,
+        authorName,
+        authorProfileColor: comment.author_profile_color,
+        content: comment.content,
+        createdAt: comment.created_at,
+        isDeleted,
+      };
+    }),
+  } satisfies CommentsResponse);
 });
 
 photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const currentUser = c.get('user');
-    const { content } = await parseJsonBody(c, addCommentSchema);
+  const { content } = await parseJsonBody(c, addCommentSchema);
+  const photo = await requirePhoto(c);
+  const currentUser = c.get('user');
 
-    const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
-
-    const user = await getUserById(c.env.DB, currentUser.id);
-    if (!user) {
-      return c.json({ error: 'User not found' }, 404);
-    }
-
-    const commentId = await createComment(c.env.DB, photoId, currentUser.id, user.name, content);
-
-    return c.json(
-      {
-        id: commentId,
-        message: 'Comment added',
-      },
-      201
-    );
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error adding comment:', error);
-    return c.json({ error: 'Failed to add comment' }, 500);
+  const user = await getUserById(c.env.DB, currentUser.id);
+  if (!user) {
+    throw new NotFoundError('User not found');
   }
+
+  const commentId = await createComment(c.env.DB, photo.id, currentUser.id, user.name, content);
+
+  return c.json(
+    {
+      id: commentId,
+      message: 'Comment added',
+    } satisfies CommentCreatedResponse,
+    201
+  );
 });
 
 photos.delete('/:id/comments/:commentId', requireAuth, async (c) => {
-  try {
-    const photoId = requireParam(c.req.param('id'), 'id');
-    const commentId = requireParam(c.req.param('commentId'), 'commentId');
-    const currentUser = c.get('user');
+  const photo = await requirePhoto(c);
+  const commentId = requireParam(c.req.param('commentId'), 'commentId');
+  const currentUser = c.get('user');
 
-    const photo = await getPhoto(c.env.DB, photoId, currentUser.groupId);
-    if (!photo) {
-      return c.json({ error: 'Photo not found' }, 404);
-    }
-
-    const comment = await getComment(c.env.DB, commentId);
-    if (!comment || comment.deleted_at !== null) {
-      return c.json({ error: 'Comment not found' }, 404);
-    }
-
-    if (comment.photo_id !== photoId) {
-      return c.json({ error: 'Comment does not belong to this photo' }, 400);
-    }
-
-    // Allow deletion if user is the author
-    const isAuthor = comment.user_id === currentUser.id;
-
-    if (!isAuthor) {
-      // Check actual admin role from database (not JWT) to prevent stale role exploitation
-      const membership = await getMembership(c.env.DB, currentUser.id, currentUser.groupId);
-      const isAdmin = membership?.role === 'admin';
-      if (!isAdmin) {
-        return c.json({ error: 'Not authorized to delete this comment' }, 403);
-      }
-    }
-
-    await dbDeleteComment(c.env.DB, commentId);
-
-    return c.json({ message: 'Comment deleted' });
-  } catch (error) {
-    if (error instanceof BadRequestError) {
-      return c.json({ error: error.message }, error.statusCode);
-    }
-
-    console.error('Error deleting comment:', error);
-    return c.json({ error: 'Failed to delete comment' }, 500);
+  const comment = await getComment(c.env.DB, commentId);
+  if (!comment || comment.deleted_at !== null) {
+    throw new NotFoundError('Comment not found');
   }
+
+  if (comment.photo_id !== photo.id) {
+    throw new BadRequestError('Comment does not belong to this photo');
+  }
+
+  // Allow deletion if user is the author
+  const isAuthor = comment.user_id === currentUser.id;
+
+  if (!isAuthor) {
+    // Check actual admin role from database (not JWT) to prevent stale role exploitation
+    const membership = await getMembership(c.env.DB, currentUser.id, currentUser.groupId);
+    const isAdmin = membership?.role === 'admin';
+    if (!isAdmin) {
+      throw new ForbiddenError('Not authorized to delete this comment');
+    }
+  }
+
+  await dbDeleteComment(c.env.DB, commentId);
+
+  return c.json({ message: 'Comment deleted' });
 });
 
 export default photos;

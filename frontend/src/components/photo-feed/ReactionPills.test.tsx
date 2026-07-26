@@ -66,6 +66,48 @@ describe('ReactionPills', () => {
     }
   });
 
+  it('prevents mousedown inside the picker from moving focus (Safari focus steal)', () => {
+    // macOS Safari does not focus buttons on mousedown; it focuses the nearest
+    // mouse-focusable ancestor instead — in the feed, the tabIndex={0} photo
+    // card. If that default is not prevented, the focus move blurs the picker,
+    // which closes and unmounts the emoji option before its click event fires,
+    // so the reaction is never added. Cancelling the mousedown default is the
+    // contract that stops the focus steal.
+    const onReactionClick = vi.fn();
+
+    render(
+      <div tabIndex={0}>
+        <ReactionPills reactions={[]} userReactions={[]} onReactionClick={onReactionClick} />
+      </div>
+    );
+
+    const trigger = screen.getByRole('button', { name: 'Add reaction' });
+
+    // Real browsers fire mousedown before click, so drive them in that order.
+    // fireEvent returns false when the event's default was prevented.
+    expect(fireEvent.mouseDown(trigger)).toBe(false);
+    fireEvent.click(trigger);
+    const option = screen.getByRole('option', { name: 'React with 😂' });
+
+    expect(fireEvent.mouseDown(option)).toBe(false);
+    fireEvent.click(option);
+    expect(onReactionClick).toHaveBeenCalledWith('😂');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+    // Reopen, then press the trigger again: because it focuses itself on
+    // mousedown (replacing the native focus that preventDefault suppresses),
+    // the blur handler sees a relatedTarget inside the container and the
+    // second press toggles the picker shut instead of leaving it open.
+    fireEvent.mouseDown(trigger);
+    fireEvent.click(trigger);
+    expect(screen.getByRole('listbox', { name: 'Select reaction' })).toBeInTheDocument();
+
+    fireEvent.mouseDown(trigger);
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
   it('opens its own picker and selects an emoji from it', () => {
     const onReactionClick = vi.fn();
 

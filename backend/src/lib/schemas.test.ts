@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { addReactionSchema, canonicalizeEmoji } from './schemas';
+import { canonicalizeEmoji } from '@photodrop/common/reactions';
+import { addReactionSchema } from './schemas';
 
 describe('emoji normalization', () => {
   it('canonicalizes emoji without variation selector', () => {

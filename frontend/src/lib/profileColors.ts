@@ -1,28 +1,4 @@
-// Keep in sync with backend/src/lib/db.ts
-export const PROFILE_COLORS = [
-  'terracotta',
-  'coral',
-  'amber',
-  'rust',
-  'clay',
-  'copper',
-  'sienna',
-  'sage',
-  'olive',
-  'forest',
-  'moss',
-  'jade',
-  'slate',
-  'ocean',
-  'teal',
-  'indigo',
-  'plum',
-  'wine',
-  'mauve',
-  'rose',
-] as const;
-
-export type ProfileColor = (typeof PROFILE_COLORS)[number];
+export { PROFILE_COLORS, type ProfileColor } from '@photodrop/common/profileColors';
 
 export function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

@@ -66,23 +66,20 @@ interface AuthContextType {
     selectionToken?: string | null
   ) => void;
   logout: () => Promise<void>;
-  refreshAuth: () => Promise<void>;
+  // Resolves true when it settled auth state (synced from the server, or tore
+  // down on a genuine expiry); false when a transient failure left the existing
+  // state untouched. See onGroupDeleted for why the caller needs to know.
+  refreshAuth: () => Promise<boolean>;
   switchGroup: (groupId: string) => Promise<void>;
   selectGroup: (groupId: string) => Promise<void>;
-  onGroupDeleted: (deletedGroupId: string) => void;
+  onGroupDeleted: () => Promise<void>;
   updateProfileColor: (color: ProfileColor) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [authState, setAuthState] = useState<AuthState>({
-    user: null,
-    currentGroup: null,
-    groups: [],
-    needsGroupSelection: false,
-    selectionToken: null,
-  });
+  const [authState, setAuthState] = useState<AuthState>(LOGGED_OUT_STATE);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   // Current pathname via a ref so event-driven callbacks read it fresh without
@@ -121,6 +118,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  // The single teardown for "this session is over": explicit logout, a refresh
+  // the server rejected, the session-expired event, and the post-group-deletion
+  // fallback must all leave exactly the same state behind. Clearing the caches
+  // matters most — they hold another session's photos — and resetting the push
+  // flag is what lets native push register again on the next sign-in.
+  //
+  // Awaited rather than fire-and-forget: clearAllUserCaches only drops the
+  // in-memory image cache after the Cache API deletion resolves, so ignoring
+  // the promise would let teardown "finish" with decoded photos still held.
+  const resetToLoggedOut = useCallback(async () => {
+    localStorage.removeItem('accessToken');
+    setAuthState(LOGGED_OUT_STATE);
+    nativePushInitialized.current = false;
+    await clearAllUserCaches();
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       // Clean up web push subscriptions
@@ -149,21 +162,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      localStorage.removeItem('accessToken');
-      setAuthState({
-        user: null,
-        currentGroup: null,
-        groups: [],
-        needsGroupSelection: false,
-        selectionToken: null,
-      });
-      clearAllUserCaches();
-      // Reset native push init flag so it re-initializes on next login
-      nativePushInitialized.current = false;
+      await resetToLoggedOut();
     }
-  }, []);
+  }, [resetToLoggedOut]);
 
-  const refreshAuth = useCallback(async () => {
+  const refreshAuth = useCallback(async (): Promise<boolean> => {
     try {
       const data = await api.auth.refresh();
       if (data.accessToken) {
@@ -172,18 +175,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('accessToken');
       }
       setAuthState(refreshedAuthState(data));
+      return true;
     } catch (error) {
       console.error('Refresh error:', error);
       // A transient failure (network / 5xx) must not sign the user out — keep
       // the current session so a later refresh can recover. Only tear down on a
       // genuine expiry (the server rejected the refresh cookie).
       if (!isSessionExpired(error)) {
-        return;
+        return false;
       }
-      localStorage.removeItem('accessToken');
-      setAuthState(LOGGED_OUT_STATE);
+      await resetToLoggedOut();
+      return true;
     }
-  }, []);
+  }, [resetToLoggedOut]);
 
   const switchGroup = useCallback(async (groupId: string) => {
     try {
@@ -191,6 +195,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!data.accessToken) {
         throw new Error('No access token received from switchGroup');
       }
+      // Before publishing the new group, not after: once the state switches,
+      // the feed starts fetching and caching the new group's photos, and a
+      // clear running behind that would both serve the old group's images
+      // briefly and delete the new group's freshly cached ones.
+      await clearGroupCaches();
       localStorage.setItem('accessToken', data.accessToken);
       setAuthState({
         user: data.user,
@@ -199,7 +208,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         needsGroupSelection: false,
         selectionToken: null,
       });
-      clearGroupCaches();
 
       // Re-register native push for new group
       if (isNativePlatform()) {
@@ -224,6 +232,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!data.accessToken) {
           throw new Error('No access token received from selectGroup');
         }
+        // Cleared before publishing, as in switchGroup above.
+        await clearGroupCaches();
         localStorage.setItem('accessToken', data.accessToken);
         setAuthState({
           user: data.user,
@@ -232,7 +242,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           needsGroupSelection: false,
           selectionToken: null,
         });
-        clearGroupCaches();
       } catch (error) {
         console.error('Select group error:', error);
         throw error;
@@ -248,20 +257,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const onGroupDeleted = useCallback(
-    (deletedGroupId: string) => {
-      const remainingGroups = authState.groups.filter((g) => g.id !== deletedGroupId);
-      localStorage.removeItem('accessToken');
-      setAuthState({
-        user: authState.user,
-        currentGroup: null,
-        groups: remainingGroups,
-        needsGroupSelection: remainingGroups.length > 0,
-        selectionToken: null,
-      });
-    },
-    [authState.groups, authState.user]
-  );
+  // After the current group is deleted, the access token is dead (it's scoped
+  // to that group). Refresh instead of patching state locally: the refresh
+  // endpoint sees the missing membership and returns the remaining groups plus
+  // the selection token the group picker needs — without it, selecting a new
+  // group would fail.
+  const onGroupDeleted = useCallback(async () => {
+    localStorage.removeItem('accessToken');
+    const settled = await refreshAuth();
+    // If the refresh failed transiently (network / 5xx), refreshAuth leaves the
+    // prior state untouched — but here that state names the group we just
+    // deleted, and its token is already gone. Rather than strand a broken
+    // session (stale currentGroup, no token, MembersList wedged mid-delete),
+    // tear down to a clean logged-out state; the user re-authenticates and is
+    // routed to the picker or their remaining group from there.
+    if (!settled) {
+      await resetToLoggedOut();
+    }
+  }, [refreshAuth, resetToLoggedOut]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -328,11 +341,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthState(refreshedAuthState(data));
     };
 
-    const handleSessionExpired = () => {
-      localStorage.removeItem('accessToken');
-      setAuthState(LOGGED_OUT_STATE);
-      clearAllUserCaches();
-      nativePushInitialized.current = false;
+    const handleSessionExpired = async () => {
+      await resetToLoggedOut();
       // Don't redirect away from an in-progress magic-link verification: the
       // verify page owns that flow. Otherwise a stale session in the same
       // browser (e.g. after being removed from a group) would bounce the user
@@ -348,7 +358,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('auth:token-refreshed', handleTokenRefreshed);
       window.removeEventListener('auth:session-expired', handleSessionExpired);
     };
-  }, [navigate]);
+  }, [navigate, resetToLoggedOut]);
 
   // Refresh proactively when the app returns to the foreground. iOS freezes
   // background timers, so the 14-minute interval above can't be relied on for

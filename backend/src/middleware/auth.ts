@@ -1,6 +1,7 @@
 import { Context, Next } from 'hono';
 import { verifyJWT } from '../lib/jwt';
 import { getMembership, getGroup, type MembershipRole } from '../lib/db';
+import { UnauthorizedError, ForbiddenError, InternalServerError } from '../lib/http';
 
 export type AuthContext = {
   Variables: {
@@ -12,47 +13,38 @@ export type AuthContext = {
   };
 };
 
-async function authenticateUser(c: Context): Promise<boolean> {
+async function authenticateUser(c: Context): Promise<void> {
   const authHeader = c.req.header('Authorization');
 
   // Only accept tokens via Authorization header to prevent token leakage via URLs
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    c.status(401);
-    c.res = c.json({ error: 'Unauthorized' });
-    return false;
+    throw new UnauthorizedError('Unauthorized');
   }
 
   const token = authHeader.substring(7);
 
   if (!token) {
-    c.status(401);
-    c.res = c.json({ error: 'Unauthorized' });
-    return false;
+    throw new UnauthorizedError('Unauthorized');
   }
+
   const secret = c.env.JWT_SECRET;
 
   if (!secret) {
     console.error('JWT_SECRET not configured');
-    c.status(500);
-    c.res = c.json({ error: 'Server configuration error' });
-    return false;
+    throw new InternalServerError('Server configuration error');
   }
 
   const payload = await verifyJWT(token, secret);
 
   if (!payload || payload.type !== 'access') {
-    c.status(401);
-    c.res = c.json({ error: 'Invalid or expired token' });
-    return false;
+    throw new UnauthorizedError('Invalid or expired token');
   }
 
   // Access is revoked as soon as the membership disappears. Roles are also
   // refreshed from the database so JWT role claims cannot outlive role changes.
   const membership = await getMembership(c.env.DB, payload.sub, payload.groupId);
   if (!membership) {
-    c.status(401);
-    c.res = c.json({ error: 'Membership no longer exists' });
-    return false;
+    throw new UnauthorizedError('Membership no longer exists');
   }
 
   // Attach user info to context (including group_id for isolation)
@@ -61,52 +53,31 @@ async function authenticateUser(c: Context): Promise<boolean> {
     groupId: payload.groupId,
     role: membership.role,
   });
-
-  return true;
 }
 
 export async function requireAuth(c: Context, next: Next) {
-  const authenticated = await authenticateUser(c);
-  if (!authenticated) {
-    return;
-  }
+  await authenticateUser(c);
   await next();
 }
 
 export async function requireAdmin(c: Context, next: Next) {
-  const authenticated = await authenticateUser(c);
-  if (!authenticated) {
-    return;
-  }
-
-  const user = c.get('user');
-  if (!user) {
-    return c.json({ error: 'Admin access required' }, 403);
-  }
+  await authenticateUser(c);
 
   // authenticateUser refreshes this role from the database on every request.
-  if (user.role !== 'admin') {
-    return c.json({ error: 'Admin access required' }, 403);
+  if (c.get('user').role !== 'admin') {
+    throw new ForbiddenError('Admin access required');
   }
 
   await next();
 }
 
 export async function requireOwner(c: Context, next: Next) {
-  const authenticated = await authenticateUser(c);
-  if (!authenticated) {
-    return;
-  }
+  await authenticateUser(c);
 
   const user = c.get('user');
-  if (!user) {
-    return c.json({ error: 'Owner access required' }, 403);
-  }
-
-  // Check if user is the group owner
   const group = await getGroup(c.env.DB, user.groupId);
   if (!group || group.owner_id !== user.id) {
-    return c.json({ error: 'Only the group owner can perform this action' }, 403);
+    throw new ForbiddenError('Only the group owner can perform this action');
   }
 
   await next();

@@ -1,9 +1,10 @@
+import type { ProfileColor } from '../../lib/profileColors';
 import type { ReactionSummary, ReactionWithUser } from './types';
 
 export interface ReactionActor {
   id: string;
   name: string;
-  profileColor: string;
+  profileColor: ProfileColor;
 }
 
 export interface ReactionState {
