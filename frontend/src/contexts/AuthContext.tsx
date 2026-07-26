@@ -195,6 +195,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!data.accessToken) {
         throw new Error('No access token received from switchGroup');
       }
+      // Before publishing the new group, not after: once the state switches,
+      // the feed starts fetching and caching the new group's photos, and a
+      // clear running behind that would both serve the old group's images
+      // briefly and delete the new group's freshly cached ones.
+      await clearGroupCaches();
       localStorage.setItem('accessToken', data.accessToken);
       setAuthState({
         user: data.user,
@@ -203,7 +208,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         needsGroupSelection: false,
         selectionToken: null,
       });
-      await clearGroupCaches();
 
       // Re-register native push for new group
       if (isNativePlatform()) {
@@ -228,6 +232,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!data.accessToken) {
           throw new Error('No access token received from selectGroup');
         }
+        // Cleared before publishing, as in switchGroup above.
+        await clearGroupCaches();
         localStorage.setItem('accessToken', data.accessToken);
         setAuthState({
           user: data.user,
@@ -236,7 +242,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           needsGroupSelection: false,
           selectionToken: null,
         });
-        await clearGroupCaches();
       } catch (error) {
         console.error('Select group error:', error);
         throw error;

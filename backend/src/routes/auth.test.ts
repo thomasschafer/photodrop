@@ -105,18 +105,54 @@ describe('POST /auth/switch-group', () => {
   let app: Hono;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // resetAllMocks, not clearAllMocks: the latter clears call history but
+    // leaves implementations in place, so a test that forgot a stub would
+    // silently inherit the previous test's and pass only in order.
+    vi.resetAllMocks();
     app = createApp();
     mockGenerateAccessToken.mockResolvedValue('new-access-token');
     mockGenerateRefreshToken.mockResolvedValue('new-refresh-token');
     mockGetUserById.mockResolvedValue(user);
   });
 
-  it('returns 401 when unauthenticated', async () => {
-    const res = await postSwitchGroup(app, { groupId: 'group-2' }, { 'Content-Type': 'a/json' });
+  it('returns 401 when no bearer token is supplied', async () => {
+    const res = await postSwitchGroup(
+      app,
+      { groupId: 'group-2' },
+      { 'Content-Type': 'application/json' }
+    );
 
     expect(res.status).toBe(401);
     expect(mockGenerateAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 when the bearer token is invalid or expired', async () => {
+    // The likelier 401 in practice: a token is presented but no longer verifies.
+    mockVerifyJWT.mockResolvedValue(null);
+
+    const res = await postSwitchGroup(app, { groupId: 'group-2' });
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Invalid or expired token');
+    expect(mockGetUserMemberships).not.toHaveBeenCalled();
+    expect(mockGenerateAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 when the membership behind a valid token is gone', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'user-1',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+    mockGetMembership.mockResolvedValue(null);
+
+    const res = await postSwitchGroup(app, { groupId: 'group-2' });
+
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Membership no longer exists');
   });
 
   it('returns 403 when the user is not a member of the target group', async () => {
@@ -197,6 +233,7 @@ describe('POST /auth/switch-group', () => {
 
   it('returns 404 when the authenticated user no longer exists', async () => {
     authenticate();
+    mockGetUserMemberships.mockResolvedValue([membership()]);
     mockGetUserById.mockResolvedValue(null);
 
     const res = await postSwitchGroup(app, { groupId: 'group-1' });
@@ -211,7 +248,10 @@ describe('POST /auth/select-group', () => {
   let app: Hono;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // resetAllMocks, not clearAllMocks: the latter clears call history but
+    // leaves implementations in place, so a test that forgot a stub would
+    // silently inherit the previous test's and pass only in order.
+    vi.resetAllMocks();
     app = createApp();
     mockGenerateAccessToken.mockResolvedValue('new-access-token');
     mockGenerateRefreshToken.mockResolvedValue('new-refresh-token');
@@ -244,6 +284,8 @@ describe('POST /auth/select-group', () => {
     const res = await postSelectGroup({ selectionToken: 'good', groupId: 'group-99' });
 
     expect(res.status).toBe(403);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('You are not a member of this group');
     expect(mockGenerateAccessToken).not.toHaveBeenCalled();
   });
 
@@ -267,5 +309,10 @@ describe('POST /auth/select-group', () => {
     const json = (await res.json()) as { accessToken: string; currentGroup: { id: string } };
     expect(json.accessToken).toBe('new-access-token');
     expect(json.currentGroup.id).toBe('group-2');
+
+    // The picker flow depends on this cookie for the session that follows.
+    const cookie = res.headers.get('set-cookie');
+    expect(cookie).toContain('refreshToken=new-refresh-token');
+    expect(cookie).toContain('HttpOnly');
   });
 });
