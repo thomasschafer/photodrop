@@ -109,8 +109,15 @@ describe('useLightboxComments', () => {
 
       expect(result.current.postedCommentId).toBe('c-new');
 
+      // The highlight has to outlast the 1.4s `.comment-flash` animation in
+      // index.css, or the row would go flat mid-flash.
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(2000);
+        await vi.advanceTimersByTimeAsync(1400);
+      });
+      expect(result.current.postedCommentId).toBe('c-new');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
       });
       expect(result.current.postedCommentId).toBeNull();
     } finally {

@@ -92,7 +92,7 @@
     --color-accent-solid-hover: #84502d;
 
     /* Tint — deepened rather than lightened, so it reads as a warm surface
-       against the dark background (10.6:1 with tint-text) */
+       against the dark background (9.8:1 with tint-text) */
     --color-accent-tint: #57351e;
     --color-accent-tint-border: #603f28;
     --color-accent-tint-text: #f7f3ef;

@@ -1137,6 +1137,18 @@ describe('listPhotosWithCounts', () => {
     expect(result[0].uploader_profile_color).toBe('teal');
     expect(result[1].uploader_name).toBeNull();
     expect(result[1].uploader_profile_color).toBeNull();
+
+    // The mocked rows would map through even if the query stopped asking for
+    // the uploader, so pin the projection and the join that produce them.
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining('u.name as uploader_name')
+    );
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining('u.profile_color as uploader_profile_color')
+    );
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining('LEFT JOIN users u ON u.id = p.uploaded_by')
+    );
   });
 
   it('returns multiple user reactions for a photo', async () => {

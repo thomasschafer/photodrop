@@ -18,7 +18,16 @@ interface UploaderBylineProps {
 
 const containerClasses: Record<BylineVariant, string> = {
   default: '',
-  overlay: 'rounded-full bg-black/40 backdrop-blur-sm py-1 pl-1 pr-3 text-white',
+  overlay: 'rounded-full bg-black/40 backdrop-blur-sm py-1 pr-3 text-white',
+};
+
+/**
+ * The avatar's own width insets the overlay pill's leading edge, so the pill
+ * only needs to supply that inset itself when there is no avatar to render.
+ */
+const overlayLeftPadding = {
+  withAvatar: 'pl-1',
+  withoutAvatar: 'pl-3',
 };
 
 const nameClasses: Record<BylineVariant, string> = {
@@ -37,14 +46,13 @@ export function UploaderByline({
   uploadedAt,
   variant = 'default',
 }: UploaderBylineProps) {
+  const avatar = name && color ? <Avatar name={name} color={color} size="sm" /> : null;
+  const padding =
+    variant === 'overlay' ? overlayLeftPadding[avatar ? 'withAvatar' : 'withoutAvatar'] : '';
+
   return (
-    <div className={`flex items-center gap-1.5 text-sm ${containerClasses[variant]}`}>
-      {name && color ? (
-        <Avatar name={name} color={color} size="sm" />
-      ) : (
-        // Keeps the text aligned with bylines that do have an avatar.
-        <span className={variant === 'overlay' ? 'w-1' : 'w-0'} aria-hidden="true" />
-      )}
+    <div className={`flex items-center gap-1.5 text-sm ${containerClasses[variant]} ${padding}`}>
+      {avatar}
       <span className={name ? nameClasses[variant] : timeClasses[variant]}>
         {name ?? 'Deleted user'}
       </span>
