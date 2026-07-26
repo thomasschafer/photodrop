@@ -41,6 +41,8 @@ function makePhoto(over: Partial<Photo> = {}): Photo {
     id: 'p1',
     caption: null,
     uploadedBy: 'u',
+    uploaderName: 'Uploader',
+    uploaderProfileColor: 'teal',
     uploadedAt: 1,
     commentCount: 0,
     reactions: [],

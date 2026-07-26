@@ -76,6 +76,9 @@ export interface PhotoSummary {
   id: string;
   caption: string | null;
   uploadedBy: string;
+  /** Null when the uploader's account has since been deleted. */
+  uploaderName: string | null;
+  uploaderProfileColor: ProfileColor | null;
   uploadedAt: number;
   commentCount: number;
   reactions: ReactionSummary[];

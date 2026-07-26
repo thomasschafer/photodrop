@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatRelativeTime } from '../lib/dateFormat';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection } from '../lib/keyboard';
 import { useAuthenticatedImage } from '../lib/useAuthenticatedImage';
@@ -15,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   ReactionPills,
   Lightbox,
+  UploaderByline,
   usePhotoReactionsEngine,
   type Photo,
   type ReactionWithUser,
@@ -378,6 +378,13 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                 />
               </div>
               <div className="p-4 px-5">
+                <div className="mb-2">
+                  <UploaderByline
+                    name={photo.uploaderName}
+                    color={photo.uploaderProfileColor}
+                    uploadedAt={photo.uploadedAt}
+                  />
+                </div>
                 {photo.caption && (
                   <p className="text-text-primary mb-2 leading-normal">{photo.caption}</p>
                 )}
@@ -396,9 +403,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                 </div>
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-3">
-                    <p className="text-xs text-text-muted">
-                      {formatRelativeTime(photo.uploadedAt)}
-                    </p>
                     {photo.commentCount > 0 && (
                       <span className="text-xs text-text-muted">
                         {photo.commentCount} {photo.commentCount === 1 ? 'comment' : 'comments'}

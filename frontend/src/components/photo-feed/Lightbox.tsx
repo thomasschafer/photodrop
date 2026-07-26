@@ -8,6 +8,7 @@ import { ProtectedImage } from '../ProtectedImage';
 import { ConfirmModal } from '../ConfirmModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { CommentPanel } from './CommentPanel';
+import { UploaderByline } from './UploaderByline';
 import type { Photo } from './types';
 import { useLightboxReactions } from './useLightboxReactions';
 import { useLightboxComments } from './useLightboxComments';
@@ -191,6 +192,18 @@ export function Lightbox({
             commentsExpanded ? 'h-[55%] landscape:h-full' : ''
           }`}
         >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2-safe left-4 z-10 max-w-[calc(100%-4rem)]"
+          >
+            <UploaderByline
+              name={photo.uploaderName}
+              color={photo.uploaderProfileColor}
+              uploadedAt={photo.uploadedAt}
+              variant="overlay"
+            />
+          </div>
+
           <button
             ref={closeButtonRef}
             onClick={onClose}
