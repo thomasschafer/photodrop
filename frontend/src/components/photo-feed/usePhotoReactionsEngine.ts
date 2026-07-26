@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { api } from '../../lib/api';
 import type { ReactionSummary, ReactionWithUser } from './types';
-import { toggleReaction, type ReactionActor } from './reactions';
+import { toggleReaction, invertReaction, type ReactionActor } from './reactions';
 
 export interface ReactionKeyState {
   reactions: ReactionSummary[];
@@ -16,11 +16,24 @@ interface ToggleReactionCallbacks {
    * Called once the API call confirms the mutation, before the optional
    * details refetch. Distinct from onOptimisticUpdate because some callers
    * (the lightbox, syncing the feed's photo list) must not propagate a
-   * mutation that might still be rolled back.
+   * mutation that might still be rolled back. Skipped if a newer toggle of
+   * the same photo+emoji has since started — see the "last toggle wins"
+   * note on toggleReactionForPhoto.
    */
   onSuccess?: (next: ReactionKeyState) => void;
-  /** Revert to the pre-toggle state after the API call fails. */
-  onRollback: (previous: ReactionKeyState) => void;
+  /**
+   * Called after the API call fails, undoing only this toggle's own effect.
+   * Receives a reconciler rather than a value: apply it to whatever the
+   * caller's LIVE state is at the time this fires (e.g. via a functional
+   * state update), not the state captured when the toggle began, so a
+   * concurrent toggle of a different emoji on the same photo survives. Each
+   * field of ReactionKeyState is derived independently of the others (see
+   * reactions.ts), so it's safe to call the reconciler separately per field
+   * when a caller's reactions/userReactions/details live in different state
+   * containers. Skipped if a newer toggle of the same photo+emoji has since
+   * started — see the "last toggle wins" note on toggleReactionForPhoto.
+   */
+  onRollback: (reconcile: (live: ReactionKeyState) => ReactionKeyState) => void;
   /**
    * Called with a fresh detail list once it's fetched after a mutation that
    * had no details loaded yet. The caller decides whether it still cares
@@ -47,6 +60,11 @@ export function usePhotoReactionsEngine() {
   const cacheVersions = useRef<Map<string, number>>(new Map());
   const pendingMutationCounts = useRef<Map<string, number>>(new Map());
   const inFlightLoads = useRef<Set<string>>(new Set());
+  // One counter per photo+emoji, bumped each time a toggle of that emoji
+  // starts. Settle-time callbacks (onSuccess/onRollback) only fire for the
+  // toggle that was most recently started for its key — see
+  // toggleReactionForPhoto for why.
+  const emojiMutationVersions = useRef<Map<string, number>>(new Map());
 
   const bumpCacheVersion = useCallback((photoId: string) => {
     cacheVersions.current.set(photoId, (cacheVersions.current.get(photoId) ?? 0) + 1);
@@ -142,7 +160,22 @@ export function usePhotoReactionsEngine() {
       actor: ReactionActor,
       { onOptimisticUpdate, onSuccess, onRollback, onDetailsRefreshed }: ToggleReactionCallbacks
     ) => {
-      const previous = current;
+      // Two toggles of the *same* emoji on the same photo can overlap (a
+      // rapid double-tap, or a retry before the first settles). Which one
+      // should win isn't reconstructible in general once both have failed or
+      // raced each other server-side, so rather than guess we pick a
+      // documented, deterministic rule: only the most recently *started*
+      // toggle for a given photo+emoji is allowed to report its outcome
+      // (onSuccess/onRollback). An earlier one that settles after being
+      // superseded is a no-op — the newer toggle already reflects the latest
+      // user intent and owns reconciling that emoji's state going forward.
+      // Toggles of a *different* emoji (or a different photo) are unaffected
+      // and always report their own outcome.
+      const emojiKey = `${photoId} ${emoji}`;
+      const version = (emojiMutationVersions.current.get(emojiKey) ?? 0) + 1;
+      emojiMutationVersions.current.set(emojiKey, version);
+      const isLatestForEmoji = () => emojiMutationVersions.current.get(emojiKey) === version;
+
       bumpCacheVersion(photoId);
       beginPendingMutation(photoId);
 
@@ -167,19 +200,30 @@ export function usePhotoReactionsEngine() {
         console.error('Failed to update reaction:', err);
         endPendingMutation(photoId);
         bumpCacheVersion(photoId);
-        if (previous.details !== undefined) {
-          cache.current.set(photoId, previous.details);
-        } else {
-          cache.current.delete(photoId);
+        if (isLatestForEmoji()) {
+          const reconcile = (live: ReactionKeyState) =>
+            invertReaction(live, emoji, actor, isRemoving);
+          const invertedCache = reconcile({
+            reactions: [],
+            userReactions: [],
+            details: cache.current.get(photoId),
+          }).details;
+          if (invertedCache !== undefined) {
+            cache.current.set(photoId, invertedCache);
+          } else {
+            cache.current.delete(photoId);
+          }
+          onRollback(reconcile);
         }
-        onRollback(previous);
         return;
       }
 
-      onSuccess?.({ reactions, userReactions, details });
+      if (isLatestForEmoji()) {
+        onSuccess?.({ reactions, userReactions, details });
+      }
 
       endPendingMutation(photoId);
-      if (previous.details === undefined && !hasPendingMutation(photoId)) {
+      if (current.details === undefined && !hasPendingMutation(photoId)) {
         try {
           const refreshed = await fetchDetails(photoId);
           if (refreshed !== undefined) {

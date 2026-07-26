@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { toggleReaction, type ReactionActor, type ReactionState } from './reactions';
+import {
+  toggleReaction,
+  invertReaction,
+  type ReactionActor,
+  type ReactionState,
+} from './reactions';
 import type { ReactionWithUser } from './types';
 
 const actor: ReactionActor = { id: 'user-1', name: 'Alice', profileColor: 'coral' };
@@ -138,5 +143,62 @@ describe('toggleReaction', () => {
       expect(userReactions).toEqual(['❤️']);
       expect(details).toEqual([detail('❤️', 'user-1', 'Alice')]);
     });
+  });
+});
+
+describe('invertReaction', () => {
+  it('undoes an add by removing it from the live state', () => {
+    const toggled = toggleReaction({ reactions: [], userReactions: [], details: [] }, '❤️', actor);
+
+    const result = invertReaction(toggled, '❤️', actor, toggled.isRemoving);
+
+    expect(result).toEqual({ reactions: [], userReactions: [], details: [] });
+  });
+
+  it('undoes a remove by adding it back to the live state', () => {
+    const state: ReactionState = {
+      reactions: [{ emoji: '❤️', count: 1 }],
+      userReactions: ['❤️'],
+      details: [detail('❤️', 'user-1', 'Alice')],
+    };
+    const toggled = toggleReaction(state, '❤️', actor);
+
+    const result = invertReaction(toggled, '❤️', actor, toggled.isRemoving);
+
+    expect(result).toEqual(state);
+  });
+
+  it('leaves an unrelated emoji untouched when inverting live state that has since changed', () => {
+    // The original toggle added '❤️'; by the time it's inverted, someone
+    // else's concurrent toggle of '🔥' has also landed on the live state.
+    const liveAfterConcurrentToggle: ReactionState = {
+      reactions: [
+        { emoji: '❤️', count: 1 },
+        { emoji: '🔥', count: 1 },
+      ],
+      userReactions: ['❤️', '🔥'],
+      details: [detail('❤️', 'user-1', 'Alice'), detail('🔥', 'user-1', 'Alice')],
+    };
+
+    const result = invertReaction(liveAfterConcurrentToggle, '❤️', actor, false);
+
+    expect(result).toEqual({
+      reactions: [{ emoji: '🔥', count: 1 }],
+      userReactions: ['🔥'],
+      details: [detail('🔥', 'user-1', 'Alice')],
+    });
+  });
+
+  it('is safe to call with only one field populated, to reconcile that field alone', () => {
+    // usePhotoReactionsEngine's cache only tracks `details`; this confirms
+    // reactions/userReactions being empty doesn't leak into the result.
+    const detailsOnly = invertReaction(
+      { reactions: [], userReactions: [], details: [detail('❤️', 'user-1', 'Alice')] },
+      '❤️',
+      actor,
+      false
+    );
+
+    expect(detailsOnly.details).toEqual([]);
   });
 });
