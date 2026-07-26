@@ -89,6 +89,23 @@ function renderApp(initialPath = '/') {
   );
 }
 
+/**
+ * Render and wait until the provider is signed in *and* its effects have run.
+ *
+ * The signed-in state arrives from a promise continuation inside initAuth that
+ * isn't wrapped in act, so findByText can resolve as soon as the DOM updates —
+ * before React has flushed the passive effects that attach the
+ * visibilitychange and auth-event listeners. A test that dispatched into that
+ * gap saw its event go nowhere, which made these tests fail intermittently on
+ * slower CI runners. The empty act() flushes those effects.
+ */
+async function renderSignedIn(initialPath = '/') {
+  const utils = renderApp(initialPath);
+  await screen.findByText('user:Tom');
+  await act(async () => {});
+  return utils;
+}
+
 describe('AuthProvider session resilience', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -103,8 +120,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('refreshes the session when the app returns to the foreground', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     // Bootstrapping uses getMe, not refresh.
     expect(mockRefresh).not.toHaveBeenCalled();
@@ -117,8 +133,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('throttles foreground refreshes that fire in quick succession', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
@@ -131,8 +146,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('stays logged in when a foreground refresh fails transiently', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     // A network blip / 5xx on the foreground refresh must not sign the user out.
     mockRefresh.mockRejectedValue(new Error('network down'));
@@ -147,8 +161,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('logs out when a foreground refresh is rejected as expired (401)', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     mockRefresh.mockRejectedValue(new ApiError(401, 'Unauthorized', 'Expired'));
 
@@ -161,8 +174,7 @@ describe('AuthProvider session resilience', () => {
   });
 
   it('clears state and routes to /login when the session expires', async () => {
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     act(() => {
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
@@ -178,8 +190,7 @@ describe('AuthProvider session resilience', () => {
   it('does not redirect away from a magic-link route when the session expires', async () => {
     // A stale session in the same browser must not bounce the user off the
     // /auth/:token verify page they just opened.
-    renderApp('/auth/some-token');
-    await screen.findByText('user:Tom');
+    await renderSignedIn('/auth/some-token');
 
     act(() => {
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
@@ -304,8 +315,7 @@ describe('AuthProvider session resilience', () => {
     // interval refresh shares this code path via refreshAuth.
     const { clearAllUserCaches } = await import('../lib/cache');
 
-    renderApp();
-    await screen.findByText('user:Tom');
+    await renderSignedIn();
 
     mockRefresh.mockRejectedValue(new ApiError(401, 'Unauthorized', 'Expired'));
 
