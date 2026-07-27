@@ -116,6 +116,55 @@ describe('PhotoFeed', () => {
     expect(screen.getByText('photo c')).toBeInTheDocument();
   });
 
+  // Places the load-more sentinel inside the viewport. happy-dom reports an
+  // all-zero rect by default, which reads as out of view.
+  function putSentinelInView() {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      top: 10,
+      bottom: 74,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: 64,
+      x: 0,
+      y: 10,
+      toJSON: () => ({}),
+    });
+  }
+
+  it('loads the next page when the sentinel is already in view, without a new notification', async () => {
+    // Parked at the bottom of the feed there is no further scroll to
+    // re-trigger the observer, so a notification it never delivers would
+    // strand the feed. The sentinel is asked directly once a page settles.
+    putSentinelInView();
+    mocks.list
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
+      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: false });
+
+    renderFeed();
+    await act(async () => {});
+
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 1);
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('stops paging when a page adds nothing, rather than requesting it forever', async () => {
+    // The offset is derived from how many photos we hold, so a page whose
+    // every entry is a duplicate cannot advance it. Combined with the
+    // in-view re-check above, retrying would spin on the same request.
+    putSentinelInView();
+    mocks.list
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
+      .mockResolvedValue({ photos: [makePhoto('a')], hasMore: true });
+
+    renderFeed();
+    await act(async () => {});
+
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+  });
+
   it('lets a second upload show its message for the full duration', async () => {
     vi.useFakeTimers();
     mocks.list.mockResolvedValue({ photos: [makePhoto('a')], hasMore: false });
