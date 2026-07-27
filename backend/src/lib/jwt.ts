@@ -1,13 +1,44 @@
 import type { MembershipRole } from './db';
 
-export interface JWTPayload {
+/**
+ * Refresh token lifetime. The token's `exp`, its session row's `expires_at` and
+ * the refresh cookie's max-age all derive from this one value; if they drifted
+ * apart, a session would either outlive its token or die under a live one.
+ */
+export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+interface BaseJWTPayload {
   sub: string; // user ID
   groupId: string; // group ID for multi-tenant isolation
   role: MembershipRole;
-  type: 'access' | 'refresh';
   exp: number; // expiration timestamp
   iat: number; // issued at timestamp
 }
+
+export interface AccessTokenPayload extends BaseJWTPayload {
+  type: 'access';
+}
+
+/**
+ * Refresh tokens name a row in the `sessions` table, which is what makes them
+ * revocable: `jti` is the specific token, `familyId` the session (device) it
+ * belongs to and keeps belonging to across every rotation. Both are required —
+ * a refresh token without them cannot be checked against the table at all — so
+ * they live on this variant rather than on the shared base, and verifyJWT
+ * refuses a refresh token that is missing either.
+ */
+export interface RefreshTokenPayload extends BaseJWTPayload {
+  type: 'refresh';
+  jti: string;
+  familyId: string;
+}
+
+export type JWTPayload = AccessTokenPayload | RefreshTokenPayload;
+
+/** A payload as supplied by callers; `iat`/`exp` are stamped by generateJWT. */
+export type JWTClaims =
+  | Omit<AccessTokenPayload, 'iat' | 'exp'>
+  | Omit<RefreshTokenPayload, 'iat' | 'exp'>;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -40,7 +71,7 @@ async function importKey(secret: string): Promise<CryptoKey> {
 }
 
 export async function generateJWT(
-  payload: Omit<JWTPayload, 'iat' | 'exp'>,
+  payload: JWTClaims,
   secret: string,
   expiresInSeconds: number
 ): Promise<string> {
@@ -89,6 +120,26 @@ export async function verifyJWT(token: string, secret: string): Promise<JWTPaylo
       return null;
     }
 
+    // The signature only proves we minted the token, not that it has the shape
+    // this version of the code expects. Refresh tokens minted before sessions
+    // existed carry no jti/familyId, and callers narrow on `type` and then read
+    // those fields, so anything that would hand them `undefined` is rejected
+    // here — such a token cannot be matched against the sessions table, and the
+    // client treats the resulting 401 as a signed-out session.
+    if (payload.type !== 'access' && payload.type !== 'refresh') {
+      return null;
+    }
+
+    if (
+      payload.type === 'refresh' &&
+      (typeof payload.jti !== 'string' ||
+        payload.jti === '' ||
+        typeof payload.familyId !== 'string' ||
+        payload.familyId === '')
+    ) {
+      return null;
+    }
+
     return payload;
   } catch {
     return null;
@@ -112,12 +163,13 @@ export function generateRefreshToken(
   userId: string,
   groupId: string,
   role: MembershipRole,
+  session: { jti: string; familyId: string },
   secret: string
 ): Promise<string> {
   return generateJWT(
-    { sub: userId, groupId, role, type: 'refresh' },
+    { sub: userId, groupId, role, type: 'refresh', jti: session.jti, familyId: session.familyId },
     secret,
-    30 * 24 * 60 * 60 // 30 days
+    REFRESH_TOKEN_TTL_SECONDS
   );
 }
 

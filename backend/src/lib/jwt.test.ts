@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { generateJWT, verifyJWT, generateAccessToken, generateRefreshToken } from './jwt';
+import {
+  generateJWT,
+  verifyJWT,
+  generateAccessToken,
+  generateRefreshToken,
+  type JWTClaims,
+} from './jwt';
 
 describe('JWT utilities', () => {
   const testSecret = 'test-secret-key-for-jwt';
@@ -90,6 +96,43 @@ describe('JWT utilities', () => {
       const payload = await verifyJWT(token, testSecret);
       expect(payload).toBeNull();
     });
+
+    // Refresh tokens minted before the sessions table existed have this shape.
+    // They are genuinely ours — the signature checks out — but there is no
+    // session to check them against, and callers read jti/familyId off any
+    // payload typed 'refresh', so verification has to reject them.
+    it('should reject a refresh token with no session claims', async () => {
+      const token = await generateJWT(
+        { sub: userId, groupId, role, type: 'refresh' } as unknown as JWTClaims,
+        testSecret,
+        60
+      );
+
+      const payload = await verifyJWT(token, testSecret);
+      expect(payload).toBeNull();
+    });
+
+    it('should reject a refresh token missing familyId', async () => {
+      const token = await generateJWT(
+        { sub: userId, groupId, role, type: 'refresh', jti: 'jti-1' } as unknown as JWTClaims,
+        testSecret,
+        60
+      );
+
+      const payload = await verifyJWT(token, testSecret);
+      expect(payload).toBeNull();
+    });
+
+    it('should reject a token of an unrecognised type', async () => {
+      const token = await generateJWT(
+        { sub: userId, groupId, role, type: 'group_selection' } as unknown as JWTClaims,
+        testSecret,
+        60
+      );
+
+      const payload = await verifyJWT(token, testSecret);
+      expect(payload).toBeNull();
+    });
   });
 
   describe('generateAccessToken', () => {
@@ -115,8 +158,10 @@ describe('JWT utilities', () => {
   });
 
   describe('generateRefreshToken', () => {
+    const session = { jti: 'jti-1', familyId: 'family-1' };
+
     it('should generate refresh token with correct type', async () => {
-      const token = await generateRefreshToken(userId, groupId, role, testSecret);
+      const token = await generateRefreshToken(userId, groupId, role, session, testSecret);
       const payload = await verifyJWT(token, testSecret);
 
       expect(payload?.type).toBe('refresh');
@@ -125,8 +170,22 @@ describe('JWT utilities', () => {
       expect(payload?.role).toBe(role);
     });
 
+    // The session row is looked up by these, so a refresh token without them
+    // cannot be checked for revocation at all.
+    it('should carry the session it was issued for', async () => {
+      const token = await generateRefreshToken(userId, groupId, role, session, testSecret);
+      const payload = await verifyJWT(token, testSecret);
+
+      expect(payload?.type).toBe('refresh');
+      if (payload?.type !== 'refresh') {
+        throw new Error('expected a refresh token payload');
+      }
+      expect(payload.jti).toBe('jti-1');
+      expect(payload.familyId).toBe('family-1');
+    });
+
     it('should have 30 day expiration', async () => {
-      const token = await generateRefreshToken(userId, groupId, role, testSecret);
+      const token = await generateRefreshToken(userId, groupId, role, session, testSecret);
       const payload = await verifyJWT(token, testSecret);
 
       const now = Math.floor(Date.now() / 1000);

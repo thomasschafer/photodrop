@@ -22,7 +22,15 @@ import {
   generateGroupSelectionToken,
   verifyJWT,
   verifyGroupSelectionToken,
+  REFRESH_TOKEN_TTL_SECONDS,
+  type RefreshTokenPayload,
 } from '../lib/jwt';
+import {
+  reissueSession,
+  refreshSession,
+  revokeSession,
+  type SessionIdentity,
+} from '../lib/sessions';
 import { verifyMagicLink } from '../lib/magic-links';
 import { sendInviteEmail, sendLoginLinkEmail } from '../lib/email';
 import { requireAuth, requireAdmin } from '../middleware/auth';
@@ -97,7 +105,8 @@ function groupsJson(memberships: MembershipWithGroup[]): GroupJson[] {
   return memberships.map(membershipGroupJson);
 }
 
-const REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
+// The cookie must not outlive the token (or its session row) it carries.
+const REFRESH_COOKIE_MAX_AGE = REFRESH_TOKEN_TTL_SECONDS;
 
 /**
  * Attributes for the refresh cookie. Setting and clearing must agree on all of
@@ -124,13 +133,47 @@ function setRefreshCookie(c: Context, refreshToken: string): void {
   setCookie(c, 'refreshToken', refreshToken, refreshCookieOptions(c, REFRESH_COOKIE_MAX_AGE));
 }
 
+function clearRefreshCookie(c: Context): void {
+  setCookie(c, 'refreshToken', '', refreshCookieOptions(c, 0));
+}
+
+/**
+ * The refresh token the request carries, if it carries a usable one. Null covers
+ * "no cookie" and "cookie we will not act on" alike — callers only ever use this
+ * to find the session to rotate or revoke, and neither is worth doing on a token
+ * we cannot verify.
+ */
+async function presentedRefreshToken(c: Context<AppEnv>): Promise<RefreshTokenPayload | null> {
+  const cookie = getCookie(c, 'refreshToken');
+  if (!cookie) {
+    return null;
+  }
+
+  const payload = await verifyJWT(cookie, c.env.JWT_SECRET);
+  return payload?.type === 'refresh' ? payload : null;
+}
+
+/**
+ * The session a response should be tied to, for every endpoint that mints a
+ * session from something other than a refresh token. /auth/refresh does not use
+ * this: it has already consumed and rotated the caller's session and passes that
+ * identity to issueSessionForGroup directly.
+ */
+async function deviceSession(c: Context<AppEnv>, userId: string): Promise<SessionIdentity> {
+  return reissueSession(c.env.DB, userId, await presentedRefreshToken(c));
+}
+
 // Issue an access token for the given group, rotate the refresh cookie, and
-// build the standard auth response body.
+// build the standard auth response body. The refresh token is bound to `session`
+// so that /auth/logout, and reuse detection on /auth/refresh, have a row to act
+// on; callers must have created or rotated that row before getting here, since a
+// token naming a row that does not exist is rejected on its next refresh.
 async function issueSessionForGroup(
   c: Context<AppEnv>,
   user: User,
   membership: MembershipWithGroup,
   memberships: MembershipWithGroup[],
+  session: SessionIdentity,
   extra: Partial<AuthResponse> = {}
 ) {
   const accessToken = await generateAccessToken(
@@ -143,6 +186,7 @@ async function issueSessionForGroup(
     user.id,
     membership.group_id,
     membership.role,
+    session,
     c.env.JWT_SECRET
   );
 
@@ -336,9 +380,14 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
       throw new InternalServerError('Membership not found');
     }
 
-    return issueSessionForGroup(c, user, invitedGroupMembership, memberships, {
-      needsGroupSelection: false,
-    });
+    return issueSessionForGroup(
+      c,
+      user,
+      invitedGroupMembership,
+      memberships,
+      await deviceSession(c, user.id),
+      { needsGroupSelection: false }
+    );
   }
 
   // Login existing user
@@ -364,9 +413,14 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
   }
 
   if (memberships.length === 1) {
-    return issueSessionForGroup(c, user, memberships[0], memberships, {
-      needsGroupSelection: false,
-    });
+    return issueSessionForGroup(
+      c,
+      user,
+      memberships[0],
+      memberships,
+      await deviceSession(c, user.id),
+      { needsGroupSelection: false }
+    );
   }
 
   // Multiple groups - return selection token and groups, frontend shows picker
@@ -398,7 +452,13 @@ auth.post('/switch-group', requireAuth, async (c) => {
     throw new ForbiddenError('You are not a member of this group');
   }
 
-  return issueSessionForGroup(c, user, targetMembership, memberships);
+  return issueSessionForGroup(
+    c,
+    user,
+    targetMembership,
+    memberships,
+    await deviceSession(c, user.id)
+  );
 });
 
 // Select initial group (for users with multiple groups after login)
@@ -426,7 +486,13 @@ auth.post('/select-group', async (c) => {
     throw new ForbiddenError('You are not a member of this group');
   }
 
-  return issueSessionForGroup(c, user, targetMembership, memberships);
+  return issueSessionForGroup(
+    c,
+    user,
+    targetMembership,
+    memberships,
+    await deviceSession(c, user.id)
+  );
 });
 
 // Refresh access token
@@ -440,6 +506,16 @@ auth.post('/refresh', async (c) => {
   const payload = await verifyJWT(refreshToken, c.env.JWT_SECRET);
 
   if (!payload || payload.type !== 'refresh') {
+    throw new UnauthorizedError('Invalid refresh token');
+  }
+
+  // Consume the presented token and rotate the session behind it. A signature
+  // is no longer enough: the session must still exist and still name this token.
+  // Rejecting with the same 401 an expired token gets is what keeps the client
+  // unchanged — a revoked session tears down exactly like an expired one.
+  const session = await refreshSession(c.env.DB, payload);
+
+  if (!session) {
     throw new UnauthorizedError('Invalid refresh token');
   }
 
@@ -458,7 +534,16 @@ auth.post('/refresh', async (c) => {
 
   if (!membership) {
     // User is no longer a member of this group (e.g., group was deleted)
-    // Return user info with their remaining groups so they can pick a new one
+    // Return user info with their remaining groups so they can pick a new one.
+    //
+    // This response carries no refresh token, so the session just rotated above
+    // would be one nothing can ever present again — and the token the client
+    // still holds names the rotated-away jti, which the next refresh would read
+    // as reuse. End the session instead and clear the cookie: /auth/select-group
+    // starts a fresh one from the selection token.
+    await revokeSession(c.env.DB, session.familyId);
+    clearRefreshCookie(c);
+
     const selectionToken =
       memberships.length > 0 ? await generateGroupSelectionToken(user.id, c.env.JWT_SECRET) : null;
     return c.json({
@@ -471,13 +556,24 @@ auth.post('/refresh', async (c) => {
     } satisfies AuthResponse);
   }
 
-  return issueSessionForGroup(c, user, membership, memberships);
+  return issueSessionForGroup(c, user, membership, memberships, session);
 });
 
 // Logout
 auth.post('/logout', async (c) => {
-  // Clear refresh token cookie
-  setCookie(c, 'refreshToken', '', refreshCookieOptions(c, 0));
+  // Revoke the session server-side, not just in this browser: the refresh token
+  // is a 30-day bearer token, so clearing the cookie alone left any copy of it
+  // working for the rest of its life. Only the session the cookie names is
+  // revoked, so signing out here leaves the user's other devices signed in.
+  const payload = await presentedRefreshToken(c);
+  if (payload) {
+    await revokeSession(c.env.DB, payload.familyId);
+  }
+
+  // Always clear the cookie and report success, whether or not there was a
+  // session to revoke: logout is the client giving up its credentials, and
+  // failing it would only strand a client that is signing out anyway.
+  clearRefreshCookie(c);
 
   return c.json({ message: 'Logged out successfully' });
 });

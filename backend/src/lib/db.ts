@@ -455,6 +455,117 @@ export async function markMagicLinkTokenPending(
   return result.meta.changes > 0;
 }
 
+/**
+ * A refresh token session: one device's login, revocable server-side. See
+ * migrations/0015_sessions.sql for what each column means and why the table is
+ * shaped this way. The policy that decides when to rotate, accept or revoke
+ * lives in lib/sessions.ts — everything here is just the SQL.
+ */
+export interface Session {
+  jti: string;
+  previous_jti: string;
+  family_id: string;
+  user_id: string;
+  created_at: number;
+  rotated_at: number;
+  last_used_at: number;
+  expires_at: number;
+}
+
+export async function createSession(
+  db: D1Database,
+  userId: string,
+  familyId: string,
+  jti: string,
+  expiresAt: number
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+
+  // previous_jti is seeded to jti (and rotated_at to created_at) so a session
+  // that has never rotated still satisfies "both columns are always set".
+  await db
+    .prepare(
+      `INSERT INTO sessions (jti, previous_jti, family_id, user_id, created_at, rotated_at, last_used_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(jti, jti, familyId, userId, now, now, now, expiresAt)
+    .run();
+}
+
+export async function getSessionByFamily(
+  db: D1Database,
+  familyId: string
+): Promise<Session | null> {
+  return db.prepare('SELECT * FROM sessions WHERE family_id = ?').bind(familyId).first<Session>();
+}
+
+/**
+ * Atomically consume the presented refresh token and replace it with a new one.
+ * The guard is the whole point: it succeeds only for the family's *current*,
+ * unexpired token, so concurrent refreshes presenting the same token can only
+ * have one winner, and a replayed (already rotated) token can never rotate.
+ * Returns false without touching the row in every other case, leaving the
+ * caller to work out which case it was.
+ */
+export async function rotateSession(
+  db: D1Database,
+  familyId: string,
+  presentedJti: string,
+  newJti: string,
+  expiresAt: number
+): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const result = await db
+    .prepare(
+      `UPDATE sessions
+         SET jti = ?, previous_jti = ?, rotated_at = ?, last_used_at = ?, expires_at = ?
+       WHERE family_id = ? AND jti = ? AND expires_at > ?`
+    )
+    .bind(newJti, presentedJti, now, now, expiresAt, familyId, presentedJti, now)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function touchSession(db: D1Database, familyId: string): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare('UPDATE sessions SET last_used_at = ? WHERE family_id = ?')
+    .bind(now, familyId)
+    .run();
+}
+
+/** Revoke a session: on logout, and on refresh token reuse. */
+export async function deleteSessionFamily(db: D1Database, familyId: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM sessions WHERE family_id = ?').bind(familyId).run();
+
+  return result.meta.changes > 0;
+}
+
+/**
+ * Delete at most `limit` expired sessions. Called opportunistically from the
+ * refresh path instead of from a cron, so the cost has to be bounded and
+ * predictable: the subquery walks idx_sessions_expires_at from the oldest
+ * expiry and stops at `limit`, so this is a short index range scan plus at most
+ * `limit` row deletes, whatever the size of the table. (LIMIT is expressed via
+ * the subquery because DELETE ... LIMIT is not available in stock SQLite.)
+ */
+export async function pruneExpiredSessions(db: D1Database, limit: number): Promise<number> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const result = await db
+    .prepare(
+      `DELETE FROM sessions
+       WHERE jti IN (SELECT jti FROM sessions WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`
+    )
+    .bind(now, limit)
+    .run();
+
+  return result.meta.changes;
+}
+
 export async function createPhoto(
   db: D1Database,
   groupId: string,

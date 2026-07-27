@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   getUserMemberships,
   getMembership,
@@ -38,6 +38,12 @@ import {
   listPhotosWithCounts,
   createUser,
   updateUserProfileColor,
+  createSession,
+  getSessionByFamily,
+  rotateSession,
+  touchSession,
+  deleteSessionFamily,
+  pruneExpiredSessions,
 } from './db';
 import {
   getRandomProfileColor,
@@ -1712,5 +1718,145 @@ describe('mutations report rows affected rather than statement success', () => {
   it.each(cases)('$name reports true when a row was changed', async ({ run }) => {
     // createMockDb's default run() reports one changed row.
     await expect(run(createMockDb())).resolves.toBe(true);
+  });
+});
+
+describe('Session functions', () => {
+  const NOW = 1_700_000_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW * 1000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe('createSession', () => {
+    it('seeds previous_jti and rotated_at from the new token', async () => {
+      const db = createMockDb();
+
+      await createSession(db, 'user-1', 'family-1', 'jti-1', NOW + 100);
+
+      // previous_jti is never null, so the rotation logic has one less case to
+      // handle: a session that has never rotated points at itself.
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        'jti-1',
+        'jti-1',
+        'family-1',
+        'user-1',
+        NOW,
+        NOW,
+        NOW,
+        NOW + 100
+      );
+    });
+  });
+
+  describe('getSessionByFamily', () => {
+    it('looks the session up by family, not by token id', async () => {
+      // A replayed token names a jti the row no longer holds; only the family
+      // id can still find it.
+      const db = createMockDb([{ jti: 'jti-2', family_id: 'family-1' }]);
+
+      const session = await getSessionByFamily(db, 'family-1');
+
+      expect(session?.jti).toBe('jti-2');
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'SELECT * FROM sessions WHERE family_id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('family-1');
+    });
+
+    it('returns null when the family has been revoked', async () => {
+      const db = createMockDb([]);
+
+      await expect(getSessionByFamily(db, 'family-1')).resolves.toBeNull();
+    });
+  });
+
+  describe('rotateSession', () => {
+    it('only matches the family’s current, unexpired token', async () => {
+      const db = createMockDb();
+
+      const rotated = await rotateSession(db, 'family-1', 'jti-1', 'jti-2', NOW + 100);
+
+      expect(rotated).toBe(true);
+      const sql = db._mocks.mockPrepare.mock.calls[0][0];
+      // These three conditions are the whole of reuse detection: without the
+      // jti guard a replayed token would rotate, and without the expiry guard a
+      // dead session would come back to life.
+      expect(sql).toContain('WHERE family_id = ? AND jti = ? AND expires_at > ?');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        'jti-2',
+        'jti-1',
+        NOW,
+        NOW,
+        NOW + 100,
+        'family-1',
+        'jti-1',
+        NOW
+      );
+    });
+
+    it('reports false when the presented token is not the current one', async () => {
+      const db = createMockDb();
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
+
+      await expect(rotateSession(db, 'family-1', 'old-jti', 'jti-2', NOW + 100)).resolves.toBe(
+        false
+      );
+    });
+  });
+
+  describe('deleteSessionFamily', () => {
+    it('deletes by family so every token in the lineage dies at once', async () => {
+      const db = createMockDb();
+
+      await expect(deleteSessionFamily(db, 'family-1')).resolves.toBe(true);
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM sessions WHERE family_id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('family-1');
+    });
+
+    it('reports false when there was no session to revoke', async () => {
+      const db = createMockDb();
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
+
+      await expect(deleteSessionFamily(db, 'family-1')).resolves.toBe(false);
+    });
+  });
+
+  describe('pruneExpiredSessions', () => {
+    it('deletes only rows that have already expired, at most a batch at a time', async () => {
+      const db = createMockDb();
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 3 } });
+
+      const deleted = await pruneExpiredSessions(db, 50);
+
+      expect(deleted).toBe(3);
+      const sql = db._mocks.mockPrepare.mock.calls[0][0];
+      // expires_at <= now is what makes this safe to run on the hot path: a
+      // live session can never match it, whatever the batch size.
+      expect(sql).toContain('WHERE expires_at <= ?');
+      expect(sql).toContain('LIMIT ?');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(NOW, 50);
+    });
+  });
+
+  describe('touchSession', () => {
+    it('records use without changing which token is current', async () => {
+      const db = createMockDb();
+
+      await touchSession(db, 'family-1');
+
+      const sql = db._mocks.mockPrepare.mock.calls[0][0];
+      expect(sql).toBe('UPDATE sessions SET last_used_at = ? WHERE family_id = ?');
+      expect(sql).not.toContain('jti');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(NOW, 'family-1');
+    });
   });
 });

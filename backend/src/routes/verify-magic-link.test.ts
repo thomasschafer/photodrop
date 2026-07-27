@@ -17,6 +17,7 @@ const mockGenerateAccessToken = vi.fn();
 const mockGenerateRefreshToken = vi.fn();
 const mockGenerateGroupSelectionToken = vi.fn();
 const mockSendLoginLinkEmail = vi.fn();
+const mockReissueSession = vi.fn();
 
 vi.mock('../lib/magic-links', () => ({
   verifyMagicLink: (...args: unknown[]) => mockVerifyMagicLink(...args),
@@ -41,6 +42,15 @@ vi.mock('../lib/jwt', () => ({
   generateGroupSelectionToken: (...args: unknown[]) => mockGenerateGroupSelectionToken(...args),
   verifyJWT: vi.fn(),
   verifyGroupSelectionToken: vi.fn(),
+  REFRESH_TOKEN_TTL_SECONDS: 30 * 24 * 60 * 60,
+}));
+
+// Session storage is exercised end-to-end in auth-sessions.test.ts; these tests
+// only need the magic link flows to get a session to bind their token to.
+vi.mock('../lib/sessions', () => ({
+  reissueSession: (...args: unknown[]) => mockReissueSession(...args),
+  refreshSession: vi.fn(),
+  revokeSession: vi.fn(),
 }));
 
 vi.mock('../lib/email', () => ({
@@ -159,6 +169,7 @@ describe('verify-magic-link endpoint', () => {
     mockGenerateAccessToken.mockResolvedValue('access-token');
     mockGenerateRefreshToken.mockResolvedValue('refresh-token');
     mockGenerateGroupSelectionToken.mockResolvedValue('selection-token');
+    mockReissueSession.mockResolvedValue({ jti: 'jti-1', familyId: 'family-1' });
   });
 
   // --- Invalid token cases ---
