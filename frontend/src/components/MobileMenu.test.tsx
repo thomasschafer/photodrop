@@ -14,7 +14,7 @@ vi.mock('../contexts/AuthContext', () => {
     groups,
     switchGroup: mocks.switchGroup,
     logout: vi.fn(),
-    updateProfileColor: vi.fn(),
+    updateProfile: vi.fn(),
   };
   return { useAuth: () => auth };
 });

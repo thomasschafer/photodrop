@@ -19,7 +19,6 @@ import {
   type AuthResponse,
 } from '../lib/api';
 import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
-import type { ProfileColor } from '../lib/profileColors';
 import {
   isNativePlatform,
   initializeNativePush,
@@ -83,8 +82,11 @@ interface AuthContextType {
   switchGroup: (groupId: string) => Promise<void>;
   selectGroup: (groupId: string) => Promise<void>;
   onGroupDeleted: () => Promise<void>;
-  updateProfileColor: (color: ProfileColor) => void;
+  /** Apply an already-persisted change to the signed-in user's own profile. */
+  updateProfile: (update: ProfileUpdate) => void;
 }
+
+type ProfileUpdate = Partial<Pick<User, 'name' | 'profileColor'>>;
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -301,11 +303,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [authState.selectionToken, refreshAuth]
   );
 
-  const updateProfileColor = useCallback((color: ProfileColor) => {
-    setAuthState((prev) => ({
-      ...prev,
-      user: prev.user ? { ...prev.user, profileColor: color } : null,
-    }));
+  const updateProfile = useCallback((update: ProfileUpdate) => {
+    setAuthState((prev) => (prev.user ? { ...prev, user: { ...prev.user, ...update } } : prev));
   }, []);
 
   // After the current group is deleted, the access token is dead (it's scoped
@@ -542,7 +541,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         switchGroup,
         selectGroup,
         onGroupDeleted,
-        updateProfileColor,
+        updateProfile,
       }}
     >
       {children}

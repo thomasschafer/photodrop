@@ -18,6 +18,7 @@ import type {
   CommentsResponse,
   CommentCreatedResponse,
   GroupsListResponse,
+  MemberDisplayNameUpdatedResponse,
   MembersResponse,
   PhotoCountResponse,
   GroupDeletedResponse,
@@ -39,6 +40,16 @@ export type Group = GroupJson;
 export type { AuthResponse };
 
 export type VerifyMagicLinkResponse = AuthResponse | NeedsNameResponse;
+
+/**
+ * A change to the caller's own profile. `name` is the canonical name — the one
+ * shown outside any group and the default inside every group. The union shape
+ * is what makes "send at least one field", which the endpoint rejects requests
+ * without, a compile error rather than a 400.
+ */
+export type ProfileUpdate =
+  | { name: string; profileColor?: ProfileColor }
+  | { name?: string; profileColor: ProfileColor };
 
 function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_URL;
@@ -396,10 +407,19 @@ export const api = {
         body: JSON.stringify({ role }),
       }),
 
-    updateMemberName: (groupId: string, userId: string, name: string): Promise<MessageResponse> =>
-      requestJson(`/groups/${groupId}/members/${userId}`, {
+    /**
+     * Set (or, with null, clear) a member's display name for this group. Callable
+     * by an admin of the group or by the member themselves; it never touches the
+     * member's canonical name, which only they can change via updateProfile.
+     */
+    setMemberDisplayName: (
+      groupId: string,
+      userId: string,
+      displayName: string | null
+    ): Promise<MemberDisplayNameUpdatedResponse> =>
+      requestJson(`/groups/${groupId}/members/${userId}/display-name`, {
         method: 'PATCH',
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ displayName }),
       }),
 
     removeMember: (groupId: string, userId: string): Promise<MessageResponse> =>
@@ -431,10 +451,10 @@ export const api = {
 
     getAll: (): Promise<UsersListResponse> => requestJson('/users'),
 
-    updateProfile: (profileColor: ProfileColor): Promise<ProfileUpdatedResponse> =>
+    updateProfile: (update: ProfileUpdate): Promise<ProfileUpdatedResponse> =>
       requestJson('/users/me/profile', {
         method: 'PATCH',
-        body: JSON.stringify({ profileColor }),
+        body: JSON.stringify(update),
       }),
   },
 

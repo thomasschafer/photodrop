@@ -1,29 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { MemberJson } from '@photodrop/common/apiTypes';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
+import { displayNameFromInput } from '../lib/displayName';
 import { useFocusRestore } from '../lib/hooks';
-import type { ProfileColor } from '../lib/profileColors';
-import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
+import { ROLE_DISPLAY_NAMES } from '../lib/roles';
 import { setNativeScreenshotProtection } from '../lib/privacyScreen';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { InviteForm } from './InviteForm';
-
-interface Member {
-  userId: string;
-  name: string;
-  email: string;
-  profileColor: ProfileColor;
-  role: MembershipRole;
-  joinedAt: number;
-  imageProtection: boolean;
-}
+import { NameField } from './NameField';
 
 export function MembersList() {
   const { user, currentGroup, onGroupDeleted } = useAuth();
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<MemberJson[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,10 +30,13 @@ export function MembersList() {
     memberName: string;
     newRole: 'admin' | 'member'; // Owners cannot be changed, so only admin/member allowed
   } | null>(null);
-  const [editingName, setEditingName] = useState<{
+  const [editingDisplayName, setEditingDisplayName] = useState<{
     memberId: string;
-    currentName: string;
-    newName: string;
+    /** The name the member is shown under right now, override or not. */
+    shownName: string;
+    /** The stored override, so an unchanged field can skip the request. */
+    savedDisplayName: string | null;
+    value: string;
   } | null>(null);
   const [deleteGroupModal, setDeleteGroupModal] = useState<{
     stage: 'closed' | 'loading-count' | 'confirm' | 'deleting' | 'error';
@@ -187,18 +182,23 @@ export function MembersList() {
     }
   };
 
-  const handleEditNameRequest = (memberId: string, currentName: string) => {
-    setEditingName({ memberId, currentName, newName: currentName });
+  const handleDisplayNameRequest = (member: MemberJson) => {
+    setEditingDisplayName({
+      memberId: member.userId,
+      shownName: member.name,
+      savedDisplayName: member.displayName,
+      value: member.displayName ?? '',
+    });
   };
 
-  const handleEditNameConfirm = async () => {
-    if (!currentGroup || !editingName) return;
+  const handleDisplayNameConfirm = async () => {
+    if (!currentGroup || !editingDisplayName) return;
 
-    const { memberId, currentName, newName } = editingName;
-    const trimmedName = newName.trim();
+    const { memberId, savedDisplayName, value } = editingDisplayName;
+    const nextDisplayName = displayNameFromInput(value);
 
-    if (trimmedName === currentName) {
-      setEditingName(null);
+    if (nextDisplayName === savedDisplayName) {
+      setEditingDisplayName(null);
       editNameButtonRefs.current.get(memberId)?.focus();
       return;
     }
@@ -207,28 +207,41 @@ export function MembersList() {
     setError(null);
 
     try {
-      await api.groups.updateMemberName(currentGroup.id, memberId, trimmedName);
-      setMembers((prev) =>
-        prev.map((m) => (m.userId === memberId ? { ...m, name: trimmedName } : m))
+      const updated = await api.groups.setMemberDisplayName(
+        currentGroup.id,
+        memberId,
+        nextDisplayName
       );
-      setEditingName(null);
+      // The response carries the resolved name, which is the only way to learn
+      // the member's canonical name after clearing an override — it is never
+      // exposed while one is set.
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.userId === memberId ? { ...m, name: updated.name, displayName: updated.displayName } : m
+        )
+      );
+      setEditingDisplayName(null);
       editNameButtonRefs.current.get(memberId)?.focus();
-      showSuccess(`Name updated to ${trimmedName}`);
+      showSuccess(
+        updated.displayName === null
+          ? `${updated.name} is now shown under their own name`
+          : `Now showing as ${updated.name} in ${currentGroup.name}`
+      );
     } catch (err) {
-      console.error('Failed to update name:', err);
+      console.error('Failed to update display name:', err);
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('Failed to update name');
+        setError('Failed to update display name');
       }
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleEditNameCancel = () => {
-    const memberIdToFocus = editingName?.memberId;
-    setEditingName(null);
+  const handleDisplayNameCancel = () => {
+    const memberIdToFocus = editingDisplayName?.memberId;
+    setEditingDisplayName(null);
     if (memberIdToFocus) {
       editNameButtonRefs.current.get(memberIdToFocus)?.focus();
     }
@@ -324,6 +337,8 @@ export function MembersList() {
     );
   }
 
+  const groupName = currentGroup?.name ?? 'this group';
+
   return (
     <div className="card">
       <div className="flex items-start justify-between mb-6">
@@ -403,26 +418,52 @@ export function MembersList() {
         />
       )}
 
-      {editingName && (
+      {editingDisplayName && (
         <ConfirmModal
-          title="Edit name"
-          message={`Enter a new name for ${editingName.currentName}:`}
+          title="Display name"
+          message={
+            editingDisplayName.savedDisplayName === null ? (
+              <>
+                <span className="font-medium text-text-primary">
+                  {editingDisplayName.shownName}
+                </span>{' '}
+                is shown under their own name. Give them a different name just for {groupName} —
+                their name in other groups is unaffected.
+              </>
+            ) : (
+              <>
+                Shown as{' '}
+                <span className="font-medium text-text-primary">
+                  {editingDisplayName.savedDisplayName}
+                </span>{' '}
+                in {groupName} instead of their own name. This name applies only to {groupName}.
+              </>
+            )
+          }
           confirmLabel="Save"
-          isLoading={actionLoading === editingName.memberId}
-          confirmDisabled={editingName.newName.trim().length === 0}
-          onConfirm={handleEditNameConfirm}
-          onCancel={handleEditNameCancel}
+          isLoading={actionLoading === editingDisplayName.memberId}
+          onConfirm={handleDisplayNameConfirm}
+          onCancel={handleDisplayNameCancel}
         >
-          <input
-            type="text"
-            value={editingName.newName}
-            onChange={(e) => setEditingName({ ...editingName, newName: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && editingName.newName.trim().length > 0) {
-                handleEditNameConfirm();
-              }
-            }}
-            className="input-field w-full"
+          <NameField
+            id="member-display-name"
+            label={`Display name in ${groupName}`}
+            value={editingDisplayName.value}
+            onChange={(value) => setEditingDisplayName({ ...editingDisplayName, value })}
+            onEnter={handleDisplayNameConfirm}
+            // With no override set, the shown name is the member's own, so it
+            // can be offered as the placeholder. Once one is set the canonical
+            // name is no longer exposed, so the reset is described instead.
+            placeholder={
+              editingDisplayName.savedDisplayName === null
+                ? editingDisplayName.shownName
+                : 'Their own name'
+            }
+            hint={
+              editingDisplayName.savedDisplayName === null
+                ? `Leave empty to keep showing their own name, ${editingDisplayName.shownName}.`
+                : 'Leave empty to go back to showing their own name.'
+            }
             autoFocus
           />
         </ConfirmModal>
@@ -455,6 +496,14 @@ export function MembersList() {
                     <div className="font-medium text-text-primary truncate">
                       {member.name}
                       {isCurrentUser && <span className="ml-2 text-xs text-text-muted">(you)</span>}
+                      {member.displayName !== null && (
+                        <span
+                          className="ml-2 align-middle text-[10px] font-medium uppercase tracking-wide py-0.5 px-1.5 rounded bg-bg-tertiary text-text-muted"
+                          title={`A display name is set for ${groupName}, so this is not their own name`}
+                        >
+                          Display name
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm text-text-secondary truncate">{member.email}</div>
                   </div>
@@ -469,11 +518,11 @@ export function MembersList() {
                         editNameButtonRefs.current.delete(member.userId);
                       }
                     }}
-                    onClick={() => handleEditNameRequest(member.userId, member.name)}
+                    onClick={() => handleDisplayNameRequest(member)}
                     disabled={isLoading}
                     className="p-2 text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer"
-                    title="Edit name"
-                    aria-label={`Edit ${member.name}'s name`}
+                    title={`Set display name in ${groupName}`}
+                    aria-label={`Set ${member.name}'s display name in ${groupName}`}
                   >
                     <svg
                       width="18"

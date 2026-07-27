@@ -43,6 +43,11 @@ export function Modal({
   }, []);
 
   useEffect(() => {
+    // React applies a child's autoFocus while committing, i.e. before this
+    // effect runs. Focusing the first focusable element unconditionally would
+    // steal focus straight back onto the close button, so a modal that opens on
+    // a form field would send the user's typing nowhere.
+    if (modalRef.current?.contains(document.activeElement)) return;
     const focusable = getFocusableElements();
     if (focusable.length > 0) {
       focusable[0].focus();

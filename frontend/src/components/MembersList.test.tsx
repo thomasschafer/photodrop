@@ -2,17 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 const mocks = vi.hoisted(() => ({
+  ApiError: class ApiError extends Error {},
   getMembers: vi.fn(),
   updateMemberImageProtection: vi.fn(),
+  setMemberDisplayName: vi.fn(),
   setNativeScreenshotProtection: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
-  ApiError: class ApiError extends Error {},
+  ApiError: mocks.ApiError,
   api: {
     groups: {
       getMembers: mocks.getMembers,
       updateMemberImageProtection: mocks.updateMemberImageProtection,
+      setMemberDisplayName: mocks.setMemberDisplayName,
     },
   },
 }));
@@ -35,10 +38,11 @@ vi.mock('../contexts/AuthContext', () => {
 
 import { MembersList } from './MembersList';
 
-function makeMember(userId: string, name: string) {
+function makeMember(userId: string, name: string, displayName: string | null = null) {
   return {
     userId,
     name,
+    displayName,
     email: `${userId}@example.com`,
     profileColor: 'teal' as const,
     role: 'member' as const,
@@ -138,5 +142,126 @@ describe('MembersList image protection toggle', () => {
     );
     expect(protectionToggle('Alice', false)).toBeInTheDocument();
     expect(mocks.setNativeScreenshotProtection).not.toHaveBeenCalled();
+  });
+});
+
+describe('MembersList display names', () => {
+  const openEditor = (name: string) =>
+    fireEvent.click(screen.getByRole('button', { name: `Set ${name}'s display name in Family` }));
+  const displayNameField = () => screen.getByLabelText('Display name in Family');
+  const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+  async function renderMembers(members: ReturnType<typeof makeMember>[]) {
+    mocks.getMembers.mockResolvedValue({ members, ownerId: 'someone-else' });
+    render(<MembersList />);
+    await screen.findByText(members[0].name);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.setNativeScreenshotProtection.mockResolvedValue(undefined);
+    // The component logs every failure it handles; keep test output readable.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('flags only the members shown under an override', async () => {
+    await renderMembers([makeMember('alice', 'Ali', 'Ali'), makeMember('bob', 'Bob')]);
+
+    const badges = screen.getAllByText('Display name');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveAttribute(
+      'title',
+      'A display name is set for Family, so this is not their own name'
+    );
+  });
+
+  it('offers the member’s own name as the default when no override is set', async () => {
+    await renderMembers([makeMember('alice', 'Alice')]);
+
+    openEditor('Alice');
+
+    expect(displayNameField()).toHaveValue('');
+    expect(displayNameField()).toHaveAttribute('placeholder', 'Alice');
+    expect(
+      screen.getByText('Leave empty to keep showing their own name, Alice.')
+    ).toBeInTheDocument();
+  });
+
+  it('sets a display name and relabels the row with the resolved name', async () => {
+    mocks.setMemberDisplayName.mockResolvedValue({
+      message: 'Display name updated',
+      userId: 'alice',
+      displayName: 'Ali',
+      name: 'Ali',
+    });
+    await renderMembers([makeMember('alice', 'Alice')]);
+
+    openEditor('Alice');
+    fireEvent.change(displayNameField(), { target: { value: '  Ali  ' } });
+    save();
+
+    await waitFor(() => expect(screen.getByText('Ali')).toBeInTheDocument());
+    expect(mocks.setMemberDisplayName).toHaveBeenCalledWith('g1', 'alice', 'Ali');
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Display name')).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Now showing as Ali in Family');
+  });
+
+  it('clears the override from an empty field and restores the member’s own name', async () => {
+    mocks.setMemberDisplayName.mockResolvedValue({
+      message: 'Display name updated',
+      userId: 'alice',
+      displayName: null,
+      name: 'Alice',
+    });
+    await renderMembers([makeMember('alice', 'Ali', 'Ali')]);
+
+    openEditor('Ali');
+    // An empty field is how the override is cleared, so Save must stay live.
+    fireEvent.change(displayNameField(), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    save();
+
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    expect(mocks.setMemberDisplayName).toHaveBeenCalledWith('g1', 'alice', null);
+    expect(screen.queryByText('Display name')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Alice is now shown under their own name');
+  });
+
+  it('skips the request when the field is left unchanged', async () => {
+    await renderMembers([makeMember('alice', 'Ali', 'Ali')]);
+
+    openEditor('Ali');
+    save();
+
+    await waitFor(() => expect(screen.queryByLabelText('Display name in Family')).toBeNull());
+    expect(mocks.setMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a rejected change and leaves the row as it was', async () => {
+    mocks.setMemberDisplayName.mockRejectedValue(
+      new mocks.ApiError('You can only change your own display name')
+    );
+    await renderMembers([makeMember('alice', 'Alice')]);
+
+    openEditor('Alice');
+    fireEvent.change(displayNameField(), { target: { value: 'Ali' } });
+    save();
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'You can only change your own display name'
+      )
+    );
+    // The row still names Alice, and the editor stays open on what was typed so
+    // the change can be retried rather than retyped.
+    expect(
+      screen.getByRole('button', { name: "Set Alice's display name in Family" })
+    ).toBeInTheDocument();
+    expect(displayNameField()).toHaveValue('Ali');
   });
 });
