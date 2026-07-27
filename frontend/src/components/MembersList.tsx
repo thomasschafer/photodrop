@@ -105,22 +105,20 @@ export function MembersList() {
     setError(null);
 
     // Optimistic update
-    const previousMembers = members;
     setMembers((prev) =>
       prev.map((m) => (m.userId === memberId ? { ...m, imageProtection: enabled } : m))
     );
 
     try {
       await api.groups.updateMemberImageProtection(currentGroup.id, memberId, enabled);
-      // If toggling own protection, update the privacy screen and notify AuthContext
-      if (memberId === user?.id) {
-        await setNativeScreenshotProtection(enabled);
-        window.dispatchEvent(new CustomEvent('imageProtectionChanged', { detail: { enabled } }));
-      }
-      showSuccess(`Image protection ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);
     } catch (err) {
-      // Revert optimistic update
-      setMembers(previousMembers);
+      // Undo only this member's own change against the live list, rather than
+      // restoring a whole-list snapshot taken before the request: another
+      // member's toggle can land while this one is in flight (only the toggled
+      // row is disabled), and a snapshot restore would silently discard it.
+      setMembers((prev) =>
+        prev.map((m) => (m.userId === memberId ? { ...m, imageProtection: !enabled } : m))
+      );
       console.error('Failed to update image protection:', err);
       if (err instanceof ApiError) {
         setError(err.message);
@@ -129,9 +127,22 @@ export function MembersList() {
       } else {
         setError('Failed to update image protection');
       }
+      return;
     } finally {
       setActionLoading(null);
     }
+
+    // If toggling own protection, update the privacy screen and notify AuthContext.
+    // The server has already persisted the change by this point, so the native
+    // call is best-effort — failing it must not roll the UI back to assert the
+    // opposite of what's stored (AuthContext applies it the same way).
+    if (memberId === user?.id) {
+      setNativeScreenshotProtection(enabled).catch((err) => {
+        console.error('Failed to update native screenshot protection:', err);
+      });
+      window.dispatchEvent(new CustomEvent('imageProtectionChanged', { detail: { enabled } }));
+    }
+    showSuccess(`Image protection ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);
   };
 
   const handleRoleChangeRequest = (

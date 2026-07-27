@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
 import { isVerticalNavKey } from '../lib/keyboard';
@@ -18,6 +18,19 @@ export function GroupSwitcher() {
     horizontal: false,
   });
 
+  // The trigger carries `disabled` while switching, and setIsLoading(false)
+  // doesn't re-render synchronously, so focusing it from the handler itself is
+  // a silent no-op on a still-disabled element — focus is left on <body> and a
+  // keyboard user has to tab from the top of the page. Ask for the focus here
+  // and hand it back once the re-render has dropped the disabled attribute.
+  const restoreTriggerFocus = useRef(false);
+  useEffect(() => {
+    if (!isLoading && restoreTriggerFocus.current) {
+      restoreTriggerFocus.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [isLoading, triggerRef]);
+
   const handleSelect = async (groupId: string) => {
     if (groupId === currentGroup?.id) {
       setIsOpen(false);
@@ -31,8 +44,8 @@ export function GroupSwitcher() {
     } catch (error) {
       console.error('Failed to switch group:', error);
     } finally {
+      restoreTriggerFocus.current = true;
       setIsLoading(false);
-      triggerRef.current?.focus();
     }
   };
 
