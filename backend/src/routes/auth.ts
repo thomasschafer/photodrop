@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
+import type { CookieOptions } from 'hono/utils/cookie';
 import {
   createMagicLinkToken,
   getUserByEmail,
@@ -96,14 +97,31 @@ function groupsJson(memberships: MembershipWithGroup[]): GroupJson[] {
   return memberships.map(membershipGroupJson);
 }
 
-function setRefreshCookie(c: Context, refreshToken: string): void {
-  setCookie(c, 'refreshToken', refreshToken, {
+const REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
+
+/**
+ * Attributes for the refresh cookie. Setting and clearing must agree on all of
+ * them — a browser only replaces a cookie when the attributes match.
+ *
+ * `secure` follows the request scheme rather than being hardcoded: WebKit
+ * refuses to store a `Secure` cookie delivered over plain HTTP, where Chromium
+ * special-cases http://localhost. Hardcoding it meant Safari and the WebKit e2e
+ * run never stored a refresh cookie locally, so every /auth/refresh failed with
+ * "No refresh token provided" and any 401 logged the user out. Production is
+ * served over HTTPS, so it still gets `Secure`.
+ */
+function refreshCookieOptions(c: Context, maxAge: number): CookieOptions {
+  return {
     httpOnly: true,
-    secure: true,
+    secure: new URL(c.req.url).protocol === 'https:',
     sameSite: 'Lax',
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge,
     path: '/',
-  });
+  };
+}
+
+function setRefreshCookie(c: Context, refreshToken: string): void {
+  setCookie(c, 'refreshToken', refreshToken, refreshCookieOptions(c, REFRESH_COOKIE_MAX_AGE));
 }
 
 // Issue an access token for the given group, rotate the refresh cookie, and
@@ -137,6 +155,14 @@ async function issueSessionForGroup(
     groups: groupsJson(memberships),
     ...extra,
   } satisfies AuthResponse);
+}
+
+// markMagicLinkTokenUsed consumes the token atomically, so a false return means
+// a concurrent request got there first and this one must not continue.
+function requireTokenConsumed(consumed: boolean): void {
+  if (!consumed) {
+    throw new BadRequestError('Token has already been used');
+  }
 }
 
 // Send invite email (admin only)
@@ -211,11 +237,24 @@ auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
 auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
   const { token, name } = await parseJsonBody(c, verifyMagicLinkSchema);
 
-  // Check if this is a name submission (user providing their name after needsName response)
-  const isNameSubmission = !!(name && name.trim());
+  // The one request allowed to proceed on a pending token is the second leg of
+  // the invite flow: the first request answered needsName and deliberately left
+  // the token pending. Whether that is what is happening is decided from the
+  // token's own state — an unconsumed invite whose email still has no account,
+  // which is exactly what the needsName response leaves behind. Deriving it
+  // from the request body instead (any body carrying a name) let any caller opt
+  // out of the pending and single-use guards, including on login tokens.
+  let result = await verifyMagicLink(c.env.DB, token);
 
-  // Verify token - allow pending state for name submissions since we set pending on first request
-  const result = await verifyMagicLink(c.env.DB, token, isNameSubmission);
+  const isNameSubmission =
+    name !== undefined &&
+    result.error === 'pending' &&
+    result.token?.type === 'invite' &&
+    (await getUserByEmail(c.env.DB, result.token.email)) === null;
+
+  if (isNameSubmission) {
+    result = await verifyMagicLink(c.env.DB, token, true);
+  }
 
   if (!result.valid || !result.token) {
     const errorMessages: Record<string, string> = {
@@ -245,11 +284,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
     // Check if user already exists
     const existingUser = await getUserByEmail(c.env.DB, magicToken.email);
 
-    let user: User | null;
-    if (existingUser) {
-      // User exists, just create membership
-      user = existingUser;
-    } else {
+    if (!existingUser) {
       // New user - name must be provided in request
       if (!name) {
         // Don't consume token yet - user needs to provide name
@@ -261,11 +296,18 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
         } satisfies NeedsNameResponse);
       }
 
-      // Create new user with name
       if (!magicToken.invite_role) {
         throw new BadRequestError('Invalid invite token');
       }
+    }
 
+    // Consume the token before any writes, so concurrent redemptions of the
+    // same link cannot both create an account (a UNIQUE violation on the email)
+    // or both mint a session.
+    requireTokenConsumed(await markMagicLinkTokenUsed(c.env.DB, token));
+
+    let user: User | null = existingUser;
+    if (!existingUser && name) {
       const userId = await createUser(c.env.DB, name, magicToken.email);
       user = await getUserById(c.env.DB, userId);
     }
@@ -288,9 +330,6 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
     // Get updated memberships
     const memberships = await getUserMemberships(c.env.DB, user.id);
 
-    // Mark token as used now that we've successfully processed the invite
-    await markMagicLinkTokenUsed(c.env.DB, token);
-
     // For invites, always go directly to the invited group
     const invitedGroupMembership = memberships.find((m) => m.group_id === magicToken.group_id);
     if (!invitedGroupMembership) {
@@ -312,7 +351,7 @@ auth.post('/verify-magic-link', verifyMagicLinkRateLimit, async (c) => {
   const memberships = await getUserMemberships(c.env.DB, user.id);
 
   // Mark token as used now that we've successfully identified the user
-  await markMagicLinkTokenUsed(c.env.DB, token);
+  requireTokenConsumed(await markMagicLinkTokenUsed(c.env.DB, token));
 
   // No groups - user has no memberships, nothing to select
   if (memberships.length === 0) {
@@ -438,13 +477,7 @@ auth.post('/refresh', async (c) => {
 // Logout
 auth.post('/logout', async (c) => {
   // Clear refresh token cookie
-  setCookie(c, 'refreshToken', '', {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'Lax',
-    maxAge: 0,
-    path: '/',
-  });
+  setCookie(c, 'refreshToken', '', refreshCookieOptions(c, 0));
 
   return c.json({ message: 'Logged out successfully' });
 });

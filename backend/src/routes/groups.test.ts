@@ -8,6 +8,11 @@ const mockGetGroupPhotoCount = vi.fn();
 const mockDeleteGroup = vi.fn();
 const mockGetMembership = vi.fn();
 const mockUpdateMemberImageProtection = vi.fn();
+const mockUpdateMembershipRole = vi.fn();
+const mockUpdateUserName = vi.fn();
+const mockDeleteMembership = vi.fn();
+const mockDeleteAllUserPushSubscriptionsForGroup = vi.fn();
+const mockDeleteAllUserDeviceTokensForGroup = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
@@ -21,10 +26,14 @@ vi.mock('../lib/db', () => ({
   getUserMemberships: vi.fn(),
   getGroupMembers: vi.fn(),
   getMembership: (...args: unknown[]) => mockGetMembership(...args),
-  updateMembershipRole: vi.fn(),
-  deleteMembership: vi.fn(),
-  updateUserName: vi.fn(),
+  updateMembershipRole: (...args: unknown[]) => mockUpdateMembershipRole(...args),
+  deleteMembership: (...args: unknown[]) => mockDeleteMembership(...args),
+  updateUserName: (...args: unknown[]) => mockUpdateUserName(...args),
   updateMemberImageProtection: (...args: unknown[]) => mockUpdateMemberImageProtection(...args),
+  deleteAllUserPushSubscriptionsForGroup: (...args: unknown[]) =>
+    mockDeleteAllUserPushSubscriptionsForGroup(...args),
+  deleteAllUserDeviceTokensForGroup: (...args: unknown[]) =>
+    mockDeleteAllUserDeviceTokensForGroup(...args),
 }));
 
 import groups from './groups';
@@ -306,6 +315,125 @@ describe('GET /groups/:groupId/photo-count', () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { count: number };
     expect(json.count).toBe(42);
+  });
+});
+
+describe('PATCH /groups/:groupId/members/:userId', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    // First call: requireAdmin checks the caller. Second: the target member.
+    mockGetMembership.mockResolvedValue({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
+    });
+
+    app = new Hono();
+    app.use('*', async (c, next) => {
+      c.env = { JWT_SECRET: 'test-secret', DB: {} };
+      await next();
+    });
+    app.route('/groups', groups);
+    app.onError(errorHandler);
+  });
+
+  function patchMember(body: unknown) {
+    return app.request('/groups/group-1/members/user-1', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('rejects a body that would change nothing', async () => {
+    const res = await patchMember({});
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Provide at least one of role or name to update');
+    expect(mockUpdateMembershipRole).not.toHaveBeenCalled();
+    expect(mockUpdateUserName).not.toHaveBeenCalled();
+  });
+
+  it('updates the role when one is provided', async () => {
+    mockUpdateMembershipRole.mockResolvedValue({ success: true });
+
+    const res = await patchMember({ role: 'admin' });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateMembershipRole).toHaveBeenCalledWith({}, 'user-1', 'group-1', 'admin');
+  });
+
+  it('updates the name when one is provided', async () => {
+    mockUpdateUserName.mockResolvedValue(true);
+
+    const res = await patchMember({ name: 'Renamed' });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateUserName).toHaveBeenCalledWith({}, 'user-1', 'Renamed');
+  });
+});
+
+describe('DELETE /groups/:groupId/members/:userId', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetMembership.mockResolvedValue({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
+    });
+    mockDeleteMembership.mockResolvedValue({ success: true });
+    mockDeleteAllUserPushSubscriptionsForGroup.mockResolvedValue(undefined);
+    mockDeleteAllUserDeviceTokensForGroup.mockResolvedValue(undefined);
+
+    app = new Hono();
+    app.use('*', async (c, next) => {
+      c.env = { JWT_SECRET: 'test-secret', DB: {} };
+      await next();
+    });
+    app.route('/groups', groups);
+    app.onError(errorHandler);
+  });
+
+  it('revokes both web push and native device notifications for the removed member', async () => {
+    const res = await app.request('/groups/group-1/members/user-1', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteMembership).toHaveBeenCalledWith({}, 'user-1', 'group-1');
+    expect(mockDeleteAllUserPushSubscriptionsForGroup).toHaveBeenCalledWith(
+      {},
+      'user-1',
+      'group-1'
+    );
+    // Without this, the expelled member's device keeps receiving the group's
+    // photo notifications, caption text included.
+    expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
   });
 });
 

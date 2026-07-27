@@ -36,9 +36,11 @@ import {
   BadRequestError,
   NotFoundError,
   ForbiddenError,
+  HttpError,
   requireParam,
   parseJsonBody,
 } from '../lib/http';
+import { CAPTION_MAX_LENGTH } from '@photodrop/common/limits';
 import type {
   PhotoListResponse,
   PhotoUploadResponse,
@@ -189,9 +191,22 @@ photos.get('/', requireAuth, async (c) => {
   } satisfies PhotoListResponse);
 });
 
+function photoUploadedResponse(c: Context<AppEnv>, photoId: string) {
+  return c.json(
+    {
+      id: photoId,
+      message: 'Photo uploaded successfully',
+    } satisfies PhotoUploadResponse,
+    201
+  );
+}
+
 photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
   let photoR2Key: string | null = null;
   let thumbnailR2Key: string | null = null;
+  // Set once the photo row exists; from that point the R2 objects it points at
+  // must be kept, whatever else fails.
+  let committedPhotoId: string | null = null;
 
   try {
     const formData = await c.req.formData();
@@ -200,8 +215,8 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
     const caption = formData.get('caption') as string | null;
 
     // Validate caption length
-    if (caption && Array.from(caption).length > 2000) {
-      return c.json({ error: 'Caption must be 2000 characters or less' }, 400);
+    if (caption && Array.from(caption).length > CAPTION_MAX_LENGTH) {
+      throw new BadRequestError(`Caption must be ${CAPTION_MAX_LENGTH} characters or less`);
     }
 
     if (!photo) {
@@ -296,20 +311,31 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
       currentUser.id,
       caption || undefined
     );
+    committedPhotoId = photoId;
 
     // Send push notifications in background (non-blocking)
     c.executionCtx.waitUntil(
       sendPhotoUploadNotifications(c.env, currentUser.groupId, currentUser.id, photoId, caption)
     );
 
-    return c.json(
-      {
-        id: photoId,
-        message: 'Photo uploaded successfully',
-      } satisfies PhotoUploadResponse,
-      201
-    );
+    return photoUploadedResponse(c, photoId);
   } catch (error) {
+    // Validation is expressed as thrown HttpErrors, which carry their own
+    // status; nothing has been written to R2 by the time they are raised.
+    if (error instanceof HttpError) {
+      throw error;
+    }
+
+    if (committedPhotoId) {
+      // The row is committed, so the upload itself succeeded — only the
+      // best-effort work after it (scheduling notifications, which needs an
+      // execution context) failed. Deleting the R2 objects here would leave a
+      // photo whose download and thumbnail 404 forever, so keep them and report
+      // the upload for what it is.
+      console.error('Photo upload succeeded but post-commit work failed:', error);
+      return photoUploadedResponse(c, committedPhotoId);
+    }
+
     console.error('Error uploading photo:', error);
 
     // Clean up any R2 files that were uploaded before the failure
@@ -466,10 +492,14 @@ photos.get('/:id/comments', requireAuth, async (c) => {
   return c.json({
     comments: comments.map((comment) => {
       const isDeleted = comment.deleted_at !== null;
-      const isUserDeleted = !comment.user_id;
-      const authorName = isUserDeleted
-        ? 'Deleted user'
-        : (comment.user_name ?? comment.author_name);
+      // Soft-deleting a comment nulls its user_id too, so a null user_id only
+      // means "the author's account is gone" for a comment that is still live.
+      // Checking deleted_at first keeps the two states distinguishable.
+      const authorName = isDeleted
+        ? comment.author_name
+        : comment.user_id === null
+          ? 'Deleted user'
+          : (comment.user_name ?? comment.author_name);
 
       return {
         id: comment.id,

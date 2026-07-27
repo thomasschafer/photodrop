@@ -6,6 +6,7 @@ import {
   updateMembershipRole,
   deleteMembership,
   deleteAllUserPushSubscriptionsForGroup,
+  deleteAllUserDeviceTokensForGroup,
   updateUserName,
   getGroupPhotoKeys,
   getGroupPhotoCount,
@@ -133,7 +134,12 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
     throw new InternalServerError('Failed to remove member');
   }
 
-  await deleteAllUserPushSubscriptionsForGroup(c.env.DB, userId, groupId);
+  // Both notification channels have to be revoked, or the removed member's
+  // browser/device keeps receiving this group's photos and caption text.
+  await Promise.all([
+    deleteAllUserPushSubscriptionsForGroup(c.env.DB, userId, groupId),
+    deleteAllUserDeviceTokensForGroup(c.env.DB, userId, groupId),
+  ]);
 
   return c.json({ message: 'Member removed successfully' });
 });

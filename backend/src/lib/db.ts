@@ -355,13 +355,20 @@ export async function getMagicLinkToken(
   return result;
 }
 
-export async function markMagicLinkTokenUsed(db: D1Database, token: string): Promise<void> {
+/**
+ * Atomically consume a magic link token. The conditional update means exactly
+ * one of any concurrent verification attempts can win; returns false when the
+ * token was already used (or does not exist).
+ */
+export async function markMagicLinkTokenUsed(db: D1Database, token: string): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
 
-  await db
-    .prepare('UPDATE magic_link_tokens SET used_at = ? WHERE token = ?')
+  const result = await db
+    .prepare('UPDATE magic_link_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL')
     .bind(now, token)
     .run();
+
+  return result.meta.changes > 0;
 }
 
 /**
@@ -557,23 +564,31 @@ export async function createPushSubscription(
   endpoint: string,
   p256dh: string,
   auth: string
-): Promise<{ deletionToken: string }> {
+): Promise<{ deletionToken: string } | { error: 'endpoint_owned_by_another_user' }> {
   const id = generateId();
   const deletionToken = generateId();
   const now = Math.floor(Date.now() / 1000);
 
-  await db
+  // The conflict update is guarded on the owner so an existing row can never
+  // be silently reassigned (and its deletion token rotated) by another group
+  // member presenting the same endpoint. A guarded-out update reports zero
+  // changes, which is how the takeover attempt is detected atomically.
+  const result = await db
     .prepare(
       `INSERT INTO push_subscriptions (id, user_id, group_id, endpoint, p256dh, auth, deletion_token, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (endpoint, group_id) DO UPDATE SET
-         user_id = excluded.user_id,
          p256dh = excluded.p256dh,
          auth = excluded.auth,
-         deletion_token = excluded.deletion_token`
+         deletion_token = excluded.deletion_token
+       WHERE push_subscriptions.user_id = excluded.user_id`
     )
     .bind(id, userId, groupId, endpoint, p256dh, auth, deletionToken, now)
     .run();
+
+  if (result.meta.changes === 0) {
+    return { error: 'endpoint_owned_by_another_user' };
+  }
 
   return { deletionToken };
 }
@@ -591,19 +606,46 @@ export async function getUserPushSubscriptionsForGroup(
   return result.results || [];
 }
 
+/**
+ * Recipients of a group's notifications. The membership join is what revokes
+ * delivery: a removed member's rows are cleaned up on removal, but relying on
+ * that cleanup alone would keep notifying anyone whose cleanup was missed or
+ * failed, so the query itself refuses to return non-members.
+ */
 export async function getGroupPushSubscriptions(
   db: D1Database,
   groupId: string,
   excludeUserId?: string
 ): Promise<PushSubscription[]> {
+  const baseQuery = `SELECT ps.* FROM push_subscriptions ps
+       JOIN memberships m ON m.user_id = ps.user_id AND m.group_id = ps.group_id
+       WHERE ps.group_id = ?`;
+
   const statement = excludeUserId
-    ? db
-        .prepare('SELECT * FROM push_subscriptions WHERE group_id = ? AND user_id != ?')
-        .bind(groupId, excludeUserId)
-    : db.prepare('SELECT * FROM push_subscriptions WHERE group_id = ?').bind(groupId);
+    ? db.prepare(`${baseQuery} AND ps.user_id != ?`).bind(groupId, excludeUserId)
+    : db.prepare(baseQuery).bind(groupId);
 
   const result = await statement.all<PushSubscription>();
   return result.results || [];
+}
+
+export async function countUserPushSubscriptionsForGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  excludeEndpoint: string
+): Promise<number> {
+  // The endpoint being (re-)subscribed is excluded so refreshing the keys of an
+  // already-registered device is never blocked by the per-group cap.
+  const result = await db
+    .prepare(
+      `SELECT COUNT(*) as count FROM push_subscriptions
+       WHERE user_id = ? AND group_id = ? AND endpoint != ?`
+    )
+    .bind(userId, groupId, excludeEndpoint)
+    .first<{ count: number }>();
+
+  return result?.count ?? 0;
 }
 
 // Best-effort cleanup of an expired/rejected endpoint; deleting zero rows is fine.
@@ -731,33 +773,75 @@ export async function getDeviceToken(
   return result;
 }
 
+/**
+ * Recipients of a group's native notifications. As with push subscriptions, the
+ * membership join — not cleanup on removal — is what guarantees an expelled
+ * member's device stops receiving the group's photos and captions.
+ */
 export async function getGroupDeviceTokens(
   db: D1Database,
   groupId: string,
   excludeUserId?: string
 ): Promise<DeviceToken[]> {
+  const baseQuery = `SELECT dt.* FROM device_tokens dt
+       JOIN memberships m ON m.user_id = dt.user_id AND m.group_id = dt.group_id
+       WHERE dt.group_id = ?`;
+
   const statement = excludeUserId
-    ? db
-        .prepare('SELECT * FROM device_tokens WHERE group_id = ? AND user_id != ?')
-        .bind(groupId, excludeUserId)
-    : db.prepare('SELECT * FROM device_tokens WHERE group_id = ?').bind(groupId);
+    ? db.prepare(`${baseQuery} AND dt.user_id != ?`).bind(groupId, excludeUserId)
+    : db.prepare(baseQuery).bind(groupId);
 
   const result = await statement.all<DeviceToken>();
   return result.results || [];
 }
 
-export async function deleteDeviceToken(
+/**
+ * Remove a device token from every group it is registered in for this user.
+ * An FCM/APNs token identifies a device, not a group membership, so signing out
+ * of the app has to detach the whole device rather than just the current group.
+ */
+export async function deleteUserDeviceTokensForToken(
   db: D1Database,
   userId: string,
-  groupId: string,
   token: string
-): Promise<boolean> {
+): Promise<number> {
   const result = await db
-    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND group_id = ? AND token = ?')
-    .bind(userId, groupId, token)
+    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND token = ?')
+    .bind(userId, token)
     .run();
 
-  return result.meta.changes > 0;
+  return result.meta.changes;
+}
+
+/**
+ * Detach a device token from any other account. The token is a device-scoped
+ * secret, so once a different user registers it the previous owner's rows must
+ * go — otherwise the new signed-in user keeps receiving the old user's
+ * notifications for groups they were never part of.
+ */
+export async function deleteDeviceTokenForOtherUsers(
+  db: D1Database,
+  userId: string,
+  token: string
+): Promise<number> {
+  const result = await db
+    .prepare('DELETE FROM device_tokens WHERE token = ? AND user_id != ?')
+    .bind(token, userId)
+    .run();
+
+  return result.meta.changes;
+}
+
+// Bulk cleanup when a member leaves or is removed; deleting zero rows is fine.
+export async function deleteAllUserDeviceTokensForGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<void> {
+  await db
+    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND group_id = ?')
+    .bind(userId, groupId)
+    .run();
 }
 
 // Best-effort cleanup of a token FCM reports as invalid; deleting zero rows is fine.
@@ -851,6 +935,18 @@ interface PhotoWithCountsRow extends Photo {
   uploader_profile_color: ProfileColor | null;
 }
 
+interface ReactionAggregateRow {
+  photo_id: string;
+  emoji: string;
+  count: number;
+  reacted_by_user: number;
+}
+
+// D1 allows at most 100 bound parameters per statement. The reaction query
+// binds the requesting user id plus one parameter per photo id, so keep each
+// batch comfortably under that ceiling.
+const REACTION_ID_BATCH_SIZE = 90;
+
 // List photos with reaction and comment counts (optimized: 2 queries instead of 1+3N)
 export async function listPhotosWithCounts(
   db: D1Database,
@@ -894,28 +990,39 @@ export async function listPhotosWithCounts(
     return [];
   }
 
-  // Query 2: Get the per-emoji reaction breakdown for all photos in one batch,
-  // flagging which emoji the requesting user has reacted with. This yields both
-  // the public counts and the user's own reactions without a separate join.
+  // Query 2: Get the per-emoji reaction breakdown for the photos, flagging which
+  // emoji the requesting user has reacted with. This yields both the public
+  // counts and the user's own reactions without a separate join.
+  //
+  // The photo ids are chunked because D1 rejects a statement with more than 100
+  // bound parameters, and this query binds the user id plus one per photo — a
+  // single batch would fail outright for the largest page the API allows.
   const photoIds = photos.map((p) => p.id);
-  const placeholders = photoIds.map(() => '?').join(',');
+  const reactionRows: ReactionAggregateRow[] = [];
 
-  const reactionsResult = await db
-    .prepare(
-      `SELECT photo_id, emoji, COUNT(*) as count,
+  for (let i = 0; i < photoIds.length; i += REACTION_ID_BATCH_SIZE) {
+    const batch = photoIds.slice(i, i + REACTION_ID_BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+
+    const reactionsResult = await db
+      .prepare(
+        `SELECT photo_id, emoji, COUNT(*) as count,
               MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) as reacted_by_user
        FROM photo_reactions
        WHERE photo_id IN (${placeholders})
        GROUP BY photo_id, emoji
        ORDER BY count DESC, emoji ASC`
-    )
-    .bind(userId, ...photoIds)
-    .all<{ photo_id: string; emoji: string; count: number; reacted_by_user: number }>();
+      )
+      .bind(userId, ...batch)
+      .all<ReactionAggregateRow>();
+
+    reactionRows.push(...(reactionsResult.results || []));
+  }
 
   const reactionsByPhoto = new Map<string, ReactionSummary[]>();
   const userReactionsByPhoto = new Map<string, string[]>();
   const reactionCountByPhoto = new Map<string, number>();
-  for (const row of reactionsResult.results || []) {
+  for (const row of reactionRows) {
     const summaries = reactionsByPhoto.get(row.photo_id) || [];
     summaries.push({ emoji: row.emoji, count: row.count });
     reactionsByPhoto.set(row.photo_id, summaries);

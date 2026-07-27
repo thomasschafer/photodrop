@@ -57,8 +57,19 @@ export const addCommentSchema = z.object({
 });
 
 // Push schemas
+// Real push service endpoints are a few hundred characters at most; the bound
+// stops a caller from stuffing arbitrarily large URLs into rows the upload path
+// later turns into outbound requests.
+const PUSH_ENDPOINT_MAX_LENGTH = 2048;
+
 export const subscribeSchema = z.object({
-  endpoint: z.string().url(),
+  endpoint: z
+    .string()
+    .url()
+    .max(
+      PUSH_ENDPOINT_MAX_LENGTH,
+      `Endpoint must be ${PUSH_ENDPOINT_MAX_LENGTH} characters or less`
+    ),
   keys: z.object({
     p256dh: z.string().min(1),
     auth: z.string().min(1),
@@ -88,17 +99,23 @@ export const updateProfileSchema = z.object({
   profileColor: z.enum(PROFILE_COLORS, { error: 'Invalid profile color' }),
 });
 
-export const updateMemberSchema = z.object({
-  role: z
-    .enum(['admin', 'member'], {
-      error: (issue) =>
-        issue.input === 'owner'
-          ? 'Cannot promote to owner — owner is set at group creation only'
-          : undefined,
-    })
-    .optional(),
-  name: z.string().trim().min(1).max(100).optional(),
-});
+export const updateMemberSchema = z
+  .object({
+    role: z
+      .enum(['admin', 'member'], {
+        error: (issue) =>
+          issue.input === 'owner'
+            ? 'Cannot promote to owner — owner is set at group creation only'
+            : undefined,
+      })
+      .optional(),
+    name: z.string().trim().min(1).max(100).optional(),
+  })
+  // Both fields are optional individually, but a body with neither changes
+  // nothing — reporting that as a successful update would be a lie.
+  .refine((body) => body.role !== undefined || body.name !== undefined, {
+    error: 'Provide at least one of role or name to update',
+  });
 
 export const imageProtectionSchema = z.object({
   enabled: z.boolean({ error: 'enabled must be a boolean' }),
