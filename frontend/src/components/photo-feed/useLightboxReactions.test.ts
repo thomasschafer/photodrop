@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
+import type { PhotoUpdate } from './types';
 
 const getReactions = vi.fn();
 const addReaction = vi.fn();
@@ -71,11 +72,62 @@ describe('useLightboxReactions', () => {
     expect(addReaction).toHaveBeenCalledWith('p1', '❤️');
     expect(result.current.userReactions).toEqual(['❤️']);
     expect(result.current.reactions).toEqual([{ emoji: '❤️', count: 1 }]);
-    expect(onPhotoUpdate).toHaveBeenCalledWith({
-      id: 'p1',
+    expect(onPhotoUpdate).toHaveBeenCalledTimes(1);
+    const [updatedId, update] = onPhotoUpdate.mock.calls[0];
+    expect(updatedId).toBe('p1');
+    expect((update as (live: Photo) => Partial<Photo>)(makePhoto())).toEqual({
       userReactions: ['❤️'],
       reactions: [{ emoji: '❤️', count: 1 }],
     });
+  });
+
+  it('syncs both emojis to the feed when two toggles settle out of order', async () => {
+    // Tap ❤️ then 👍 with the responses arriving in the other order. Each
+    // success must be folded into the feed's live copy of the photo: pushing
+    // the snapshot captured when a toggle started would let the one that
+    // settles last erase the other, and swiping away and back would then
+    // re-seed the lightbox from that clobbered state.
+    const heartCall = deferred<unknown>();
+    const thumbCall = deferred<unknown>();
+    addReaction.mockImplementation((_photoId: unknown, emoji: unknown) =>
+      emoji === '❤️' ? heartCall.promise : thumbCall.promise
+    );
+
+    let feedPhoto = makePhoto();
+    const onPhotoUpdate = vi.fn((photoId: string, update: PhotoUpdate) => {
+      expect(photoId).toBe(feedPhoto.id);
+      feedPhoto = { ...feedPhoto, ...(typeof update === 'function' ? update(feedPhoto) : update) };
+    });
+
+    const { result } = setup(feedPhoto, onPhotoUpdate);
+
+    let heartPromise!: Promise<void>;
+    act(() => {
+      heartPromise = result.current.handleReactionClick('❤️');
+    });
+    let thumbPromise!: Promise<void>;
+    act(() => {
+      thumbPromise = result.current.handleReactionClick('👍');
+    });
+
+    await act(async () => {
+      thumbCall.resolve({});
+      await thumbPromise;
+    });
+    await act(async () => {
+      heartCall.resolve({});
+      await heartPromise;
+    });
+
+    expect(feedPhoto.userReactions).toEqual(['👍', '❤️']);
+    expect(feedPhoto.reactions).toEqual([
+      { emoji: '👍', count: 1 },
+      { emoji: '❤️', count: 1 },
+    ]);
+    // The lightbox's own view agrees with what the feed was told.
+    expect(result.current.userReactions.slice().sort()).toEqual(
+      feedPhoto.userReactions.slice().sort()
+    );
   });
 
   it('rolls back and does not sync the feed when the request fails', async () => {

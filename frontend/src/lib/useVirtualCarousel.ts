@@ -23,6 +23,7 @@ interface UseVirtualCarouselReturn {
   handlers: {
     onTouchStart: (e: React.TouchEvent) => void;
     onTouchEnd: (e: React.TouchEvent) => void;
+    onTouchCancel: () => void;
   };
   reset: (newIndex?: number) => void;
 }
@@ -301,6 +302,28 @@ export function useVirtualCarousel({
     [totalCount, containerRef]
   );
 
+  // iOS Safari delivers touchcancel instead of touchend whenever the system
+  // takes the gesture over (an edge swipe, a call, the app backgrounding). With
+  // no handler the drag never ends: isDraggingRef stays true, so `reset` is a
+  // permanent no-op — which also disables the lightbox's URL-driven reset and
+  // its keyboard navigation — and the rendered offset stays frozen mid-swipe.
+  const handleTouchCancel = useCallback(() => {
+    // No live touch: either the gesture was excluded at touchstart, or this is
+    // a stray cancel during the post-touchend snap animation, which owns
+    // isDraggingRef until it completes and must be left alone.
+    if (!touchStartRef.current) return;
+
+    // Snap back to where the drag started. The gesture was aborted, so no
+    // onIndexChange was emitted for it and the committed index is unchanged;
+    // snapping anywhere else would silently disagree with the URL.
+    const startIndex = Math.max(
+      0,
+      Math.min(totalCount - 1, Math.round(dragStartVirtualIndexRef.current))
+    );
+    isDraggingRef.current = false;
+    reset(startIndex);
+  }, [totalCount, reset]);
+
   return {
     centerIndex,
     offset,
@@ -309,6 +332,7 @@ export function useVirtualCarousel({
     handlers: {
       onTouchStart: handleTouchStart,
       onTouchEnd: handleTouchEnd,
+      onTouchCancel: handleTouchCancel,
     },
     reset,
   };

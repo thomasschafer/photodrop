@@ -19,12 +19,19 @@ export interface ToggleReactionResult extends ReactionState {
   isRemoving: boolean;
 }
 
-// Applies an add-or-remove of `emoji` by `actor` to `state`, given which
-// direction to apply. Each of the three fields is derived solely from its own
-// counterpart in `state` plus `isRemoving` — none of them read the others —
-// so this is safe to call with only one field populated (and the rest left
-// empty/undefined) to update that field alone; see invertReaction.
-function applyReaction(
+/**
+ * Applies an add-or-remove of `emoji` by `actor` to `state`, given which
+ * direction to apply. Each of the three fields is derived solely from its own
+ * counterpart in `state` plus `isRemoving` — none of them read the others —
+ * so this is safe to call with only one field populated (and the rest left
+ * empty/undefined) to update that field alone; see invertReaction.
+ *
+ * Exported so a settled toggle can be re-applied to a *different* holder of
+ * the same photo's state (the feed's list, synced from the lightbox) at the
+ * time it settles, rather than that holder being overwritten with a snapshot
+ * captured when the toggle began.
+ */
+export function applyReaction(
   state: ReactionState,
   emoji: string,
   actor: ReactionActor,

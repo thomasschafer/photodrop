@@ -3,13 +3,14 @@ import { useSearchParams } from 'react-router-dom';
 import { getNavDirection } from '../../lib/keyboard';
 import { useIsPortrait } from '../../lib/useIsPortrait';
 import { useVirtualCarousel } from '../../lib/useVirtualCarousel';
+import { useFocusTrap } from '../../lib/useFocusTrap';
 import { useAuthenticatedImage, preloadImage } from '../../lib/useAuthenticatedImage';
 import { ProtectedImage } from '../ProtectedImage';
 import { ConfirmModal } from '../ConfirmModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { CommentPanel } from './CommentPanel';
 import { UploaderByline } from './UploaderByline';
-import type { Photo } from './types';
+import type { OnPhotoUpdate, Photo } from './types';
 import { useLightboxReactions } from './useLightboxReactions';
 import { useLightboxComments } from './useLightboxComments';
 
@@ -60,13 +61,14 @@ export function Lightbox({
   onClose: () => void;
   onIndexChange: (index: number) => void;
   isAdmin: boolean;
-  onPhotoUpdate: (photo: Partial<Photo> & { id: string }) => void;
+  onPhotoUpdate: OnPhotoUpdate;
 }) {
   const { user } = useAuth();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const commentsExpanded = searchParams.get('comments') === 'open';
   const isPortrait = useIsPortrait();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const commentInputRef = useRef<HTMLInputElement>(null);
   const commentsPanelRef = useRef<HTMLDivElement>(null);
@@ -116,6 +118,10 @@ export function Lightbox({
 
   const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('oldest');
 
+  // The confirm dialog renders inside this one and brings its own trap, so
+  // ours stands down while it's open rather than fighting it for the Tab key.
+  useFocusTrap(dialogRef, !confirmDeleteCommentId);
+
   useLayoutEffect(() => {
     if (initialIndex !== centerIndex) {
       resetCarousel(initialIndex);
@@ -150,6 +156,13 @@ export function Lightbox({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // The delete-comment dialog owns the keyboard while it is open: it does
+      // its own Escape and Tab handling, and neither stops propagation. Without
+      // this, Escape would cancel the dialog *and* close the lightbox, and an
+      // arrow key would navigate to another photo behind the dialog — leaving
+      // it aimed at a comment that no longer belongs to the photo on screen.
+      if (confirmDeleteCommentId) return;
+
       if (document.activeElement === commentInputRef.current) {
         if (e.key === 'Escape') {
           commentInputRef.current?.blur();
@@ -177,12 +190,14 @@ export function Lightbox({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, onIndexChange, centerIndex, photos.length]);
+  }, [onClose, onIndexChange, centerIndex, photos.length, confirmDeleteCommentId]);
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-50 bg-black"
       role="dialog"
+      aria-modal="true"
       aria-label={`Photo ${centerIndex + 1} of ${photos.length}`}
     >
       <div className="h-full w-full flex flex-col landscape:flex-row">

@@ -67,6 +67,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   );
   const reactionsEngine = usePhotoReactionsEngine();
   const [uploadButtonRef, restoreUploadFocus] = useFocusRestore<HTMLButtonElement>();
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -108,7 +109,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     try {
       setLoadingMore(true);
       const data = await api.photos.list(20, photos.length);
-      setPhotos((prev) => [...prev, ...data.photos]);
+      // Offset paging over a newest-first list: anything uploaded since page 1
+      // shifts every later photo down, so the next page can repeat photos we
+      // already hold. Duplicate ids would collide as React keys and make the
+      // lightbox's findIndex resolve to the wrong copy.
+      setPhotos((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        return [...prev, ...data.photos.filter((p) => !seen.has(p.id))];
+      });
       setHasMore(data.hasMore ?? false);
     } catch (err) {
       console.error('Failed to load more photos:', err);
@@ -204,12 +212,24 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    };
+  }, []);
+
   const handleUploadComplete = () => {
     setShowUploadModal(false);
     restoreUploadFocus();
     loadPhotos();
     setSuccessMessage('Photo uploaded successfully');
-    setTimeout(() => setSuccessMessage(null), 3000);
+    // Restart the timer rather than stacking them, so a second upload within
+    // 3s isn't cut short by the first upload's pending timeout.
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    successTimeoutRef.current = setTimeout(() => {
+      successTimeoutRef.current = null;
+      setSuccessMessage(null);
+    }, 3000);
   };
 
   const handleUploadModalClose = () => {
@@ -480,9 +500,13 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             navigate(`/photo/${photos[index].id}${location.search}`, { replace: true });
           }}
           isAdmin={isAdmin}
-          onPhotoUpdate={(updatedPhoto) => {
+          onPhotoUpdate={(updatedPhotoId, update) => {
             setPhotos((prev) =>
-              prev.map((p) => (p.id === updatedPhoto.id ? { ...p, ...updatedPhoto } : p))
+              prev.map((p) =>
+                p.id === updatedPhotoId
+                  ? { ...p, ...(typeof update === 'function' ? update(p) : update) }
+                  : p
+              )
             );
           }}
         />

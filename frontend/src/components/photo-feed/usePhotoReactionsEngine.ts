@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { api } from '../../lib/api';
 import type { ReactionSummary, ReactionWithUser } from './types';
-import { toggleReaction, invertReaction, type ReactionActor } from './reactions';
+import { toggleReaction, invertReaction, applyReaction, type ReactionActor } from './reactions';
 
 export interface ReactionKeyState {
   reactions: ReactionSummary[];
@@ -16,11 +16,22 @@ interface ToggleReactionCallbacks {
    * Called once the API call confirms the mutation, before the optional
    * details refetch. Distinct from onOptimisticUpdate because some callers
    * (the lightbox, syncing the feed's photo list) must not propagate a
-   * mutation that might still be rolled back. Skipped if a newer toggle of
-   * the same photo+emoji has since started — see the "last toggle wins"
-   * note on toggleReactionForPhoto.
+   * mutation that might still be rolled back.
+   *
+   * Receives a reconciler for the same reason onRollback does: it applies
+   * this toggle's own delta to whatever the target's LIVE state is when this
+   * fires, so a concurrent toggle of a *different* emoji that settled first
+   * survives instead of being clobbered by the snapshot this toggle captured
+   * when it began. The target is the state being synced *from* this toggle
+   * (e.g. the feed's copy of the photo) — one that has NOT already had this
+   * toggle's optimistic update applied, since re-applying it there would
+   * double-count. As with onRollback, each field of ReactionKeyState is
+   * derived independently of the others (see reactions.ts), so the reconciler
+   * can be applied per field. Skipped if a newer toggle of the same
+   * photo+emoji has since started — see the "last toggle wins" note on
+   * toggleReactionForPhoto.
    */
-  onSuccess?: (next: ReactionKeyState) => void;
+  onSuccess?: (reconcile: (live: ReactionKeyState) => ReactionKeyState) => void;
   /**
    * Called after the API call fails, undoing only this toggle's own effect.
    * Receives a reconciler rather than a value: apply it to whatever the
@@ -219,7 +230,7 @@ export function usePhotoReactionsEngine() {
       }
 
       if (isLatestForEmoji()) {
-        onSuccess?.({ reactions, userReactions, details });
+        onSuccess?.((live) => applyReaction(live, emoji, actor, isRemoving));
       }
 
       endPendingMutation(photoId);

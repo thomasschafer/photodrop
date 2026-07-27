@@ -225,6 +225,103 @@ describe('useLongPress', () => {
     expect(result.current.isLongPressing).toBe(false);
   });
 
+  it('still suppresses the click that ends a long press the finger moved out of', () => {
+    // The touch that fired the long press is not a tap, however it ends, so
+    // the click browsers emit when the finger lifts must not toggle anything.
+    const onLongPress = vi.fn();
+    const { result } = renderHook(() => useLongPress({ onLongPress }));
+
+    act(() => {
+      result.current.onTouchStart(createTouchEvent(100, 100));
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    act(() => {
+      result.current.onTouchMove(createTouchEvent(120, 100));
+    });
+    act(() => {
+      result.current.onTouchEnd();
+    });
+
+    const clickEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as React.MouseEvent;
+    act(() => {
+      result.current.onClick(clickEvent);
+    });
+
+    expect(clickEvent.preventDefault).toHaveBeenCalled();
+  });
+
+  it('cancels a pending long press on touchcancel', () => {
+    // iOS sends touchcancel instead of touchend when it takes the gesture
+    // over, and no click follows. A timer left running would fire with no
+    // finger on the screen.
+    const onLongPress = vi.fn();
+    const { result } = renderHook(() => useLongPress({ onLongPress }));
+
+    act(() => {
+      result.current.onTouchStart(createTouchEvent(100, 100));
+    });
+    act(() => {
+      result.current.onTouchCancel();
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
+  it('disarms the click guard on touchcancel so the next tap is not swallowed', () => {
+    // No click follows a cancel, so a long press that already fired would
+    // leave the guard armed — and eat whatever the user tapped next.
+    const onLongPress = vi.fn();
+    const onLongPressEnd = vi.fn();
+    const { result } = renderHook(() => useLongPress({ onLongPress, onLongPressEnd }));
+
+    act(() => {
+      result.current.onTouchStart(createTouchEvent(100, 100));
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.onTouchCancel();
+    });
+    expect(onLongPressEnd).toHaveBeenCalledTimes(1);
+    expect(result.current.isLongPressing).toBe(false);
+
+    const clickEvent = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as React.MouseEvent;
+    act(() => {
+      result.current.onClick(clickEvent);
+    });
+
+    expect(clickEvent.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('does not fire a long press queued when the component unmounts', () => {
+    const onLongPress = vi.fn();
+    const { result, unmount } = renderHook(() => useLongPress({ onLongPress }));
+
+    act(() => {
+      result.current.onTouchStart(createTouchEvent(100, 100));
+    });
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
   it('calls onLongPressEnd when finger moves after long press triggered', () => {
     const onLongPress = vi.fn();
     const onLongPressEnd = vi.fn();

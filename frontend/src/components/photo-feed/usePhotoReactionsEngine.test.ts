@@ -64,12 +64,70 @@ describe('usePhotoReactionsEngine', () => {
       userReactions: ['❤️'],
       details: undefined,
     });
-    expect(cb.onSuccess).toHaveBeenCalledWith({
+    // onSuccess hands over a reconciler, not a snapshot: applied to the sync
+    // target's state (untouched here, since only the caller's own view got the
+    // optimistic update) it yields the same result the old contract pushed.
+    expect(cb.onSuccess).toHaveBeenCalledTimes(1);
+    const reconcile = cb.onSuccess.mock.calls[0][0];
+    expect(reconcile(emptyState)).toEqual({
       reactions: [{ emoji: '❤️', count: 1 }],
       userReactions: ['❤️'],
       details: undefined,
     });
     expect(cb.onRollback).not.toHaveBeenCalled();
+  });
+
+  it('reconciles each success against live state when two emojis settle out of order', async () => {
+    const heartCall = deferred<unknown>();
+    const thumbCall = deferred<unknown>();
+    addReaction.mockImplementation((_photoId: string, emoji: string) =>
+      emoji === '❤️' ? heartCall.promise : thumbCall.promise
+    );
+
+    const { result } = renderHook(() => usePhotoReactionsEngine());
+    const heartCb = callbacks();
+    const thumbCb = callbacks();
+
+    let heartPromise!: Promise<void>;
+    act(() => {
+      heartPromise = result.current.toggleReactionForPhoto('p1', emptyState, '❤️', actor, heartCb);
+    });
+    const heartOptimistic = heartCb.onOptimisticUpdate.mock.calls[0][0] as ReactionKeyState;
+
+    let thumbPromise!: Promise<void>;
+    act(() => {
+      thumbPromise = result.current.toggleReactionForPhoto(
+        'p1',
+        heartOptimistic,
+        '👍',
+        actor,
+        thumbCb
+      );
+    });
+
+    // The second tap confirms first, then the first one does.
+    await act(async () => {
+      thumbCall.resolve({});
+      await thumbPromise;
+    });
+    await act(async () => {
+      heartCall.resolve({});
+      await heartPromise;
+    });
+
+    // A sync target that started empty and folds in each reconciler as it
+    // arrives ends up with both reactions. Pushing either toggle's own
+    // snapshot instead would drop whichever emoji it didn't know about.
+    let synced: ReactionKeyState = emptyState;
+    for (const cb of [thumbCb, heartCb]) {
+      const reconcile = cb.onSuccess.mock.calls[0][0] as (l: ReactionKeyState) => ReactionKeyState;
+      synced = reconcile(synced);
+    }
+    expect(synced.userReactions).toEqual(['👍', '❤️']);
+    expect(synced.reactions).toEqual([
+      { emoji: '👍', count: 1 },
+      { emoji: '❤️', count: 1 },
+    ]);
   });
 
   it('rolls back to the pre-toggle state and never signals success when the API fails', async () => {
