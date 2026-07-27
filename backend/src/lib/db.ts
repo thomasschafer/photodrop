@@ -26,6 +26,8 @@ export interface Membership {
   role: MembershipRole;
   joined_at: number;
   image_protection: number;
+  /** Per-group override of the user's canonical name; null when unset. */
+  display_name: string | null;
 }
 
 export interface MembershipWithGroup extends Membership {
@@ -34,10 +36,24 @@ export interface MembershipWithGroup extends Membership {
 }
 
 export interface MembershipWithUser extends Membership {
+  /** Group-resolved name: the display name override when set, else `users.name`. */
   user_name: string;
   user_email: string;
   user_profile_color: ProfileColor;
 }
+
+/**
+ * SQL for the name to show for a user inside a group: their per-group display
+ * name when one is set, otherwise their canonical name. Queries embedding this
+ * must alias memberships as `m` and users as `u`, and must join the membership
+ * row for the group whose context the name is displayed in — resolving against
+ * any other group's membership would leak one group's override into another.
+ *
+ * Shared by every read path that renders a name so they cannot drift: a query
+ * that resolved `u.name` directly would show the canonical name next to
+ * overridden ones.
+ */
+const RESOLVED_MEMBER_NAME = 'COALESCE(m.display_name, u.name)';
 
 export interface MagicLinkToken {
   token: string;
@@ -136,6 +152,44 @@ export async function updateMemberImageProtection(
   return result.meta.changes > 0;
 }
 
+/** Pass null to clear the override and fall back to the user's canonical name. */
+export async function updateMemberDisplayName(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  displayName: string | null
+): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE memberships SET display_name = ? WHERE user_id = ? AND group_id = ?')
+    .bind(displayName, userId, groupId)
+    .run();
+  return result.meta.changes > 0;
+}
+
+/**
+ * The name to show for a user inside a group. Null when the user has no
+ * membership of that group (or no longer exists), which callers must handle
+ * rather than falling back to the canonical name — a non-member has no
+ * resolved name in the group at all.
+ */
+export async function getResolvedMemberName(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<string | null> {
+  const result = await db
+    .prepare(
+      `SELECT ${RESOLVED_MEMBER_NAME} as resolved_name
+       FROM memberships m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.user_id = ? AND m.group_id = ?`
+    )
+    .bind(userId, groupId)
+    .first<{ resolved_name: string }>();
+
+  return result?.resolved_name ?? null;
+}
+
 // User functions
 export async function createUser(db: D1Database, name: string, email: string): Promise<string> {
   const userId = generateId();
@@ -191,7 +245,7 @@ export async function getUserMemberships(
 ): Promise<MembershipWithGroup[]> {
   const result = await db
     .prepare(
-      `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, g.name as group_name, g.owner_id as group_owner_id
+      `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, m.display_name, g.name as group_name, g.owner_id as group_owner_id
        FROM memberships m
        JOIN groups g ON m.group_id = g.id
        WHERE m.user_id = ?
@@ -210,7 +264,8 @@ export async function getGroupMembers(
   const [membersResult, group] = await Promise.all([
     db
       .prepare(
-        `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, u.name as user_name, u.email as user_email, u.profile_color as user_profile_color
+        `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, m.display_name,
+                ${RESOLVED_MEMBER_NAME} as user_name, u.email as user_email, u.profile_color as user_profile_color
          FROM memberships m
          JOIN users u ON m.user_id = u.id
          WHERE m.group_id = ?
@@ -874,9 +929,16 @@ export async function createComment(
 export async function getCommentsByPhotoId(db: D1Database, photoId: string): Promise<Comment[]> {
   const result = await db
     .prepare(
-      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.name as user_name, u.profile_color as author_profile_color, c.content, c.created_at, c.deleted_at
+      // The photo join is what scopes the name to a group: a comment is only
+      // ever read in the context of the group its photo belongs to, so that is
+      // the membership whose display name applies.
+      `SELECT c.id, c.photo_id, c.user_id, c.author_name,
+              ${RESOLVED_MEMBER_NAME} as user_name, u.profile_color as author_profile_color,
+              c.content, c.created_at, c.deleted_at
        FROM comments c
+       JOIN photos p ON p.id = c.photo_id
        LEFT JOIN users u ON c.user_id = u.id
+       LEFT JOIN memberships m ON m.user_id = c.user_id AND m.group_id = p.group_id
        WHERE c.photo_id = ?
        ORDER BY c.created_at DESC`
     )
@@ -915,9 +977,14 @@ export async function getPhotoReactionsWithUsers(
 ): Promise<PhotoReactionWithUser[]> {
   const result = await db
     .prepare(
-      `SELECT pr.photo_id, pr.user_id, pr.emoji, pr.created_at, u.name as user_name, u.profile_color as user_profile_color
+      // Reactions are shown in the group the reacted-to photo belongs to, so
+      // the photo join supplies the group whose display names apply.
+      `SELECT pr.photo_id, pr.user_id, pr.emoji, pr.created_at,
+              ${RESOLVED_MEMBER_NAME} as user_name, u.profile_color as user_profile_color
        FROM photo_reactions pr
+       JOIN photos p ON p.id = pr.photo_id
        JOIN users u ON pr.user_id = u.id
+       LEFT JOIN memberships m ON m.user_id = pr.user_id AND m.group_id = p.group_id
        WHERE pr.photo_id = ?
        ORDER BY pr.created_at ASC`
     )
@@ -967,7 +1034,7 @@ export async function listPhotosWithCounts(
         p.uploaded_at,
         p.thumbnail_r2_key,
         COALESCE(c.comment_count, 0) as comment_count,
-        u.name as uploader_name,
+        ${RESOLVED_MEMBER_NAME} as uploader_name,
         u.profile_color as uploader_profile_color
       FROM photos p
       LEFT JOIN (
@@ -977,6 +1044,7 @@ export async function listPhotosWithCounts(
         GROUP BY photo_id
       ) c ON c.photo_id = p.id
       LEFT JOIN users u ON u.id = p.uploaded_by
+      LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id
       WHERE p.group_id = ?
       ORDER BY p.uploaded_at DESC
       LIMIT ? OFFSET ?`

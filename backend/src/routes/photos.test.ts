@@ -4,7 +4,9 @@ import { COMMENT_MAX_LENGTH, CAPTION_MAX_LENGTH } from '@photodrop/common/limits
 
 const mockVerifyJWT = vi.fn();
 const mockGetPhoto = vi.fn();
-const mockGetUserById = vi.fn();
+const mockGetResolvedMemberName = vi.fn();
+const mockGetGroupPushSubscriptions = vi.fn();
+const mockSendPushNotifications = vi.fn();
 const mockCreateComment = vi.fn();
 const mockGetCommentsByPhotoId = vi.fn();
 const mockCreatePhoto = vi.fn();
@@ -26,15 +28,20 @@ vi.mock('../lib/db', () => ({
   addPhotoReaction: (...args: unknown[]) => mockAddPhotoReaction(...args),
   removePhotoReaction: (...args: unknown[]) => mockRemovePhotoReaction(...args),
   getPhotoReactionsWithUsers: vi.fn(),
-  getGroupPushSubscriptions: vi.fn(),
-  getGroupDeviceTokens: vi.fn(),
+  getGroupPushSubscriptions: (...args: unknown[]) => mockGetGroupPushSubscriptions(...args),
+  getGroupDeviceTokens: vi.fn().mockResolvedValue([]),
   getGroup: vi.fn(),
-  getUserById: (...args: unknown[]) => mockGetUserById(...args),
+  getResolvedMemberName: (...args: unknown[]) => mockGetResolvedMemberName(...args),
   createComment: (...args: unknown[]) => mockCreateComment(...args),
   getCommentsByPhotoId: (...args: unknown[]) => mockGetCommentsByPhotoId(...args),
   getComment: vi.fn(),
   deleteComment: vi.fn(),
   getMembership: (...args: unknown[]) => mockGetMembership(...args),
+}));
+
+vi.mock('../lib/push', () => ({
+  configureVapid: vi.fn(),
+  sendPushNotifications: (...args: unknown[]) => mockSendPushNotifications(...args),
 }));
 
 import photos from './photos';
@@ -273,8 +280,125 @@ describe('POST /photos/:id/comments', () => {
     const json = (await res.json()) as { error: string };
     expect(json.error).toBe(`Comment must be ${COMMENT_MAX_LENGTH} characters or less`);
     expect(mockGetPhoto).not.toHaveBeenCalled();
-    expect(mockGetUserById).not.toHaveBeenCalled();
+    expect(mockGetResolvedMemberName).not.toHaveBeenCalled();
     expect(mockCreateComment).not.toHaveBeenCalled();
+  });
+
+  it('snapshots the name this group sees, not the canonical one', async () => {
+    authenticateAsMember();
+    mockGetPhoto.mockResolvedValue({ id: 'photo-1', group_id: 'group-1' });
+    mockGetResolvedMemberName.mockResolvedValue('Mum');
+    mockCreateComment.mockResolvedValue('comment-1');
+
+    const res = await app.request('/photos/photo-1/comments', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ content: 'hello' }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockGetResolvedMemberName).toHaveBeenCalledWith({}, 'user-1', 'group-1');
+    // The snapshot is the fallback shown once the account is gone, so storing
+    // the canonical name here would make old comments disagree with the
+    // override the group sees everywhere else.
+    expect(mockCreateComment).toHaveBeenCalledWith({}, 'photo-1', 'user-1', 'Mum', 'hello');
+  });
+
+  it('refuses to comment when the author has no membership to resolve a name from', async () => {
+    authenticateAsMember();
+    mockGetPhoto.mockResolvedValue({ id: 'photo-1', group_id: 'group-1' });
+    mockGetResolvedMemberName.mockResolvedValue(null);
+
+    const res = await app.request('/photos/photo-1/comments', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ content: 'hello' }),
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockCreateComment).not.toHaveBeenCalled();
+  });
+});
+
+describe('photo upload notifications', () => {
+  let app: Hono;
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    app = createTestApp({
+      PHOTOS: { put: vi.fn().mockResolvedValue(undefined), delete: vi.fn() },
+      VAPID_PUBLIC_KEY: 'public-key',
+      VAPID_PRIVATE_KEY: 'private-key',
+      FRONTEND_URL: 'https://photodrop.test',
+    });
+    authenticateAsAdmin();
+    mockCreatePhoto.mockResolvedValue('photo-1');
+    mockGetGroupPushSubscriptions.mockResolvedValue([{ endpoint: 'https://push.test/1' }]);
+    mockSendPushNotifications.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
+  it('announces the uploader under the name their group knows them by', async () => {
+    mockGetResolvedMemberName.mockResolvedValue('Mum Smith');
+
+    const body = new FormData();
+    body.set('photo', new File([jpegBytes], 'photo.jpg', { type: 'image/jpeg' }));
+    body.set('thumbnail', new File([jpegBytes], 'thumb.jpg', { type: 'image/jpeg' }));
+
+    const scheduled: Promise<unknown>[] = [];
+    const res = await app.request(
+      '/photos',
+      { method: 'POST', headers: { Authorization: 'Bearer valid-token' }, body },
+      {},
+      {
+        waitUntil: (promise: Promise<unknown>) => scheduled.push(promise),
+        passThroughOnException: () => {},
+      } as unknown as ExecutionContext
+    );
+    await Promise.all(scheduled);
+
+    expect(res.status).toBe(201);
+    expect(mockGetResolvedMemberName).toHaveBeenCalledWith({}, 'user-1', 'group-1');
+    // Notifications are about this group, so a group display name has to win
+    // over the uploader's canonical name here too.
+    expect(mockSendPushNotifications).toHaveBeenCalledWith(
+      [{ endpoint: 'https://push.test/1' }],
+      expect.objectContaining({ body: 'Mum added a new photo' }),
+      {}
+    );
+  });
+
+  it('falls back to a generic name when the uploader has no resolvable name', async () => {
+    mockGetResolvedMemberName.mockResolvedValue(null);
+
+    const body = new FormData();
+    body.set('photo', new File([jpegBytes], 'photo.jpg', { type: 'image/jpeg' }));
+    body.set('thumbnail', new File([jpegBytes], 'thumb.jpg', { type: 'image/jpeg' }));
+
+    const scheduled: Promise<unknown>[] = [];
+    await app.request(
+      '/photos',
+      { method: 'POST', headers: { Authorization: 'Bearer valid-token' }, body },
+      {},
+      {
+        waitUntil: (promise: Promise<unknown>) => scheduled.push(promise),
+        passThroughOnException: () => {},
+      } as unknown as ExecutionContext
+    );
+    await Promise.all(scheduled);
+
+    expect(mockSendPushNotifications).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ body: 'Someone added a new photo' }),
+      {}
+    );
   });
 });
 

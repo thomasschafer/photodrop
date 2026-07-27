@@ -7,14 +7,15 @@ import {
   deleteMembership,
   deleteAllUserPushSubscriptionsForGroup,
   deleteAllUserDeviceTokensForGroup,
-  updateUserName,
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
   updateMemberImageProtection,
+  updateMemberDisplayName,
+  getResolvedMemberName,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
-import { updateMemberSchema, imageProtectionSchema } from '../lib/schemas';
+import { updateMemberSchema, imageProtectionSchema, displayNameSchema } from '../lib/schemas';
 import {
   NotFoundError,
   ForbiddenError,
@@ -25,6 +26,7 @@ import {
 import type {
   GroupsListResponse,
   MembersResponse,
+  MemberDisplayNameUpdatedResponse,
   PhotoCountResponse,
   GroupDeletedResponse,
 } from '@photodrop/common/apiTypes';
@@ -68,6 +70,7 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
     members: members.map((m) => ({
       userId: m.user_id,
       name: m.user_name,
+      displayName: m.display_name,
       email: m.user_email,
       profileColor: m.user_profile_color,
       role: m.role,
@@ -77,13 +80,16 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
   } satisfies MembersResponse);
 });
 
-// Update a member's role, name, or preferences (admin only)
+// Update a member's role (admin only). A member's name is deliberately not
+// settable here: users.name is the person's own, tenant-wide, and an admin
+// writing it would rename them in every group they belong to. Group-scoped
+// renaming lives on the display-name route below.
 groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
   const groupId = requireParam(c.req.param('groupId'), 'groupId');
   const userId = requireParam(c.req.param('userId'), 'userId');
   requireCurrentGroup(groupId, c.get('user').groupId, 'modify members of');
 
-  const { role, name } = await parseJsonBody(c, updateMemberSchema);
+  const { role } = await parseJsonBody(c, updateMemberSchema);
 
   // Check if membership exists
   const membership = await getMembership(c.env.DB, userId, groupId);
@@ -91,24 +97,14 @@ groups.patch('/:groupId/members/:userId', requireAdmin, async (c) => {
     throw new NotFoundError('User is not a member of this group');
   }
 
-  // Handle role update. Promotion to owner is impossible by construction: the
-  // schema only admits 'admin' | 'member' (owner is set at group creation).
-  if (role !== undefined) {
-    const result = await updateMembershipRole(c.env.DB, userId, groupId, role);
-    if (!result.success) {
-      if (result.error === 'is_owner') {
-        throw new ForbiddenError("Cannot change owner's role");
-      }
-      throw new InternalServerError('Failed to update role');
+  // Promotion to owner is impossible by construction: the schema only admits
+  // 'admin' | 'member' (owner is set at group creation).
+  const result = await updateMembershipRole(c.env.DB, userId, groupId, role);
+  if (!result.success) {
+    if (result.error === 'is_owner') {
+      throw new ForbiddenError("Cannot change owner's role");
     }
-  }
-
-  // Handle name update
-  if (name !== undefined) {
-    const updated = await updateUserName(c.env.DB, userId, name);
-    if (!updated) {
-      throw new InternalServerError('Failed to update name');
-    }
+    throw new InternalServerError('Failed to update role');
   }
 
   return c.json({ message: 'Member updated successfully' });
@@ -142,6 +138,48 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
   ]);
 
   return c.json({ message: 'Member removed successfully' });
+});
+
+// Set or clear a member's display name for this group (admin of the group, or
+// the member themselves). The override is scoped to this group's membership
+// row, so it can never reach the user's canonical name or any other group —
+// which is what makes it safe for an admin to set on anyone, the owner
+// included.
+groups.patch('/:groupId/members/:userId/display-name', requireAuth, async (c) => {
+  const groupId = requireParam(c.req.param('groupId'), 'groupId');
+  const userId = requireParam(c.req.param('userId'), 'userId');
+  const currentUser = c.get('user');
+  requireCurrentGroup(groupId, currentUser.groupId, 'modify members of');
+
+  if (currentUser.role !== 'admin' && currentUser.id !== userId) {
+    throw new ForbiddenError('You can only change your own display name');
+  }
+
+  const membership = await getMembership(c.env.DB, userId, groupId);
+  if (!membership) {
+    throw new NotFoundError('User is not a member of this group');
+  }
+
+  const { displayName } = await parseJsonBody(c, displayNameSchema);
+
+  const updated = await updateMemberDisplayName(c.env.DB, userId, groupId, displayName);
+  if (!updated) {
+    throw new InternalServerError('Failed to update display name');
+  }
+
+  // Re-resolve rather than assuming: when the override is cleared the effective
+  // name is the canonical one, which this route never otherwise reads.
+  const name = await getResolvedMemberName(c.env.DB, userId, groupId);
+  if (name === null) {
+    throw new InternalServerError('Failed to resolve the member name after the update');
+  }
+
+  return c.json({
+    message: 'Display name updated',
+    userId,
+    displayName,
+    name,
+  } satisfies MemberDisplayNameUpdatedResponse);
 });
 
 // Update a member's image protection (admin only)

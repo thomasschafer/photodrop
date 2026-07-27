@@ -12,7 +12,7 @@ import {
   getPhotoReactionsWithUsers,
   getGroupPushSubscriptions,
   getGroupDeviceTokens,
-  getUserById,
+  getResolvedMemberName,
   createComment,
   getCommentsByPhotoId,
   getComment,
@@ -90,11 +90,12 @@ async function sendPhotoUploadNotifications(
   photoId: string,
   caption: string | null
 ): Promise<void> {
-  // Get uploader info (shared by both notification types)
-  const uploader = await getUserById(env.DB, uploaderId);
+  // The notification is about this group, so the uploader's name in this group
+  // is the one to use — not their canonical name.
+  const uploaderName = await getResolvedMemberName(env.DB, uploaderId, groupId);
 
   // Use just the first name to keep the notification short and friendly.
-  const uploaderFirstName = uploader?.name?.trim().split(/\s+/)[0] || 'Someone';
+  const uploaderFirstName = uploaderName?.trim().split(/\s+/)[0] || 'Someone';
   const title = `New photo`;
   // Sanitize caption to prevent injection in push notifications
   // Push payloads are plain text (not rendered as HTML), so just truncate
@@ -519,12 +520,15 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
   const photo = await requirePhoto(c);
   const currentUser = c.get('user');
 
-  const user = await getUserById(c.env.DB, currentUser.id);
-  if (!user) {
+  // The stored author_name is the fallback shown once the account is gone, so
+  // it has to be the name this group sees — snapshotting the canonical name
+  // would make old comments disagree with the member list.
+  const authorName = await getResolvedMemberName(c.env.DB, currentUser.id, currentUser.groupId);
+  if (authorName === null) {
     throw new NotFoundError('User not found');
   }
 
-  const commentId = await createComment(c.env.DB, photo.id, currentUser.id, user.name, content);
+  const commentId = await createComment(c.env.DB, photo.id, currentUser.id, authorName, content);
 
   return c.json(
     {

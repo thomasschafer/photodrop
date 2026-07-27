@@ -6,6 +6,9 @@ import {
   deleteMembership,
   updateMembershipRole,
   updateMemberImageProtection,
+  updateMemberDisplayName,
+  getResolvedMemberName,
+  getGroupMembers,
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
@@ -430,6 +433,84 @@ describe('Membership functions', () => {
     });
   });
 
+  describe('display names', () => {
+    describe('getGroupMembers', () => {
+      it('resolves each name against this group, and exposes the raw override', async () => {
+        const members = [
+          {
+            user_id: 'user-1',
+            group_id: 'group-1',
+            role: 'member',
+            joined_at: 1000,
+            image_protection: 1,
+            display_name: 'Mum',
+            user_name: 'Mum',
+            user_email: 'jane@example.com',
+            user_profile_color: 'teal',
+          },
+        ];
+        const db = createMockDb(members);
+
+        const { members: result } = await getGroupMembers(db, 'group-1');
+
+        expect(result[0].user_name).toBe('Mum');
+        expect(result[0].display_name).toBe('Mum');
+        // The mocked rows would map through whatever the query asked for, so
+        // pin the resolution itself: reading u.name directly here would show
+        // the canonical name beside members who have an override.
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('COALESCE(m.display_name, u.name) as user_name')
+        );
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('m.display_name')
+        );
+      });
+    });
+
+    describe('getResolvedMemberName', () => {
+      it('returns the name this group sees for the user', async () => {
+        const db = createMockDb([{ resolved_name: 'Mum' }]);
+
+        const result = await getResolvedMemberName(db, 'user-1', 'group-1');
+
+        expect(result).toBe('Mum');
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('COALESCE(m.display_name, u.name) as resolved_name')
+        );
+        expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
+      });
+
+      it('returns null when the user is not a member of the group', async () => {
+        const db = createMockDb([]);
+
+        await expect(getResolvedMemberName(db, 'user-1', 'group-1')).resolves.toBeNull();
+      });
+    });
+
+    describe('updateMemberDisplayName', () => {
+      it('sets an override on that one membership only', async () => {
+        const db = createMockDb();
+
+        const result = await updateMemberDisplayName(db, 'user-1', 'group-1', 'Mum');
+
+        expect(result).toBe(true);
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          'UPDATE memberships SET display_name = ? WHERE user_id = ? AND group_id = ?'
+        );
+        expect(db._mocks.mockBind).toHaveBeenCalledWith('Mum', 'user-1', 'group-1');
+      });
+
+      it('clears the override by writing null', async () => {
+        const db = createMockDb();
+
+        const result = await updateMemberDisplayName(db, 'user-1', 'group-1', null);
+
+        expect(result).toBe(true);
+        expect(db._mocks.mockBind).toHaveBeenCalledWith(null, 'user-1', 'group-1');
+      });
+    });
+  });
+
   describe('getUserMemberships includes image_protection', () => {
     it('returns image_protection in membership data', async () => {
       const memberships = [
@@ -453,6 +534,8 @@ describe('Membership functions', () => {
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
         expect.stringContaining('m.image_protection')
       );
+      // The caller's own display name for each group comes from this query.
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(expect.stringContaining('m.display_name'));
     });
   });
 });
@@ -1090,6 +1173,26 @@ describe('Comment functions', () => {
 
       expect(result).toEqual([]);
     });
+
+    it("resolves author names against the group the comment's photo is in", async () => {
+      const db = createMockDb([]);
+
+      await getCommentsByPhotoId(db, 'photo-1');
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('COALESCE(m.display_name, u.name) as user_name')
+      );
+      // The photo join supplies that group; without it the membership row
+      // matched could be from any group the author belongs to.
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('JOIN photos p ON p.id = c.photo_id')
+      );
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'LEFT JOIN memberships m ON m.user_id = c.user_id AND m.group_id = p.group_id'
+        )
+      );
+    });
   });
 
   describe('getComment', () => {
@@ -1174,6 +1277,24 @@ describe('Reaction functions', () => {
 
       expect(result).toEqual([]);
     });
+
+    it('resolves reactor names against the group the reacted-to photo is in', async () => {
+      const db = createMockDb([]);
+
+      await getPhotoReactionsWithUsers(db, 'photo-1');
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('COALESCE(m.display_name, u.name) as user_name')
+      );
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('JOIN photos p ON p.id = pr.photo_id')
+      );
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'LEFT JOIN memberships m ON m.user_id = pr.user_id AND m.group_id = p.group_id'
+        )
+      );
+    });
   });
 });
 
@@ -1246,9 +1367,16 @@ describe('listPhotosWithCounts', () => {
     expect(result[1].uploader_profile_color).toBeNull();
 
     // The mocked rows would map through even if the query stopped asking for
-    // the uploader, so pin the projection and the join that produce them.
+    // the uploader, so pin the projection and the joins that produce them.
     expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-      expect.stringContaining('u.name as uploader_name')
+      expect.stringContaining('COALESCE(m.display_name, u.name) as uploader_name')
+    );
+    // Scoped to the photo's own group, so an uploader's display name in some
+    // other group can never be the one shown here.
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id'
+      )
     );
     expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
       expect.stringContaining('u.profile_color as uploader_profile_color')
@@ -1558,6 +1686,10 @@ describe('mutations report rows affected rather than statement success', () => {
     { name: 'deleteGroup', run: (db) => deleteGroup(db, 'group-1') },
     { name: 'deletePhoto', run: (db) => deletePhoto(db, 'photo-1', 'group-1') },
     { name: 'updateUserName', run: (db) => updateUserName(db, 'user-1', 'New Name') },
+    {
+      name: 'updateMemberDisplayName',
+      run: (db) => updateMemberDisplayName(db, 'user-1', 'group-1', 'Mum'),
+    },
     { name: 'updateUserProfileColor', run: (db) => updateUserProfileColor(db, 'user-1', 'teal') },
     { name: 'deleteComment', run: (db) => deleteComment(db, 'comment-1') },
     {

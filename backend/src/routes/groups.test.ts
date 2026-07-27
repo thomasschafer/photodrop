@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
+import { NAME_MAX_LENGTH } from '@photodrop/common/limits';
 
 const mockVerifyJWT = vi.fn();
 const mockGetGroup = vi.fn();
@@ -9,7 +10,13 @@ const mockDeleteGroup = vi.fn();
 const mockGetMembership = vi.fn();
 const mockUpdateMemberImageProtection = vi.fn();
 const mockUpdateMembershipRole = vi.fn();
+const mockUpdateMemberDisplayName = vi.fn();
+const mockGetResolvedMemberName = vi.fn();
+// No route here may call this: users.name is tenant-wide, so an admin writing
+// it renames the person in every group they belong to. It stays mocked so the
+// member routes can assert they never reach for it.
 const mockUpdateUserName = vi.fn();
+const mockGetGroupMembers = vi.fn();
 const mockDeleteMembership = vi.fn();
 const mockDeleteAllUserPushSubscriptionsForGroup = vi.fn();
 const mockDeleteAllUserDeviceTokensForGroup = vi.fn();
@@ -24,10 +31,12 @@ vi.mock('../lib/db', () => ({
   getGroupPhotoCount: (...args: unknown[]) => mockGetGroupPhotoCount(...args),
   deleteGroup: (...args: unknown[]) => mockDeleteGroup(...args),
   getUserMemberships: vi.fn(),
-  getGroupMembers: vi.fn(),
+  getGroupMembers: (...args: unknown[]) => mockGetGroupMembers(...args),
   getMembership: (...args: unknown[]) => mockGetMembership(...args),
   updateMembershipRole: (...args: unknown[]) => mockUpdateMembershipRole(...args),
   deleteMembership: (...args: unknown[]) => mockDeleteMembership(...args),
+  updateMemberDisplayName: (...args: unknown[]) => mockUpdateMemberDisplayName(...args),
+  getResolvedMemberName: (...args: unknown[]) => mockGetResolvedMemberName(...args),
   updateUserName: (...args: unknown[]) => mockUpdateUserName(...args),
   updateMemberImageProtection: (...args: unknown[]) => mockUpdateMemberImageProtection(...args),
   deleteAllUserPushSubscriptionsForGroup: (...args: unknown[]) =>
@@ -363,9 +372,8 @@ describe('PATCH /groups/:groupId/members/:userId', () => {
 
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: string };
-    expect(json.error).toBe('Provide at least one of role or name to update');
+    expect(json.error).toBe('Provide a role to update');
     expect(mockUpdateMembershipRole).not.toHaveBeenCalled();
-    expect(mockUpdateUserName).not.toHaveBeenCalled();
   });
 
   it('updates the role when one is provided', async () => {
@@ -377,13 +385,284 @@ describe('PATCH /groups/:groupId/members/:userId', () => {
     expect(mockUpdateMembershipRole).toHaveBeenCalledWith({}, 'user-1', 'group-1', 'admin');
   });
 
-  it('updates the name when one is provided', async () => {
-    mockUpdateUserName.mockResolvedValue(true);
-
+  it('refuses to rename the member: a name here would rewrite it in every group', async () => {
     const res = await patchMember({ name: 'Renamed' });
 
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Provide a role to update');
+    expect(mockUpdateMembershipRole).not.toHaveBeenCalled();
+    expect(mockUpdateUserName).not.toHaveBeenCalled();
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('ignores a name smuggled in alongside a role', async () => {
+    mockUpdateMembershipRole.mockResolvedValue({ success: true });
+
+    const res = await patchMember({ role: 'member', name: 'Renamed' });
+
     expect(res.status).toBe(200);
-    expect(mockUpdateUserName).toHaveBeenCalledWith({}, 'user-1', 'Renamed');
+    expect(mockUpdateMembershipRole).toHaveBeenCalledWith({}, 'user-1', 'group-1', 'member');
+    // Neither the canonical name nor a display name may be written from here.
+    expect(mockUpdateUserName).not.toHaveBeenCalled();
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /groups/:groupId/members', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetMembership.mockResolvedValue({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+      joined_at: 1000,
+      image_protection: 1,
+      display_name: null,
+    });
+
+    app = new Hono();
+    app.use('*', async (c, next) => {
+      c.env = { JWT_SECRET: 'test-secret', DB: {} };
+      await next();
+    });
+    app.route('/groups', groups);
+    app.onError(errorHandler);
+  });
+
+  it('reports the resolved name to show and the raw override separately', async () => {
+    mockGetGroupMembers.mockResolvedValue({
+      ownerId: 'admin-user',
+      members: [
+        {
+          user_id: 'user-1',
+          group_id: 'group-1',
+          role: 'member',
+          joined_at: 1000,
+          image_protection: 1,
+          display_name: 'Mum',
+          user_name: 'Mum',
+          user_email: 'jane@example.com',
+          user_profile_color: 'teal',
+        },
+        {
+          user_id: 'user-2',
+          group_id: 'group-1',
+          role: 'member',
+          joined_at: 2000,
+          image_protection: 1,
+          display_name: null,
+          user_name: 'Bob Smith',
+          user_email: 'bob@example.com',
+          user_profile_color: 'sage',
+        },
+      ],
+    });
+
+    const res = await app.request('/groups/group-1/members', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      members: Array<{ userId: string; name: string; displayName: string | null }>;
+    };
+    // An admin UI needs both: what to render, and whether it is an override it
+    // can offer to reset.
+    expect(json.members[0]).toMatchObject({ userId: 'user-1', name: 'Mum', displayName: 'Mum' });
+    expect(json.members[1]).toMatchObject({
+      userId: 'user-2',
+      name: 'Bob Smith',
+      displayName: null,
+    });
+  });
+});
+
+describe('PATCH /groups/:groupId/members/:userId/display-name', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUpdateMemberDisplayName.mockResolvedValue(true);
+    mockGetResolvedMemberName.mockResolvedValue('Mum');
+
+    app = new Hono();
+    app.use('*', async (c, next) => {
+      c.env = { JWT_SECRET: 'test-secret', DB: {} };
+      await next();
+    });
+    app.route('/groups', groups);
+    app.onError(errorHandler);
+  });
+
+  function authenticateAs(userId: string, role: 'admin' | 'member') {
+    mockVerifyJWT.mockResolvedValue({ sub: userId, groupId: 'group-1', role, type: 'access' });
+    // First call: the auth middleware checks the caller's membership. Second:
+    // the route checks the target's.
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: userId,
+      group_id: 'group-1',
+      role,
+      joined_at: 1000,
+      image_protection: 1,
+      display_name: null,
+    });
+    mockGetMembership.mockResolvedValue({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+      joined_at: 1000,
+      image_protection: 1,
+      display_name: null,
+    });
+  }
+
+  function patchDisplayName(targetUserId: string, body: unknown, groupId = 'group-1') {
+    return app.request(`/groups/${groupId}/members/${targetUserId}/display-name`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('returns 401 when not authenticated', async () => {
+    const res = await app.request('/groups/group-1/members/user-1/display-name', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Mum' }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when groupId does not match the caller context', async () => {
+    authenticateAs('admin-user', 'admin');
+
+    const res = await patchDisplayName('user-1', { displayName: 'Mum' }, 'different-group');
+
+    expect(res.status).toBe(403);
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('lets an admin set an override for another member', async () => {
+    authenticateAs('admin-user', 'admin');
+
+    const res = await patchDisplayName('user-1', { displayName: 'Mum' });
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { userId: string; displayName: string; name: string };
+    expect(json).toMatchObject({ userId: 'user-1', displayName: 'Mum', name: 'Mum' });
+    expect(mockUpdateMemberDisplayName).toHaveBeenCalledWith({}, 'user-1', 'group-1', 'Mum');
+  });
+
+  it('lets a member set their own override', async () => {
+    authenticateAs('user-1', 'member');
+
+    const res = await patchDisplayName('user-1', { displayName: 'Mum' });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateMemberDisplayName).toHaveBeenCalledWith({}, 'user-1', 'group-1', 'Mum');
+  });
+
+  it("returns 403 when a member targets someone else's display name", async () => {
+    authenticateAs('user-2', 'member');
+
+    const res = await patchDisplayName('user-1', { displayName: 'Mum' });
+
+    expect(res.status).toBe(403);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('You can only change your own display name');
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('clears the override on an explicit null, restoring the canonical name', async () => {
+    authenticateAs('admin-user', 'admin');
+    mockGetResolvedMemberName.mockResolvedValue('Jane Doe');
+
+    const res = await patchDisplayName('user-1', { displayName: null });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateMemberDisplayName).toHaveBeenCalledWith({}, 'user-1', 'group-1', null);
+    const json = (await res.json()) as { displayName: string | null; name: string };
+    expect(json).toMatchObject({ displayName: null, name: 'Jane Doe' });
+  });
+
+  it('rejects a body with no displayName rather than reading it as a clear', async () => {
+    authenticateAs('admin-user', 'admin');
+
+    const res = await patchDisplayName('user-1', {});
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe(
+      'displayName must be a non-empty string, or null to clear the override'
+    );
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('rejects a blank display name', async () => {
+    authenticateAs('admin-user', 'admin');
+
+    const res = await patchDisplayName('user-1', { displayName: '   ' });
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Name cannot be empty');
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('rejects a display name over the shared name limit', async () => {
+    authenticateAs('admin-user', 'admin');
+
+    const res = await patchDisplayName('user-1', { displayName: 'a'.repeat(NAME_MAX_LENGTH + 1) });
+
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe(`Name must be ${NAME_MAX_LENGTH} characters or less`);
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the target is not a member of the group', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-user',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetMembership.mockResolvedValueOnce({
+      user_id: 'admin-user',
+      group_id: 'group-1',
+      role: 'admin',
+    });
+    mockGetMembership.mockResolvedValueOnce(null);
+
+    const res = await patchDisplayName('nonexistent', { displayName: 'Mum' });
+
+    expect(res.status).toBe(404);
+    expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when the update changes no row', async () => {
+    authenticateAs('admin-user', 'admin');
+    mockUpdateMemberDisplayName.mockResolvedValue(false);
+
+    const res = await patchDisplayName('user-1', { displayName: 'Mum' });
+
+    expect(res.status).toBe(500);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Failed to update display name');
   });
 });
 
