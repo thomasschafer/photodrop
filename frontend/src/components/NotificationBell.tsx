@@ -13,8 +13,8 @@ import {
   waitForNativePushInit,
   getDebugTimeline,
   resetPushCrashGuard,
+  addAppStateChangeListener,
 } from '../lib/nativePush';
-import { App as CapApp } from '@capacitor/app';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { Button } from './Button';
@@ -164,23 +164,19 @@ export function NotificationBell() {
   }, [isNative, checkNativeSubscriptionStatus]);
 
   // Re-check permissions when app resumes (e.g., returning from Android settings
-  // after enabling notifications there)
+  // after enabling notifications there). This effect re-runs on every group
+  // switch, so the subscription has to survive being cleaned up before
+  // CapApp.addListener has handed back its handle — otherwise each switch
+  // strands another listener that fires a stale-closure status check on every
+  // foreground. addAppStateChangeListener owns that race.
   useEffect(() => {
     if (!isNative) return;
 
-    let handle: { remove: () => Promise<void> } | null = null;
-
-    CapApp.addListener('appStateChange', (appState) => {
+    return addAppStateChangeListener((appState) => {
       if (appState.isActive) {
         checkNativeSubscriptionStatus();
       }
-    }).then((h) => {
-      handle = h;
     });
-
-    return () => {
-      handle?.remove();
-    };
   }, [isNative, checkNativeSubscriptionStatus]);
 
   // Subscribe to web push

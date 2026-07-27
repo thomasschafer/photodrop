@@ -18,11 +18,11 @@ export function AuthVerifyPage() {
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
-  const verificationAttempted = useRef(false);
+  const verifiedToken = useRef<string | null>(null);
   const nameFormShownAt = useRef<number | null>(null);
 
   const handleVerificationResult = useCallback(
-    (data: Awaited<ReturnType<typeof api.auth.verifyMagicLink>>) => {
+    async (data: Awaited<ReturnType<typeof api.auth.verifyMagicLink>>) => {
       if ('needsName' in data) {
         setStatus('needs_name');
         setShowExpiryWarning(false);
@@ -30,7 +30,10 @@ export function AuthVerifyPage() {
         return;
       }
 
-      login(
+      // Awaited: login purges the previous session's caches before publishing
+      // the new state, and navigating before that finishes would let the feed
+      // read another user's cached photo list.
+      await login(
         data.accessToken,
         data.user,
         data.currentGroup ?? null,
@@ -66,16 +69,26 @@ export function AuthVerifyPage() {
   }, []);
 
   useEffect(() => {
-    if (!token || verificationAttempted.current) {
+    // Keyed by the token rather than a boolean. The guard exists for StrictMode's
+    // double effect invocation — a magic link is single-use, so verifying twice
+    // burns it — but a boolean also blocks the legitimate case where the :token
+    // param changes on a reused component instance, i.e. the user opens a second
+    // magic link from the first one's error screen.
+    if (!token || verifiedToken.current === token) {
       return;
     }
 
-    verificationAttempted.current = true;
+    verifiedToken.current = token;
 
     async function verify(tokenToVerify: string) {
+      // Drop whatever the previous token left on screen — otherwise a second
+      // link opened from the first one's error screen keeps showing that error
+      // until the new request comes back.
+      setStatus('verifying');
+      setErrorMessage('');
       try {
         const data = await api.auth.verifyMagicLink(tokenToVerify);
-        handleVerificationResult(data);
+        await handleVerificationResult(data);
       } catch (error) {
         handleVerificationError(error);
       }
@@ -113,7 +126,7 @@ export function AuthVerifyPage() {
 
     try {
       const data = await api.auth.verifyMagicLink(token!, name.trim());
-      handleVerificationResult(data);
+      await handleVerificationResult(data);
     } catch (error) {
       handleVerificationError(error);
     }

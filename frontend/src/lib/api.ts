@@ -29,6 +29,7 @@ import type {
   DeviceStatusResponse,
 } from '@photodrop/common/apiTypes';
 import type { ProfileColor } from './profileColors';
+import { setLocalStorageItem } from './storage';
 
 // Check if we're in a Capacitor native environment
 const isNative = Capacitor.isNativePlatform();
@@ -204,6 +205,21 @@ function refreshSession(): Promise<AuthResponse> {
   return refreshPromise;
 }
 
+// Session generation counter. AuthContext's resetToLoggedOut bumps it so that
+// a refresh already in flight when the user signs out cannot resurrect the
+// session: every refresh path captures the epoch before awaiting and discards
+// the result — no localStorage write, no event, no state application — if it
+// changed while the request was in the air.
+let sessionEpoch = 0;
+
+export function getSessionEpoch(): number {
+  return sessionEpoch;
+}
+
+export function bumpSessionEpoch(): void {
+  sessionEpoch += 1;
+}
+
 // A refresh failure means the session is genuinely gone only when the server
 // explicitly rejects the refresh cookie (401/403). Network errors and 5xxs are
 // transient and tell us nothing about the session, so they must not force a
@@ -220,8 +236,14 @@ export function isSessionExpired(error: unknown): boolean {
 // to retry the original request with. Exported so the authenticated-image
 // fetch (which can't use fetchWithAuth) can recover from a 401 the same way.
 export async function refreshAccessToken(): Promise<boolean> {
+  const epoch = sessionEpoch;
   try {
     const data = await refreshSession();
+    // The user signed out while this refresh was in flight: applying the
+    // result would silently sign them back in with a fresh token. Discard it.
+    if (epoch !== sessionEpoch) {
+      return false;
+    }
     if (data.accessToken) {
       localStorage.setItem('accessToken', data.accessToken);
       window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
@@ -241,6 +263,11 @@ export async function refreshAccessToken(): Promise<boolean> {
     // A 2xx response with neither a token nor a user means the session is gone;
     // fall through to the teardown below.
   } catch (error) {
+    // As above: the session this refresh belonged to is already torn down, so
+    // neither the transient-failure path nor the expiry teardown applies.
+    if (epoch !== sessionEpoch) {
+      return false;
+    }
     // Transient failure: keep the session intact and let the caller's request
     // fail. The next interval/foreground refresh can recover.
     if (!isSessionExpired(error)) {
@@ -484,7 +511,10 @@ export const api = {
         body: JSON.stringify(subscription),
       });
       if (data.deletionToken && subscription.endpoint) {
-        localStorage.setItem(`push_deletion_token:${subscription.endpoint}`, data.deletionToken);
+        // Best-effort: the backend subscription already succeeded, so a failed
+        // write must not reject this call. unsubscribe() below falls back to
+        // the authenticated endpoint when the token is missing.
+        setLocalStorageItem(`push_deletion_token:${subscription.endpoint}`, data.deletionToken);
       }
       return data;
     },
@@ -501,7 +531,11 @@ export const api = {
     unsubscribe: async (endpoint: string): Promise<void> => {
       const deletionToken = localStorage.getItem(`push_deletion_token:${endpoint}`);
       if (!deletionToken) {
-        console.warn('No deletion token found for endpoint, skipping unsubscribe');
+        // The deletion token can be lost (cleared storage, failed write). Fall
+        // back to the authenticated endpoint while the caller is still signed
+        // in — otherwise the backend subscription outlives the session and an
+        // ex-user on a shared device keeps receiving notifications.
+        await api.push.unsubscribeFromCurrentGroup(endpoint);
         return;
       }
       await fetch(`${API_BASE_URL}/push/unsubscribe`, {

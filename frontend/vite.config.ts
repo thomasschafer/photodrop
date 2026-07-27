@@ -47,6 +47,12 @@ export default defineConfig({
       devOptions: {
         enabled: true,
         type: 'module',
+        // In dev the plugin replaces self.__WB_MANIFEST with an empty array
+        // unless this is set. sw.ts binds its SPA navigation fallback to the
+        // precached index.html, and createHandlerBoundToURL throws for a URL
+        // that isn't in the manifest — which would break the dev service worker
+        // outright.
+        navigateFallback: 'index.html',
       },
     }),
   ],

@@ -153,6 +153,26 @@ describe('useInstallPrompt', () => {
       // Should not persist to localStorage
       expect(Storage.prototype.setItem).not.toHaveBeenCalled();
     });
+
+    it('still dismisses when localStorage refuses the write', () => {
+      // Private browsing / restricted webviews / quota pressure make setItem
+      // throw. The dismissal is a convenience, so it must not blow up out of
+      // the click handler that triggered it.
+      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('QuotaExceededError');
+      });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const { result } = renderHook(() => useInstallPrompt());
+
+      act(() => {
+        result.current.dismiss(true);
+      });
+
+      expect(result.current.isDismissed).toBe(true);
+      expect(console.error).toHaveBeenCalled();
+    });
   });
 
   describe('platform detection', () => {

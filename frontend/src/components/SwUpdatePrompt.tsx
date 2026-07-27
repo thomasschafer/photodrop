@@ -20,6 +20,7 @@ export function SwUpdatePrompt() {
       window.location.reload();
     };
 
+    let cancelled = false;
     let registration: ServiceWorkerRegistration | undefined;
 
     const handleUpdateFound = () => {
@@ -34,22 +35,42 @@ export function SwUpdatePrompt() {
       });
     };
 
+    // The browser only checks for a new worker on navigation, and an installed
+    // iOS PWA is resumed far more often than it is navigated — it can run for
+    // days without ever noticing a deploy. Ask explicitly on every foreground.
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      registration?.update().catch((error) => {
+        console.error('Service worker update check failed:', error);
+      });
+    };
+
     const checkForWaiting = async () => {
-      registration = await navigator.serviceWorker.getRegistration();
-      if (registration?.waiting) {
-        setWaitingWorker(registration.waiting);
+      const found = await navigator.serviceWorker.getRegistration();
+      // Unmounted while getRegistration was in flight: the cleanup below has
+      // already run, so attaching now would leave updatefound bound forever.
+      if (cancelled || !found) return;
+      registration = found;
+
+      if (found.waiting) {
+        setWaitingWorker(found.waiting);
         setShowPrompt(true);
       }
 
       // Listen for new service workers
-      registration?.addEventListener('updatefound', handleUpdateFound);
+      found.addEventListener('updatefound', handleUpdateFound);
     };
 
-    checkForWaiting();
+    checkForWaiting().catch((error) => {
+      console.error('Failed to inspect the service worker registration:', error);
+    });
     navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
+      cancelled = true;
       navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+      document.removeEventListener('visibilitychange', handleVisibility);
       registration?.removeEventListener('updatefound', handleUpdateFound);
     };
   }, []);

@@ -39,6 +39,65 @@ function logDebug(event: string) {
 }
 
 /**
+ * Subscribe to Capacitor's appStateChange with race-safe cleanup.
+ * CapApp.addListener resolves its handle asynchronously; if the caller cleans
+ * up before the handle arrives, the handle is removed on resolution instead —
+ * otherwise the listener leaks and keeps firing forever. Returns the cleanup
+ * function (safe to call more than once).
+ */
+export function addAppStateChangeListener(
+  onChange: (state: { isActive: boolean }) => void
+): () => void {
+  let cancelled = false;
+  let handle: { remove: () => Promise<void> } | undefined;
+  const remove = (h: { remove: () => Promise<void> }) => {
+    h.remove().catch((error) => {
+      console.error('Failed to remove appStateChange listener:', error);
+    });
+  };
+  CapApp.addListener('appStateChange', onChange)
+    .then((h) => {
+      if (cancelled) remove(h);
+      else handle = h;
+    })
+    .catch((error) => {
+      console.error('Failed to add appStateChange listener:', error);
+    });
+  return () => {
+    cancelled = true;
+    if (handle) remove(handle);
+    handle = undefined;
+  };
+}
+
+/**
+ * Wait until the app reports active (plus a settle delay), or until a timeout.
+ * Shared by the splash-screen and post-permission waits below; always removes
+ * its appStateChange listener before resolving.
+ */
+function waitForActiveState(timeoutMs: number, settleDelayMs: number, onTimeout?: () => void) {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      removeListener();
+      resolve();
+    };
+    const timeout = setTimeout(() => {
+      onTimeout?.();
+      finish();
+    }, timeoutMs);
+    const removeListener = addAppStateChangeListener((state) => {
+      if (state.isActive) {
+        clearTimeout(timeout);
+        setTimeout(finish, settleDelayMs);
+      }
+    });
+  });
+}
+
+/**
  * Wait for the app to be fully visible (splash screen dismissed, activity resumed).
  * On cold start, the splash screen may overlay permission dialogs, so we need to
  * ensure the app is in the foreground before requesting permissions.
@@ -65,35 +124,11 @@ async function waitForAppReady(): Promise<void> {
   }
 
   // App not active yet — wait for it to become active
-  return new Promise<void>((resolve) => {
-    let listenerHandle: { remove: () => Promise<void> } | null = null;
-
-    const cleanup = () => {
-      listenerHandle?.remove();
-    };
-
-    const timeout = setTimeout(() => {
-      logDebug('app ready timeout (5s), proceeding anyway');
-      appFullyVisible = true;
-      cleanup();
-      resolve();
-    }, 5000);
-
-    CapApp.addListener('appStateChange', (state) => {
-      if (state.isActive) {
-        clearTimeout(timeout);
-        // Additional delay for splash screen dismissal
-        setTimeout(() => {
-          appFullyVisible = true;
-          logDebug('app ready (state change + delay)');
-          cleanup();
-          resolve();
-        }, 500);
-      }
-    }).then((handle) => {
-      listenerHandle = handle;
-    });
+  await waitForActiveState(5000, 500, () => {
+    logDebug('app ready timeout (5s), proceeding anyway');
   });
+  appFullyVisible = true;
+  logDebug('app ready');
 }
 
 /**
@@ -111,15 +146,7 @@ async function waitForPostPermissionResume(): Promise<void> {
     // getState failed, fall through to listener approach
   }
 
-  return new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => resolve(), 2000);
-    CapApp.addListener('appStateChange', (state) => {
-      if (state.isActive) {
-        clearTimeout(timeout);
-        setTimeout(() => resolve(), 400);
-      }
-    });
-  });
+  return waitForActiveState(2000, 400);
 }
 
 /**
@@ -291,7 +318,17 @@ export async function registerForPush(): Promise<string | null> {
         resolve(token);
       };
 
-      PushNotifications.register();
+      // register() resolves before the registration/registrationError events
+      // fire, but it can reject outright (plugin/platform error). Fail fast in
+      // that case instead of leaving the caller stalled on the 10s timeout —
+      // and never let the rejection escape as an unhandled rejection.
+      PushNotifications.register().catch((error) => {
+        logDebug(`register() rejected: ${error instanceof Error ? error.message : String(error)}`);
+        if (pendingResolve) {
+          pendingResolve(null);
+          pendingResolve = null;
+        }
+      });
     });
 
     return pendingRegistrationPromise;

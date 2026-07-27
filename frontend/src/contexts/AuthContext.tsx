@@ -9,7 +9,15 @@ import {
 } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
-import { api, isSessionExpired, type User, type Group, type AuthResponse } from '../lib/api';
+import {
+  api,
+  isSessionExpired,
+  getSessionEpoch,
+  bumpSessionEpoch,
+  type User,
+  type Group,
+  type AuthResponse,
+} from '../lib/api';
 import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
 import type { ProfileColor } from '../lib/profileColors';
 import {
@@ -57,6 +65,8 @@ interface AuthContextType {
   needsGroupSelection: boolean;
   loading: boolean;
   imageProtection: boolean;
+  // Async because it must finish clearing the previous session's caches before
+  // the new auth state is published; callers should await it before navigating.
   login: (
     accessToken: string | null,
     user: User,
@@ -64,7 +74,7 @@ interface AuthContextType {
     groups: Group[],
     needsGroupSelection: boolean,
     selectionToken?: string | null
-  ) => void;
+  ) => Promise<void>;
   logout: () => Promise<void>;
   // Resolves true when it settled auth state (synced from the server, or tore
   // down on a genuine expiry); false when a transient failure left the existing
@@ -96,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const lastForegroundRefresh = useRef(0);
 
   const login = useCallback(
-    (
+    async (
       accessToken: string | null,
       user: User,
       currentGroup: Group | null,
@@ -104,6 +114,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       needsGroupSelection: boolean,
       selectionToken?: string | null
     ) => {
+      // A magic link can sign a *different* person in on a browser that still
+      // holds the previous user's caches: photodrop:user:api and
+      // photodrop:group:photo-list are NetworkFirst, so without this the new
+      // user can be served the old user's /users/me and photo list. Cleared
+      // before publishing the new state for the same reason switchGroup does
+      // it in that order — once the state lands the feed starts fetching, and a
+      // clear running behind that would delete the new session's fresh entries.
+      await clearAllUserCaches();
+      // Any /auth/refresh still in flight belongs to the session we just
+      // replaced; invalidate it so it can't write its token over the new one.
+      bumpSessionEpoch();
       if (accessToken) {
         localStorage.setItem('accessToken', accessToken);
       }
@@ -128,6 +149,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // in-memory image cache after the Cache API deletion resolves, so ignoring
   // the promise would let teardown "finish" with decoded photos still held.
   const resetToLoggedOut = useCallback(async () => {
+    // Retire the session generation first: a POST /auth/refresh already in
+    // flight would otherwise resolve after this teardown and write a fresh
+    // token back, silently signing the user in again for another ~15 minutes.
+    // Every refresh path re-checks the epoch before applying its result.
+    bumpSessionEpoch();
     localStorage.removeItem('accessToken');
     setAuthState(LOGGED_OUT_STATE);
     nativePushInitialized.current = false;
@@ -143,6 +169,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const subscription = await registration.pushManager.getSubscription();
           if (subscription) {
             await api.push.unsubscribe(subscription.endpoint);
+            // Close the browser-side channel too. Deleting only the backend row
+            // leaves a live PushSubscription on this device, so the endpoint
+            // outlives the session and the next person to sign in here inherits
+            // it instead of registering their own.
+            await subscription.unsubscribe();
           }
         } catch (pushError) {
           console.error('Error cleaning up push subscription:', pushError);
@@ -167,8 +198,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [resetToLoggedOut]);
 
   const refreshAuth = useCallback(async (): Promise<boolean> => {
+    // Captured before awaiting: if the session is torn down while this refresh
+    // is in the air, the epoch moves and neither the success nor the failure
+    // path below may touch auth state. Auth state *is* settled in that case —
+    // logged out — so both report true.
+    const epoch = getSessionEpoch();
     try {
       const data = await api.auth.refresh();
+      if (epoch !== getSessionEpoch()) {
+        return true;
+      }
       if (data.accessToken) {
         localStorage.setItem('accessToken', data.accessToken);
       } else {
@@ -178,6 +217,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true;
     } catch (error) {
       console.error('Refresh error:', error);
+      if (epoch !== getSessionEpoch()) {
+        return true;
+      }
       // A transient failure (network / 5xx) must not sign the user out — keep
       // the current session so a later refresh can recover. Only tear down on a
       // genuine expiry (the server rejected the refresh cookie).
@@ -244,10 +286,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       } catch (error) {
         console.error('Select group error:', error);
+        // Selection tokens live ~5 minutes and the picker has no refresh of its
+        // own (the interval refresh needs a currentGroup, which is exactly what
+        // this user lacks). Once the token dies, every retry reuses the same
+        // dead one and the user is stranded. Re-refresh to mint a fresh
+        // selection token so the retry they're about to make can succeed; a
+        // genuinely dead session tears down through refreshAuth as usual.
+        if (isSessionExpired(error)) {
+          await refreshAuth();
+        }
         throw error;
       }
     },
-    [authState.selectionToken]
+    [authState.selectionToken, refreshAuth]
   );
 
   const updateProfileColor = useCallback((color: ProfileColor) => {
@@ -277,7 +328,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshAuth, resetToLoggedOut]);
 
   useEffect(() => {
-    const initAuth = async () => {
+    let cancelled = false;
+    let retryWhenOnline: (() => void) | null = null;
+
+    // Resolves true once auth state is settled (signed in, or genuinely signed
+    // out); false when the attempt failed transiently and we simply don't know
+    // yet — see the retry below.
+    const bootstrapAuth = async (): Promise<boolean> => {
       const token = localStorage.getItem('accessToken');
 
       if (token) {
@@ -296,25 +353,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             needsGroupSelection: !userData.currentGroup,
             selectionToken: null,
           });
-          setLoading(false);
-          return;
-        } catch {
-          // Token invalid, will try to refresh below
+          return true;
+        } catch (error) {
+          // Only the server explicitly rejecting the token (401/403) proves it
+          // is dead. Opening the installed PWA with no connectivity fails here
+          // too, and discarding a perfectly good token for that would sign the
+          // user out permanently — the refresh below fails for the same reason,
+          // and nothing afterwards re-mints it. Keep the token in that case.
+          if (!isSessionExpired(error)) {
+            console.error('Could not verify the stored session:', error);
+            return false;
+          }
           localStorage.removeItem('accessToken');
         }
       }
 
-      // No token or token invalid - try to refresh using httpOnly cookie
-      try {
-        await refreshAuth();
-      } catch {
-        // No valid session
-      }
-
-      setLoading(false);
+      // No token, or the server rejected it — fall back to the httpOnly refresh
+      // cookie. refreshAuth applies the same rule and reports false when it
+      // couldn't tell either.
+      return refreshAuth();
     };
 
-    initAuth();
+    const run = async () => {
+      const settled = await bootstrapAuth();
+      if (cancelled) return;
+      setLoading(false);
+      if (settled) return;
+
+      // Bootstrap couldn't reach the server. Retry when connectivity returns so
+      // a session that only failed to verify offline is restored without the
+      // user having to relaunch the app.
+      retryWhenOnline = () => {
+        retryWhenOnline = null;
+        void run();
+      };
+      window.addEventListener('online', retryWhenOnline, { once: true });
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+      if (retryWhenOnline) {
+        window.removeEventListener('online', retryWhenOnline);
+      }
+    };
   }, [refreshAuth]);
 
   // Auto-refresh token before expiry

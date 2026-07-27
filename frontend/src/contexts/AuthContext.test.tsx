@@ -4,6 +4,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import { ApiError } from '../lib/api';
+import { clearAllUserCaches } from '../lib/cache';
 
 const mockGetMe = vi.fn();
 const mockRefresh = vi.fn();
@@ -56,7 +57,7 @@ vi.mock('@capacitor/app', () => ({
   App: { addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }) },
 }));
 
-const user = { id: 'u1', name: 'Tom', email: 'tom@example.com', profileColor: 'teal' };
+const user = { id: 'u1', name: 'Tom', email: 'tom@example.com', profileColor: 'teal' as const };
 const currentGroup = {
   id: 'g1',
   name: 'Family',
@@ -113,10 +114,17 @@ describe('AuthProvider session resilience', () => {
     localStorage.setItem('accessToken', 'initial-token');
     mockGetMe.mockResolvedValue(meResponse);
     mockRefresh.mockResolvedValue(refreshResponse);
+    // Reinstated per test: two tests below swap in a promise they resolve by
+    // hand, and clearAllMocks leaves implementations in place — a failure part
+    // way through one of those would otherwise hang every later test on it.
+    vi.mocked(clearAllUserCaches).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     localStorage.clear();
+    vi.unstubAllGlobals();
+    // jsdom has no navigator.serviceWorker; the push-cleanup test defines one.
+    Reflect.deleteProperty(navigator, 'serviceWorker');
   });
 
   it('refreshes the session when the app returns to the foreground', async () => {
@@ -263,7 +271,6 @@ describe('AuthProvider session resilience', () => {
     // clearAllUserCaches only drops the in-memory image cache once the Cache
     // API deletion resolves, so teardown must await it — otherwise logout
     // reports success while decoded photos are still held in memory.
-    const { clearAllUserCaches } = await import('../lib/cache');
     let finishCacheClear!: () => void;
     vi.mocked(clearAllUserCaches).mockReturnValue(
       new Promise<void>((resolve) => {
@@ -313,7 +320,6 @@ describe('AuthProvider session resilience', () => {
     // no user interaction, so leaving another session's photos in the caches
     // would be invisible until someone else signs in on the device. The
     // interval refresh shares this code path via refreshAuth.
-    const { clearAllUserCaches } = await import('../lib/cache');
 
     await renderSignedIn();
 
@@ -359,6 +365,257 @@ describe('AuthProvider session resilience', () => {
     // Not stranded on the deleted group: fully logged out, token cleared.
     await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('anon'));
     expect(localStorage.getItem('accessToken')).toBeNull();
+  });
+
+  it('does not resurrect the session when a refresh resolves after logout', async () => {
+    // Signing out while a POST /auth/refresh is in flight used to be undone by
+    // that refresh: it landed a token good for another ~15 minutes and re-applied
+    // the user. The session epoch must make the late result a no-op.
+    let resolveRefresh!: (data: unknown) => void;
+    mockRefresh.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRefresh = resolve;
+      })
+    );
+
+    const logoutRef: { current: (() => Promise<void>) | null } = { current: null };
+    function LogoutConsumer() {
+      const { logout, user: u } = useAuth();
+      useEffect(() => {
+        logoutRef.current = logout;
+      }, [logout]);
+      return <span data-testid="status">{u ? `user:${u.name}` : 'anon'}</span>;
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <LogoutConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('user:Tom');
+    await act(async () => {});
+
+    // Put a refresh in flight, then sign out before it comes back.
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await logoutRef.current!();
+    });
+    expect(screen.getByTestId('status').textContent).toBe('anon');
+
+    await act(async () => {
+      resolveRefresh(refreshResponse);
+      await Promise.resolve();
+    });
+
+    // Still signed out, and the late token was never persisted.
+    expect(screen.getByTestId('status').textContent).toBe('anon');
+    expect(localStorage.getItem('accessToken')).toBeNull();
+  });
+
+  it('closes the browser push subscription on logout', async () => {
+    // Deleting only the backend row leaves a live PushSubscription on the
+    // device, so the endpoint outlives the session.
+    const subscriptionUnsubscribe = vi.fn().mockResolvedValue(true);
+    const subscription = {
+      endpoint: 'https://push.example/abc',
+      unsubscribe: subscriptionUnsubscribe,
+    };
+    vi.stubGlobal('PushManager', class {});
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: {
+        ready: Promise.resolve({
+          pushManager: { getSubscription: async () => subscription },
+        }),
+      },
+    });
+
+    const { api } = await import('../lib/api');
+    const logoutRef: { current: (() => Promise<void>) | null } = { current: null };
+    function LogoutConsumer() {
+      const { logout } = useAuth();
+      useEffect(() => {
+        logoutRef.current = logout;
+      }, [logout]);
+      return null;
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <LogoutConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(logoutRef.current).not.toBeNull());
+
+    await act(async () => {
+      await logoutRef.current!();
+    });
+
+    expect(api.push.unsubscribe).toHaveBeenCalledWith(subscription.endpoint);
+    expect(subscriptionUnsubscribe).toHaveBeenCalled();
+  });
+
+  it('clears the previous session caches before publishing a magic-link login', async () => {
+    // User A -> user B via a magic link in the same browser: A's NetworkFirst
+    // /users/me and photo-list entries must be gone before B's state lands,
+    // otherwise the feed can serve A's content to B.
+    let finishCacheClear!: () => void;
+    vi.mocked(clearAllUserCaches).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishCacheClear = resolve;
+      })
+    );
+
+    localStorage.removeItem('accessToken');
+    mockGetMe.mockRejectedValue(new Error('no token'));
+    mockRefresh.mockRejectedValue(new Error('no cookie'));
+
+    const loginRef: { current: ReturnType<typeof useAuth>['login'] | null } = { current: null };
+    function LoginConsumer() {
+      const { login, user: u } = useAuth();
+      useEffect(() => {
+        loginRef.current = login;
+      }, [login]);
+      return <span data-testid="status">{u ? `user:${u.name}` : 'anon'}</span>;
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <LoginConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('anon');
+
+    const otherUser = { ...user, id: 'u2', name: 'Ada', email: 'ada@example.com' };
+    let published = false;
+    let pending!: Promise<void>;
+    act(() => {
+      pending = loginRef.current!('b-token', otherUser, currentGroup, [currentGroup], false).then(
+        () => {
+          published = true;
+        }
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Parked on the cache clear: neither the token nor the state is live yet.
+    expect(published).toBe(false);
+    expect(screen.getByTestId('status').textContent).toBe('anon');
+    expect(localStorage.getItem('accessToken')).toBeNull();
+
+    finishCacheClear();
+    await act(async () => {
+      await pending;
+    });
+
+    expect(screen.getByTestId('status').textContent).toBe('user:Ada');
+    expect(localStorage.getItem('accessToken')).toBe('b-token');
+  });
+
+  it('keeps a stored token when the cold-start check cannot reach the server', async () => {
+    // An offline launch of the installed PWA: getMe fails with a network error,
+    // which says nothing about the session. Throwing the token away here signs
+    // the user out permanently — nothing afterwards re-mints it.
+    mockGetMe.mockRejectedValue(new TypeError('Failed to fetch'));
+    mockRefresh.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    renderApp();
+    await screen.findByText('anon');
+    expect(localStorage.getItem('accessToken')).toBe('initial-token');
+
+    // Connectivity returns: the bootstrap retries and the session comes back
+    // without the user relaunching.
+    mockGetMe.mockResolvedValue(meResponse);
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+
+    await screen.findByText('user:Tom');
+    expect(localStorage.getItem('accessToken')).toBe('initial-token');
+  });
+
+  it('drops the stored token when the server rejects it on cold start', async () => {
+    // The contrast to the test above: a 401 is the server telling us the token
+    // is dead, so it must not be kept.
+    mockGetMe.mockRejectedValue(new ApiError(401, 'Unauthorized', 'Invalid token'));
+    mockRefresh.mockRejectedValue(new ApiError(401, 'Unauthorized', 'Expired'));
+
+    renderApp();
+    await screen.findByText('anon');
+    expect(localStorage.getItem('accessToken')).toBeNull();
+  });
+
+  it('mints a fresh selection token when the picker token has expired', async () => {
+    // Selection tokens live ~5 minutes and the picker has no refresh of its own,
+    // so without this every retry reuses the same dead token and the user is
+    // stranded on the group picker.
+    const otherGroup = { ...currentGroup, id: 'g2', name: 'Friends' };
+    const pickerResponse = {
+      accessToken: null,
+      user,
+      currentGroup: null,
+      groups: [otherGroup],
+      needsGroupSelection: true,
+    };
+
+    localStorage.removeItem('accessToken');
+    mockGetMe.mockRejectedValue(new Error('no token'));
+    mockRefresh
+      .mockResolvedValueOnce({ ...pickerResponse, selectionToken: 'stale-selection-token' })
+      .mockResolvedValueOnce({ ...pickerResponse, selectionToken: 'fresh-selection-token' });
+    mockSelectGroup
+      .mockRejectedValueOnce(new ApiError(401, 'Unauthorized', 'Selection token expired'))
+      .mockResolvedValueOnce({
+        accessToken: 'new-token',
+        user,
+        currentGroup: otherGroup,
+        groups: [otherGroup],
+      });
+
+    function PickerConsumer() {
+      const { selectGroup, currentGroup: g } = useAuth();
+      return (
+        <div>
+          <span data-testid="group">{g ? g.name : 'no-group'}</span>
+          <button onClick={() => selectGroup('g2').catch(() => {})}>pick</button>
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <PickerConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('no-group');
+
+    // First attempt uses the token the picker was handed, and fails.
+    await act(async () => {
+      screen.getByText('pick').click();
+    });
+    expect(mockSelectGroup).toHaveBeenNthCalledWith(1, 'stale-selection-token', 'g2');
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(2));
+
+    // The retry the user makes next carries the freshly minted token.
+    await act(async () => {
+      screen.getByText('pick').click();
+    });
+    expect(mockSelectGroup).toHaveBeenNthCalledWith(2, 'fresh-selection-token', 'g2');
+    await waitFor(() => expect(screen.getByTestId('group').textContent).toBe('Friends'));
   });
 
   it('syncs state from an API-driven token refresh event', async () => {
