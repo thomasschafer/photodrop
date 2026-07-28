@@ -12,7 +12,7 @@ vi.mock('@capacitor/core', () => ({
   },
 }));
 
-import { api, ApiError } from './api';
+import { api, ApiError, bumpSessionEpoch } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -272,5 +272,60 @@ describe('fetchWithAuth refresh-on-401', () => {
     await Promise.all([api.photos.list(), api.auth.refresh()]);
 
     expect(refreshCalls).toBe(1);
+  });
+
+  it('does not let a 401 after a session change join the previous session refresh', async () => {
+    // Single-flight sharing is only safe within one session. A refresh started
+    // before the user signed out (or a different user signed in via a magic
+    // link) belongs to the old session, and its response would otherwise be
+    // handed to a caller that started afterwards — passing the epoch check,
+    // because that caller captured the *new* epoch — and applied as if it were
+    // the current user's.
+    const sessionA = {
+      ...refreshPayload,
+      accessToken: 'token-a',
+      user: { ...refreshPayload.user, id: 'u1', name: 'Tom' },
+    };
+    const sessionB = {
+      ...refreshPayload,
+      accessToken: 'token-b',
+      user: { ...refreshPayload.user, id: 'u2', name: 'Ada' },
+    };
+
+    let refreshCalls = 0;
+    let photoCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/auth/refresh')) {
+          refreshCalls++;
+          if (refreshCalls === 1) {
+            // The old session's refresh is still in the air when the new
+            // session's request needs one.
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            return jsonResponse(sessionA);
+          }
+          return jsonResponse(sessionB);
+        }
+        photoCalls++;
+        return photoCalls === 1
+          ? jsonResponse({ error: 'Invalid or expired token' }, 401)
+          : jsonResponse({ photos: [], hasMore: false });
+      })
+    );
+
+    const refreshedDetails: unknown[] = [];
+    const onRefreshed = (e: Event) => refreshedDetails.push((e as CustomEvent).detail);
+    window.addEventListener('auth:token-refreshed', onRefreshed);
+
+    const staleRefresh = api.auth.refresh();
+    bumpSessionEpoch();
+    await Promise.all([api.photos.list(), staleRefresh]);
+
+    window.removeEventListener('auth:token-refreshed', onRefreshed);
+
+    expect(refreshCalls).toBe(2);
+    expect(localStorage.getItem('accessToken')).toBe('token-b');
+    expect(refreshedDetails).toEqual([sessionB]);
   });
 });

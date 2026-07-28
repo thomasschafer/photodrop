@@ -82,6 +82,36 @@ export function toggleReaction(
 }
 
 /**
+ * Rebuild a photo's complete reaction state from the server's per-user detail
+ * list. Used to resync after a failed toggle, where the client's state can no
+ * longer be repaired by composing deltas (the failure may or may not have
+ * reached the server, and a concurrent toggle of the same emoji may have been
+ * computed against the state the failed one optimistically applied), so the
+ * server's answer is taken wholesale instead.
+ *
+ * `reactions` is ordered the way the server orders its own summary — count
+ * descending, then emoji — so a resync leaves the pills in the same order a
+ * plain feed load would.
+ */
+export function summarizeReactions(
+  details: ReactionWithUser[],
+  userId: string
+): ReactionState & { details: ReactionWithUser[] } {
+  const counts = new Map<string, number>();
+  const userReactions: string[] = [];
+  for (const reaction of details) {
+    counts.set(reaction.emoji, (counts.get(reaction.emoji) ?? 0) + 1);
+    if (reaction.userId === userId) userReactions.push(reaction.emoji);
+  }
+
+  const reactions = [...counts]
+    .map(([emoji, count]) => ({ emoji, count }))
+    .sort((a, b) => b.count - a.count || (a.emoji < b.emoji ? -1 : a.emoji > b.emoji ? 1 : 0));
+
+  return { reactions, userReactions, details };
+}
+
+/**
  * Undo a specific toggle against whatever `live` is now, rather than
  * restoring a stale pre-toggle snapshot. `wasRemoving` is the `isRemoving`
  * of the original (now-failed) toggle, captured at the time it started; the

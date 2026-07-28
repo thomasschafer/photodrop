@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { CAPTION_MAX_LENGTH } from '@photodrop/common/limits';
 import { api } from '../lib/api';
 import {
   compressImage,
@@ -8,6 +9,10 @@ import {
   formatFileSize,
 } from '../lib/imageCompression';
 import { Button } from './Button';
+
+// Only start showing the character counter near the limit, so it doesn't
+// nag over a normal-length caption.
+const CAPTION_COUNTER_THRESHOLD = CAPTION_MAX_LENGTH - 100;
 
 interface PhotoUploadProps {
   onUploadComplete?: () => void;
@@ -188,12 +193,14 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
               onChange={(e) => setCaption(e.target.value)}
               disabled={uploading}
               rows={2}
-              maxLength={2000}
+              maxLength={CAPTION_MAX_LENGTH}
               className="input-field resize-none"
               placeholder="Add a caption..."
             />
-            {Array.from(caption).length > 1900 && (
-              <p className="text-xs text-text-muted mt-1">{Array.from(caption).length}/2000</p>
+            {Array.from(caption).length > CAPTION_COUNTER_THRESHOLD && (
+              <p className="text-xs text-text-muted mt-1">
+                {Array.from(caption).length}/{CAPTION_MAX_LENGTH}
+              </p>
             )}
           </div>
 

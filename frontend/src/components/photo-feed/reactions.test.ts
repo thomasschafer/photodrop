@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   toggleReaction,
   invertReaction,
+  summarizeReactions,
   type ReactionActor,
   type ReactionState,
 } from './reactions';
@@ -200,5 +201,43 @@ describe('invertReaction', () => {
     );
 
     expect(detailsOnly.details).toEqual([]);
+  });
+});
+
+describe('summarizeReactions', () => {
+  it('counts per emoji, picks out the actor own reactions, and keeps the details', () => {
+    const details = [
+      detail('❤️', 'user-2', 'Bob'),
+      detail('🔥', 'user-1', 'Alice'),
+      detail('❤️', 'user-1', 'Alice'),
+    ];
+
+    expect(summarizeReactions(details, 'user-1')).toEqual({
+      reactions: [
+        { emoji: '❤️', count: 2 },
+        { emoji: '🔥', count: 1 },
+      ],
+      userReactions: ['🔥', '❤️'],
+      details,
+    });
+  });
+
+  it('orders emojis by count then value, matching the server summary', () => {
+    // A resync replaces the whole summary, so its order must be the one a
+    // plain feed load would produce or the pills visibly reshuffle.
+    const details = [detail('🔥', 'user-2', 'Bob'), detail('❤️', 'user-1', 'Alice')];
+
+    expect(summarizeReactions(details, 'user-3').reactions).toEqual([
+      { emoji: '❤️', count: 1 },
+      { emoji: '🔥', count: 1 },
+    ]);
+  });
+
+  it('returns empty state for a photo with no reactions', () => {
+    expect(summarizeReactions([], 'user-1')).toEqual({
+      reactions: [],
+      userReactions: [],
+      details: [],
+    });
   });
 });

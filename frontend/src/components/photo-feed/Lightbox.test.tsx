@@ -127,6 +127,45 @@ describe('Lightbox', () => {
     expect(focusable[focusable.length - 1]).toHaveFocus();
   });
 
+  it('pulls Tab back inside when a click on the photo has blurred focus to the body', () => {
+    // The test above starts from an edge element, so it never exercises the
+    // case where focus has left the dialog entirely. Clicking the photo, or
+    // any non-interactive part of the comment panel, does exactly that: the
+    // click keeps the lightbox open but lands on nothing focusable. Tab from
+    // <body> must not walk into the page behind an aria-modal dialog.
+    render(
+      <MemoryRouter initialEntries={['/photo/A']}>
+        <>
+          <a href="#main">Skip to main content</a>
+          <Lightbox
+            photos={photos}
+            initialIndex={0}
+            onClose={vi.fn()}
+            onIndexChange={vi.fn()}
+            isAdmin={false}
+            onPhotoUpdate={vi.fn()}
+          />
+        </>
+      </MemoryRouter>
+    );
+
+    const dialog = screen.getByRole('dialog');
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button'));
+    expect(focusable.length).toBeGreaterThan(1);
+
+    // jsdom never moves focus on click, so the blur the browser performs is
+    // applied directly.
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.body).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(focusable[0]).toHaveFocus();
+
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(focusable[focusable.length - 1]).toHaveFocus();
+  });
+
   it('does not close the whole lightbox when Escape dismisses the delete dialog', async () => {
     const { onClose } = renderLightbox();
     await openDeleteDialog();

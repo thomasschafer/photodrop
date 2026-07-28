@@ -197,7 +197,7 @@ let refreshPromise: Promise<AuthResponse> | null = null;
 
 function refreshSession(): Promise<AuthResponse> {
   if (!refreshPromise) {
-    refreshPromise = (async () => {
+    const started: Promise<AuthResponse> = (async () => {
       // includeAuth=false so this call never recurses into refresh-on-401.
       const response = await executeRequest('/auth/refresh', { method: 'POST' }, false);
       if (!response.ok) {
@@ -210,17 +210,21 @@ function refreshSession(): Promise<AuthResponse> {
       }
       return (await response.json()) as AuthResponse;
     })().finally(() => {
-      refreshPromise = null;
+      // Only retire our own entry: bumpSessionEpoch may already have detached
+      // it, in which case a newer session's refresh is now the one on record
+      // and nulling it here would let a third caller start yet another.
+      if (refreshPromise === started) refreshPromise = null;
     });
+    refreshPromise = started;
   }
   return refreshPromise;
 }
 
 // Session generation counter. AuthContext's resetToLoggedOut bumps it so that
 // a refresh already in flight when the user signs out cannot resurrect the
-// session: every refresh path captures the epoch before awaiting and discards
-// the result — no localStorage write, no event, no state application — if it
-// changed while the request was in the air.
+// session: refreshAccessToken and AuthContext's own refresh paths capture the
+// epoch before awaiting and discard the result — no localStorage write, no
+// event, no state application — if it changed while the request was in the air.
 let sessionEpoch = 0;
 
 export function getSessionEpoch(): number {
@@ -229,6 +233,14 @@ export function getSessionEpoch(): number {
 
 export function bumpSessionEpoch(): void {
   sessionEpoch += 1;
+  // Detaching the in-flight refresh matters as much as the epoch itself. The
+  // epoch only guards a *result* against the caller that started it; leaving
+  // the promise in place would let a caller that starts *after* the bump — a
+  // 401 in the new session, say — join the old session's refresh, capture the
+  // new epoch, and pass the epoch check with the previous user's response.
+  // Any caller already awaiting it still holds its own reference and is still
+  // correctly gated by the epoch it captured.
+  refreshPromise = null;
 }
 
 // A refresh failure means the session is genuinely gone only when the server

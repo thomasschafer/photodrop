@@ -160,6 +160,7 @@ export function NameSettingsModal({ onClose }: NameSettingsModalProps) {
                   <>
                     Optional. Leave this empty to appear as{' '}
                     <span className="font-medium">{user.name}</span> here, like everywhere else.
+                    Group admins can see both names.
                   </>
                 }
               />

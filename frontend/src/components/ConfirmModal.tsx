@@ -33,7 +33,6 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
-  const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
   useFocusTrap(modalRef);
 
@@ -85,13 +84,7 @@ export function ConfirmModal({
             <div />
           )}
           <div className="flex items-center gap-3">
-            <Button
-              ref={cancelButtonRef}
-              onClick={onCancel}
-              disabled={isLoading}
-              variant="secondary"
-              size="md"
-            >
+            <Button onClick={onCancel} disabled={isLoading} variant="secondary" size="md">
               {cancelLabel}
             </Button>
             <Button

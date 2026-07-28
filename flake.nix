@@ -133,6 +133,11 @@
 
           npm install
 
+          # The e2e suite lives outside the workspaces, so it needs its own
+          # pass or nothing formats it.
+          npm run format
+
+          echo ""
           cd backend
           npm run format
           npm run lint
@@ -157,6 +162,9 @@
 
           npm install
 
+          npm run format:fix
+
+          echo ""
           cd backend
           npm run format:fix
           npm run lint:fix

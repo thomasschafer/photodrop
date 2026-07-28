@@ -106,6 +106,18 @@ export function useLightboxReactions({
         if (currentPhotoIdRef.current !== photoId) return;
         setReactionState((prev) => reconcile(prev));
       },
+      onResync: (authoritative) => {
+        // Absolute, not a delta: the feed and the lightbox may have drifted
+        // apart (the feed only ever saw confirmed successes), so both are
+        // overwritten with the server's answer rather than nudged.
+        onPhotoUpdate(photoId, {
+          reactions: authoritative.reactions,
+          userReactions: authoritative.userReactions,
+        });
+        if (currentPhotoIdRef.current === photoId) {
+          setReactionState(authoritative);
+        }
+      },
       onDetailsRefreshed: (refreshed) => {
         if (currentPhotoIdRef.current === photoId) {
           setReactionState((prev) => ({ ...prev, details: refreshed }));

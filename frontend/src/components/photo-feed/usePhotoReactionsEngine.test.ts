@@ -36,6 +36,7 @@ function callbacks() {
     onOptimisticUpdate: vi.fn(),
     onSuccess: vi.fn(),
     onRollback: vi.fn(),
+    onResync: vi.fn(),
     onDetailsRefreshed: vi.fn(),
   };
 }
@@ -207,14 +208,19 @@ describe('usePhotoReactionsEngine', () => {
     });
   });
 
-  it('only the most recently started toggle of a given emoji settles, when two overlap', async () => {
+  it('only the most recently started toggle of a given emoji may roll back, when two overlap', async () => {
     // Documents the deterministic tie-break for same-emoji concurrency: the
     // first toggle here is superseded by the second before it fails, so its
-    // failure is dropped rather than reconciled -- the second toggle already
-    // owns this emoji's state.
+    // rollback is dropped rather than composed -- undoing it would invalidate
+    // the direction the second toggle already chose. The server's answer is
+    // fetched instead.
     const firstCall = deferred<unknown>();
     addReaction.mockImplementationOnce(() => firstCall.promise);
     removeReaction.mockResolvedValue({});
+    const serverDetails: ReactionWithUser[] = [
+      { emoji: '❤️', userId: 'other', userName: 'Other', profileColor: 'coral' },
+    ];
+    getReactions.mockResolvedValue({ reactions: serverDetails });
 
     const { result } = renderHook(() => usePhotoReactionsEngine());
     const cb1 = callbacks();
@@ -243,6 +249,119 @@ describe('usePhotoReactionsEngine', () => {
 
     expect(cb1.onRollback).not.toHaveBeenCalled();
     expect(cb1.onSuccess).not.toHaveBeenCalled();
+    expect(cb1.onResync).toHaveBeenCalledWith({
+      reactions: [{ emoji: '❤️', count: 1 }],
+      userReactions: [],
+      details: serverDetails,
+    });
+  });
+
+  it('composes both confirmed deltas when the same emoji is double-tapped', async () => {
+    // Regression: gating onSuccess on "latest toggle for this emoji" dropped
+    // the first tap's confirmed removal, while the second tap's add -- chosen
+    // precisely because local state had already removed it -- was still
+    // applied to a sync target that never saw the removal, so the emoji ended
+    // up double-counted with a duplicate userReactions entry.
+    const removeCall = deferred<unknown>();
+    const addCall = deferred<unknown>();
+    removeReaction.mockImplementation(() => removeCall.promise);
+    addReaction.mockImplementation(() => addCall.promise);
+
+    const { result } = renderHook(() => usePhotoReactionsEngine());
+    const cb1 = callbacks();
+    const cb2 = callbacks();
+    const mine: ReactionKeyState = {
+      reactions: [{ emoji: '❤️', count: 1 }],
+      userReactions: ['❤️'],
+    };
+
+    let p1!: Promise<void>;
+    act(() => {
+      p1 = result.current.toggleReactionForPhoto('p1', mine, '❤️', actor, cb1);
+    });
+    expect(removeReaction).toHaveBeenCalledWith('p1', '❤️');
+    const afterFirst = cb1.onOptimisticUpdate.mock.calls[0][0] as ReactionKeyState;
+
+    let p2!: Promise<void>;
+    act(() => {
+      p2 = result.current.toggleReactionForPhoto('p1', afterFirst, '❤️', actor, cb2);
+    });
+    expect(addReaction).toHaveBeenCalledWith('p1', '❤️');
+
+    await act(async () => {
+      removeCall.resolve({});
+      addCall.resolve({});
+      await Promise.all([p1, p2]);
+    });
+
+    // A sync target that starts where the user did and folds in each
+    // reconciler ends up back at one heart -- matching the server, which saw a
+    // successful DELETE followed by a successful INSERT.
+    let synced: ReactionKeyState = mine;
+    for (const cb of [cb1, cb2]) {
+      expect(cb.onSuccess).toHaveBeenCalledTimes(1);
+      const reconcile = cb.onSuccess.mock.calls[0][0] as (l: ReactionKeyState) => ReactionKeyState;
+      synced = reconcile(synced);
+    }
+    expect(synced.reactions).toEqual([{ emoji: '❤️', count: 1 }]);
+    expect(synced.userReactions).toEqual(['❤️']);
+    expect(cb1.onResync).not.toHaveBeenCalled();
+    expect(cb2.onResync).not.toHaveBeenCalled();
+  });
+
+  it('resyncs from the server when one of two same-emoji toggles fails', async () => {
+    // The fail-then-succeed case the "compose both deltas" fix cannot reach:
+    // tap 1 removes and fails; tap 2, computed against the state tap 1 already
+    // removed, adds and succeeds. The server (whose add is ON CONFLICT DO
+    // NOTHING) still holds exactly one heart, but no combination of the two
+    // deltas describes that, so the photo is refetched instead.
+    const removeCall = deferred<unknown>();
+    const addCall = deferred<unknown>();
+    removeReaction.mockImplementation(() => removeCall.promise);
+    addReaction.mockImplementation(() => addCall.promise);
+    const serverDetails: ReactionWithUser[] = [
+      { emoji: '❤️', userId: 'me', userName: 'Me', profileColor: 'teal' },
+    ];
+    getReactions.mockResolvedValue({ reactions: serverDetails });
+
+    const { result } = renderHook(() => usePhotoReactionsEngine());
+    const cb1 = callbacks();
+    const cb2 = callbacks();
+    const mine: ReactionKeyState = {
+      reactions: [{ emoji: '❤️', count: 1 }],
+      userReactions: ['❤️'],
+    };
+
+    let p1!: Promise<void>;
+    act(() => {
+      p1 = result.current.toggleReactionForPhoto('p1', mine, '❤️', actor, cb1);
+    });
+    const afterFirst = cb1.onOptimisticUpdate.mock.calls[0][0] as ReactionKeyState;
+
+    let p2!: Promise<void>;
+    act(() => {
+      p2 = result.current.toggleReactionForPhoto('p1', afterFirst, '❤️', actor, cb2);
+    });
+
+    await act(async () => {
+      removeCall.reject(new Error('network'));
+      await p1;
+    });
+    // Deferred while tap 2 is still in flight: the answer would be stale on
+    // arrival.
+    expect(cb1.onResync).not.toHaveBeenCalled();
+    expect(getReactions).not.toHaveBeenCalled();
+
+    await act(async () => {
+      addCall.resolve({});
+      await p2;
+    });
+
+    expect(cb2.onResync).toHaveBeenCalledWith({
+      reactions: [{ emoji: '❤️', count: 1 }],
+      userReactions: ['❤️'],
+      details: serverDetails,
+    });
   });
 
   it('discards a detail fetch that resolves after a newer optimistic mutation', async () => {

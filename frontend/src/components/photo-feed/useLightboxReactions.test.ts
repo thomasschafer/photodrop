@@ -130,8 +130,14 @@ describe('useLightboxReactions', () => {
     );
   });
 
-  it('rolls back and does not sync the feed when the request fails', async () => {
+  it('rolls back and resyncs itself and the feed from the server when the request fails', async () => {
     addReaction.mockRejectedValue(new Error('network'));
+    // The add never landed, so the server still holds only the other user's
+    // reaction — which is exactly what both holders must end up showing.
+    const serverDetails: ReactionWithUser[] = [
+      { emoji: '❤️', userId: 'other', userName: 'Other', profileColor: 'coral' },
+    ];
+    getReactions.mockResolvedValue({ reactions: serverDetails });
     const onPhotoUpdate = vi.fn();
     const photo = makePhoto({ reactions: [{ emoji: '❤️', count: 1 }], userReactions: [] });
     const { result } = setup(photo, onPhotoUpdate);
@@ -142,10 +148,15 @@ describe('useLightboxReactions', () => {
       await result.current.handleReactionClick('❤️');
     });
 
-    // Reverted to the pre-tap summary; the feed was never told about it.
+    // Reverted to the pre-tap summary, and the feed is handed the server's
+    // authoritative copy outright rather than a delta it cannot compose.
     expect(result.current.userReactions).toEqual([]);
     expect(result.current.reactions).toEqual([{ emoji: '❤️', count: 1 }]);
-    expect(onPhotoUpdate).not.toHaveBeenCalled();
+    expect(result.current.reactionDetails).toEqual(serverDetails);
+    expect(onPhotoUpdate).toHaveBeenCalledWith('p1', {
+      reactions: [{ emoji: '❤️', count: 1 }],
+      userReactions: [],
+    });
   });
 
   it('ignores stale reaction details that resolve after an optimistic mutation', async () => {

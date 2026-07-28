@@ -30,13 +30,21 @@ export function useFocusTrap(containerRef: React.RefObject<HTMLElement | null>, 
       const firstElement = focusable[0];
       const lastElement = focusable[focusable.length - 1];
 
+      // Focus can sit entirely outside the trapped container — clicking a
+      // non-interactive part of the overlay (the photo itself, the padding
+      // around a comment list) blurs to <body>. Tab from there would walk the
+      // page *behind* the overlay, which for an aria-modal dialog is content
+      // assistive tech has been told does not exist. Pull it back in, entering
+      // at the end for shift-Tab so the cycle direction still reads naturally.
+      const containerHasFocus = containerRef.current?.contains(document.activeElement) ?? false;
+
       if (e.shiftKey) {
-        if (document.activeElement === firstElement) {
+        if (!containerHasFocus || document.activeElement === firstElement) {
           e.preventDefault();
           lastElement.focus();
         }
       } else {
-        if (document.activeElement === lastElement) {
+        if (!containerHasFocus || document.activeElement === lastElement) {
           e.preventDefault();
           firstElement.focus();
         }
@@ -45,5 +53,5 @@ export function useFocusTrap(containerRef: React.RefObject<HTMLElement | null>, 
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [enabled, getFocusableElements]);
+  }, [enabled, getFocusableElements, containerRef]);
 }

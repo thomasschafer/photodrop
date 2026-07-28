@@ -15,6 +15,10 @@ import { uploadPhotoViaApi, makeDirectApiCall } from './helpers/api';
  * style carries the effective value only under the `-webkit-` prefix. Reading
  * both keeps these assertions about what the browser actually renders rather
  * than about one engine's property naming.
+ *
+ * Unprotected images are asserted against UNPROTECTED_USER_SELECT rather than
+ * "not none": the `||` fallback above returns '' if neither property resolves,
+ * which would satisfy a negative assertion while telling us nothing.
  */
 async function effectiveUserSelect(locator: Locator): Promise<string> {
   return locator.evaluate((el) => {
@@ -22,6 +26,10 @@ async function effectiveUserSelect(locator: Locator): Promise<string> {
     return style.getPropertyValue('user-select') || style.getPropertyValue('-webkit-user-select');
   });
 }
+
+// ProtectedImage sets no user-select at all when protection is off, so the
+// computed value is the initial one.
+const UNPROTECTED_USER_SELECT = 'auto';
 
 test.describe('Image protection', () => {
   let testGroup: TestGroup;
@@ -161,7 +169,7 @@ test.describe('Image protection', () => {
       const imgAfter = page.locator('article img').first();
       await expect(imgAfter).toBeVisible();
       userSelect = await effectiveUserSelect(imgAfter);
-      expect(userSelect).not.toBe('none');
+      expect(userSelect).toBe(UNPROTECTED_USER_SELECT);
     } finally {
       // Restore protection state for subsequent tests
       await makeDirectApiCall(
@@ -238,7 +246,7 @@ test.describe('Image protection', () => {
     await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
     const imgAfter = page.locator('article img').first();
     await expect(imgAfter).toBeVisible();
-    expect(await effectiveUserSelect(imgAfter)).not.toBe('none');
+    expect(await effectiveUserSelect(imgAfter)).toBe(UNPROTECTED_USER_SELECT);
 
     // Re-enable via UI and verify protection is restored
     await page.getByRole('tab', { name: 'Group' }).click();
@@ -301,9 +309,7 @@ test.describe('Image protection', () => {
 
       const lightboxImgAfter = page.locator('[role="dialog"] img').first();
       await expect(lightboxImgAfter).toBeVisible({ timeout: 5000 });
-      expect(await effectiveUserSelect(lightboxImgAfter)).not.toBe(
-        'none'
-      );
+      expect(await effectiveUserSelect(lightboxImgAfter)).toBe(UNPROTECTED_USER_SELECT);
     } finally {
       // Restore
       await makeDirectApiCall(

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { useFocusTrap } from '../lib/useFocusTrap';
 
 /**
  * `raised` lifts the modal further off the page — a stronger shadow and a
@@ -32,59 +33,30 @@ export function Modal({
   elevation = 'default',
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
-  const getFocusableElements = useCallback(() => {
-    if (!modalRef.current) return [];
-    return Array.from(
-      modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-    );
-  }, []);
+  useFocusTrap(modalRef);
 
   useEffect(() => {
     // React applies a child's autoFocus while committing, i.e. before this
-    // effect runs. Focusing the first focusable element unconditionally would
-    // steal focus straight back onto the close button, so a modal that opens on
-    // a form field would send the user's typing nowhere.
+    // effect runs. Focusing the close button unconditionally would steal focus
+    // straight back off that child, so a modal that opens on a form field would
+    // send the user's typing nowhere. (The close button is the panel's first
+    // focusable element, so this is also where the trap would enter.)
     if (modalRef.current?.contains(document.activeElement)) return;
-    const focusable = getFocusableElements();
-    if (focusable.length > 0) {
-      focusable[0].focus();
-    }
-  }, [getFocusableElements]);
+    closeButtonRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
-        return;
-      }
-
-      if (e.key === 'Tab') {
-        const focusable = getFocusableElements();
-        if (focusable.length === 0) return;
-
-        const firstElement = focusable[0];
-        const lastElement = focusable[focusable.length - 1];
-
-        if (e.shiftKey) {
-          if (document.activeElement === firstElement) {
-            e.preventDefault();
-            lastElement.focus();
-          }
-        } else {
-          if (document.activeElement === lastElement) {
-            e.preventDefault();
-            firstElement.focus();
-          }
-        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, getFocusableElements]);
+  }, [onClose]);
 
   const maxWidthClass = {
     sm: 'max-w-sm',
@@ -111,6 +83,7 @@ export function Modal({
             {title}
           </h3>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
             className="p-2.5 -m-1.5 text-text-muted hover:text-text-primary transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Close"

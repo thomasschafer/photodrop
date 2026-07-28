@@ -88,6 +88,34 @@ describe('NameSettingsModal', () => {
     expect(displayNameInput()).toHaveAttribute('placeholder', 'Tom Schafer');
   });
 
+  it('leaves focus on the autofocused field and keeps Tab inside the modal', async () => {
+    // Covers what Modal contributes here: it focuses its close button on mount
+    // only when nothing inside has already claimed focus (otherwise everything
+    // typed into this field would go nowhere), and it traps Tab so the page
+    // behind the dialog stays unreachable.
+    await renderReady(null);
+
+    expect(nameInput()).toHaveFocus();
+
+    const dialog = screen.getByRole('dialog');
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button, input'));
+    expect(focusable.length).toBeGreaterThan(1);
+
+    focusable[focusable.length - 1].focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(focusable[0]).toHaveFocus();
+  });
+
+  it('does not present a per-group display name as hiding the canonical one', async () => {
+    await renderReady(null);
+
+    // A group admin sees both names in the members list, so the hint must not
+    // read as a promise of concealment from the group.
+    expect(
+      screen.getByText(/Group admins can see both names/, { selector: 'p,span,div' })
+    ).toBeInTheDocument();
+  });
+
   it('loads an existing override into the display-name field', async () => {
     await renderReady('Dad');
 

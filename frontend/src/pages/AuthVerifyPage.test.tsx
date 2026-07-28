@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { StrictMode, type ReactElement } from 'react';
 import { render, screen, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { AuthVerifyPage } from './AuthVerifyPage';
@@ -53,12 +54,19 @@ function Harness() {
   );
 }
 
-function renderHarness() {
-  return render(
+// `strict` opts a test into StrictMode's double effect invocation, which is
+// what the verify guard exists for in the first place.
+function harnessTree(strict = false): ReactElement {
+  const tree = (
     <MemoryRouter initialEntries={['/auth/first-token']}>
       <Harness />
     </MemoryRouter>
   );
+  return strict ? <StrictMode>{tree}</StrictMode> : tree;
+}
+
+function renderHarness(strict = false) {
+  return render(harnessTree(strict));
 }
 
 describe('AuthVerifyPage', () => {
@@ -67,9 +75,11 @@ describe('AuthVerifyPage', () => {
     mockLogin.mockResolvedValue(undefined);
   });
 
-  it('verifies the token exactly once for a given token value', async () => {
-    // A magic link is single-use, so a repeated verify burns it. The guard has
-    // to survive re-renders of the same token.
+  it('verifies the token exactly once for a given token value, even under StrictMode', async () => {
+    // A magic link is single-use, so a repeated verify burns it. StrictMode is
+    // the case the guard exists for — it mounts, tears down and re-runs the
+    // effect — and the guard also has to survive plain re-renders of the same
+    // token.
     mockVerifyMagicLink.mockResolvedValue({
       accessToken: 'token-a',
       user,
@@ -77,14 +87,10 @@ describe('AuthVerifyPage', () => {
       groups: [group],
     });
 
-    const { rerender } = renderHarness();
+    const { rerender } = renderHarness(true);
     await screen.findByText("You're signed in");
 
-    rerender(
-      <MemoryRouter initialEntries={['/auth/first-token']}>
-        <Harness />
-      </MemoryRouter>
-    );
+    rerender(harnessTree(true));
 
     expect(mockVerifyMagicLink).toHaveBeenCalledTimes(1);
   });
