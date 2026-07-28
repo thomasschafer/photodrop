@@ -195,6 +195,21 @@ export async function getGroup(db: D1Database, groupId: string): Promise<Group |
   return result;
 }
 
+/**
+ * Ownership lives on `groups.owner_id`, not on the membership row (whose role
+ * is only 'admin' | 'member'), so every "owners are exempt" rule has to ask the
+ * group. Callers that mutate a membership must check this *before* taking any
+ * other action on the member.
+ */
+export async function isGroupOwner(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<boolean> {
+  const group = await getGroup(db, groupId);
+  return group?.owner_id === userId;
+}
+
 export async function updateMemberImageProtection(
   db: D1Database,
   userId: string,
@@ -371,8 +386,7 @@ export async function updateMembershipRole(
   role: 'admin' | 'member'
 ): Promise<{ success: boolean; error?: 'is_owner' }> {
   // Check if the user is the group owner - owners' roles cannot be changed
-  const group = await getGroup(db, groupId);
-  if (group?.owner_id === userId) {
+  if (await isGroupOwner(db, userId, groupId)) {
     return { success: false, error: 'is_owner' };
   }
 
@@ -390,8 +404,7 @@ export async function deleteMembership(
   groupId: string
 ): Promise<{ success: boolean; error?: 'is_owner' }> {
   // Check if the user is the group owner - owners cannot be removed
-  const group = await getGroup(db, groupId);
-  if (group?.owner_id === userId) {
+  if (await isGroupOwner(db, userId, groupId)) {
     return { success: false, error: 'is_owner' };
   }
 

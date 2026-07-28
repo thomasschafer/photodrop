@@ -18,6 +18,7 @@ const mockGetMemberNames = vi.fn();
 const mockUpdateUserName = vi.fn();
 const mockGetGroupMembers = vi.fn();
 const mockDeleteMembership = vi.fn();
+const mockIsGroupOwner = vi.fn();
 const mockDeleteAllUserPushSubscriptionsForGroup = vi.fn();
 const mockDeleteAllUserDeviceTokensForGroup = vi.fn();
 
@@ -35,6 +36,7 @@ vi.mock('../lib/db', () => ({
   getMembership: (...args: unknown[]) => mockGetMembership(...args),
   updateMembershipRole: (...args: unknown[]) => mockUpdateMembershipRole(...args),
   deleteMembership: (...args: unknown[]) => mockDeleteMembership(...args),
+  isGroupOwner: (...args: unknown[]) => mockIsGroupOwner(...args),
   updateMemberDisplayName: (...args: unknown[]) => mockUpdateMemberDisplayName(...args),
   getMemberNames: (...args: unknown[]) => mockGetMemberNames(...args),
   updateUserName: (...args: unknown[]) => mockUpdateUserName(...args),
@@ -725,6 +727,7 @@ describe('DELETE /groups/:groupId/members/:userId', () => {
       image_protection: 1,
     });
     mockDeleteMembership.mockResolvedValue({ success: true });
+    mockIsGroupOwner.mockResolvedValue(false);
     mockDeleteAllUserPushSubscriptionsForGroup.mockResolvedValue(undefined);
     mockDeleteAllUserDeviceTokensForGroup.mockResolvedValue(undefined);
 
@@ -753,6 +756,37 @@ describe('DELETE /groups/:groupId/members/:userId', () => {
     // Without this, the expelled member's device keeps receiving the group's
     // photo notifications, caption text included.
     expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
+  });
+
+  it('keeps the membership when revoking notifications fails, so the removal is retryable', async () => {
+    // The reverse order would delete the membership first: the retry would then
+    // 404 and the surviving notification rows could never be cleared.
+    mockDeleteAllUserDeviceTokensForGroup.mockRejectedValue(new Error('D1 unavailable'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await app.request('/groups/group-1/members/user-1', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(500);
+    expect(mockDeleteMembership).not.toHaveBeenCalled();
+
+    consoleError.mockRestore();
+  });
+
+  it('refuses to remove the owner without revoking any of their notifications', async () => {
+    mockIsGroupOwner.mockResolvedValue(true);
+
+    const res = await app.request('/groups/group-1/members/owner-user', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockDeleteAllUserPushSubscriptionsForGroup).not.toHaveBeenCalled();
+    expect(mockDeleteAllUserDeviceTokensForGroup).not.toHaveBeenCalled();
+    expect(mockDeleteMembership).not.toHaveBeenCalled();
   });
 });
 

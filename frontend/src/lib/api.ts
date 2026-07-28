@@ -560,22 +560,34 @@ export const api = {
     getStatus: (endpoint: string): Promise<PushStatusResponse> =>
       requestJson(`/push/status?endpoint=${encodeURIComponent(endpoint)}`),
 
+    /**
+     * Revoke the backend subscription for this endpoint. Best-effort on *both*
+     * paths: callers run it as the first half of a teardown whose second half
+     * is `PushSubscription.unsubscribe()`, and rejecting here would skip that
+     * and leave a live push endpoint on the device. A surviving backend row is
+     * the lesser leak — the next send to the now-dead endpoint gets a 410 and
+     * prunes it — so failures are logged and swallowed rather than propagated.
+     */
     unsubscribe: async (endpoint: string): Promise<void> => {
       const deletionToken = localStorage.getItem(`push_deletion_token:${endpoint}`);
-      if (!deletionToken) {
-        // The deletion token can be lost (cleared storage, failed write). Fall
-        // back to the authenticated endpoint while the caller is still signed
-        // in — otherwise the backend subscription outlives the session and an
-        // ex-user on a shared device keeps receiving notifications.
-        await api.push.unsubscribeFromCurrentGroup(endpoint);
-        return;
+      try {
+        if (!deletionToken) {
+          // The deletion token can be lost (cleared storage, failed write). Fall
+          // back to the authenticated endpoint while the caller is still signed
+          // in — otherwise the backend subscription outlives the session and an
+          // ex-user on a shared device keeps receiving notifications.
+          await api.push.unsubscribeFromCurrentGroup(endpoint);
+          return;
+        }
+        await fetch(`${API_BASE_URL}/push/unsubscribe`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ endpoint, deletionToken }),
+        });
+        localStorage.removeItem(`push_deletion_token:${endpoint}`);
+      } catch (error) {
+        console.error('Failed to revoke the push subscription on the server:', error);
       }
-      await fetch(`${API_BASE_URL}/push/unsubscribe`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify({ endpoint, deletionToken }),
-      });
-      localStorage.removeItem(`push_deletion_token:${endpoint}`);
     },
 
     // Native push (FCM) device token methods

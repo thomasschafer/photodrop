@@ -253,6 +253,9 @@ describe('useLongPress', () => {
     });
 
     expect(clickEvent.preventDefault).toHaveBeenCalled();
+    // Stopping propagation is the half that matters here: the pill sits inside
+    // a photo whose own click handler opens the lightbox.
+    expect(clickEvent.stopPropagation).toHaveBeenCalled();
   });
 
   it('cancels a pending long press on touchcancel', () => {
@@ -305,6 +308,8 @@ describe('useLongPress', () => {
     });
 
     expect(clickEvent.preventDefault).not.toHaveBeenCalled();
+    // The tap has to reach the parent too, not merely act on its own target.
+    expect(clickEvent.stopPropagation).not.toHaveBeenCalled();
   });
 
   it('does not fire a long press queued when the component unmounts', () => {

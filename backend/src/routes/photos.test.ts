@@ -425,6 +425,36 @@ describe('photo upload notifications', () => {
       {}
     );
   });
+
+  it('still notifies the group when the uploader name lookup rejects', async () => {
+    // Unguarded, this rejection would sink the whole background task: no push,
+    // no FCM, no log — just an unhandled rejection.
+    mockGetResolvedMemberName.mockRejectedValue(new Error('D1 unavailable'));
+
+    const body = new FormData();
+    body.set('photo', new File([jpegBytes], 'photo.jpg', { type: 'image/jpeg' }));
+    body.set('thumbnail', new File([jpegBytes], 'thumb.jpg', { type: 'image/jpeg' }));
+
+    const scheduled: Promise<unknown>[] = [];
+    const res = await app.request(
+      '/photos',
+      { method: 'POST', headers: { Authorization: 'Bearer valid-token' }, body },
+      {},
+      {
+        waitUntil: (promise: Promise<unknown>) => scheduled.push(promise),
+        passThroughOnException: () => {},
+      } as unknown as ExecutionContext
+    );
+    await expect(Promise.all(scheduled)).resolves.toBeDefined();
+
+    expect(res.status).toBe(201);
+    expect(mockSendPushNotifications).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ body: 'Someone added a new photo' }),
+      {}
+    );
+    expect(consoleSpy).toHaveBeenCalled();
+  });
 });
 
 describe('POST /photos/:id/react', () => {

@@ -69,6 +69,16 @@ function renderHarness(strict = false) {
   return render(harnessTree(strict));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('AuthVerifyPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -119,5 +129,66 @@ describe('AuthVerifyPage', () => {
     expect(mockVerifyMagicLink).toHaveBeenNthCalledWith(2, 'second-token');
     expect(mockLogin).toHaveBeenCalledWith('token-b', user, group, [group], false, null);
     await screen.findByText("You're signed in");
+  });
+
+  it('ignores a success from a link that has been superseded', async () => {
+    // The first request is still in the air when the user opens a second link.
+    // Letting it land would sign them in as whoever the abandoned link belongs
+    // to, over the top of the link they actually opened.
+    const first = deferred<unknown>();
+    mockVerifyMagicLink.mockImplementation((t: string) =>
+      t === 'first-token'
+        ? first.promise
+        : Promise.resolve({ accessToken: 'token-b', user, currentGroup: group, groups: [group] })
+    );
+
+    renderHarness();
+    await screen.findByText('Verifying your link...');
+
+    await act(async () => {
+      screen.getByText('open second link').click();
+    });
+    await screen.findByText("You're signed in");
+    expect(mockLogin).toHaveBeenCalledTimes(1);
+
+    const otherUser = { ...user, id: 'u2', name: 'Ada', email: 'ada@example.com' };
+    await act(async () => {
+      first.resolve({
+        accessToken: 'token-a',
+        user: otherUser,
+        currentGroup: group,
+        groups: [group],
+      });
+    });
+
+    expect(mockLogin).toHaveBeenCalledTimes(1);
+    expect(mockLogin).toHaveBeenCalledWith('token-b', user, group, [group], false, null);
+  });
+
+  it('ignores a failure from a link that has been superseded', async () => {
+    // Same race on the error path: the abandoned link's rejection must not
+    // replace the new link's screen with "Link not valid".
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const first = deferred<unknown>();
+    mockVerifyMagicLink.mockImplementation((t: string) =>
+      t === 'first-token' ? first.promise : Promise.resolve({ needsName: true })
+    );
+
+    renderHarness();
+    await screen.findByText('Verifying your link...');
+
+    await act(async () => {
+      screen.getByText('open second link').click();
+    });
+    await screen.findByText('Welcome!');
+
+    await act(async () => {
+      first.reject(new ApiError(400, 'Bad Request', 'This link has expired'));
+    });
+
+    expect(screen.queryByText('Link not valid')).toBeNull();
+    expect(screen.getByText('Welcome!')).toBeTruthy();
+
+    consoleError.mockRestore();
   });
 });

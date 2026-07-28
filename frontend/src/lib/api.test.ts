@@ -329,3 +329,46 @@ describe('fetchWithAuth refresh-on-401', () => {
     expect(refreshedDetails).toEqual([sessionB]);
   });
 });
+
+describe('api.push.unsubscribe', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('accessToken', 'token');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // Both paths are the first half of a teardown that ends in
+  // PushSubscription.unsubscribe(); rejecting here would skip that and leave a
+  // live endpoint on the device.
+  it('resolves when the authenticated fallback request fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // No deletion token stored, so unsubscribe takes the fallback path.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ error: 'Server error' }, 500))
+    );
+
+    await expect(api.push.unsubscribe('https://push.example/abc')).resolves.toBeUndefined();
+  });
+
+  it('resolves when the deletion-token request fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    localStorage.setItem('push_deletion_token:https://push.example/abc', 'deletion-token');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      })
+    );
+
+    await expect(api.push.unsubscribe('https://push.example/abc')).resolves.toBeUndefined();
+    // The token outlives a failed request so a later attempt can still use it.
+    expect(localStorage.getItem('push_deletion_token:https://push.example/abc')).toBe(
+      'deletion-token'
+    );
+  });
+});

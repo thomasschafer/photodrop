@@ -91,8 +91,16 @@ async function sendPhotoUploadNotifications(
   caption: string | null
 ): Promise<void> {
   // The notification is about this group, so the uploader's name in this group
-  // is the one to use — not their canonical name.
-  const uploaderName = await getResolvedMemberName(env.DB, uploaderId, groupId);
+  // is the one to use — not their canonical name. Guarded like the two send
+  // blocks below: this runs in waitUntil, where an unguarded rejection would
+  // take down both notification channels (and surface as an unhandled
+  // rejection) over nothing more than a missing name.
+  let uploaderName: string | null = null;
+  try {
+    uploaderName = await getResolvedMemberName(env.DB, uploaderId, groupId);
+  } catch (nameError) {
+    console.error('Failed to resolve the uploader name for notifications:', nameError);
+  }
 
   // Use just the first name to keep the notification short and friendly.
   const uploaderFirstName = uploaderName?.trim().split(/\s+/)[0] || 'Someone';

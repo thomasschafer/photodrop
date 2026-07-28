@@ -303,20 +303,26 @@ export async function registerForPush(): Promise<string | null> {
 
     // Register with FCM and wait for result
     logDebug('calling PushNotifications.register()');
-    pendingRegistrationPromise = new Promise<string | null>((resolve) => {
+    const attempt: Promise<string | null> = new Promise<string | null>((resolve) => {
+      // Settles this attempt and no other. A timed-out attempt whose register()
+      // rejects later would otherwise reach whatever `pendingResolve` holds by
+      // then — the *next* attempt's resolver — and fail a registration that is
+      // still perfectly alive, so both the resolver and the shared promise are
+      // only retired while they still belong to this attempt.
+      const settle = (token: string | null) => {
+        clearTimeout(timeout);
+        if (pendingResolve === settle) pendingResolve = null;
+        if (pendingRegistrationPromise === attempt) pendingRegistrationPromise = null;
+        resolve(token);
+      };
+
       const timeout = setTimeout(() => {
         logDebug('FCM registration timed out (10s)');
-        pendingResolve = null;
-        pendingRegistrationPromise = null;
-        resolve(null);
+        settle(null);
       }, 10000);
 
       // Store resolve function for the listener to call
-      pendingResolve = (token) => {
-        clearTimeout(timeout);
-        pendingRegistrationPromise = null;
-        resolve(token);
-      };
+      pendingResolve = settle;
 
       // register() resolves before the registration/registrationError events
       // fire, but it can reject outright (plugin/platform error). Fail fast in
@@ -324,14 +330,12 @@ export async function registerForPush(): Promise<string | null> {
       // and never let the rejection escape as an unhandled rejection.
       PushNotifications.register().catch((error) => {
         logDebug(`register() rejected: ${error instanceof Error ? error.message : String(error)}`);
-        if (pendingResolve) {
-          pendingResolve(null);
-          pendingResolve = null;
-        }
+        settle(null);
       });
     });
+    pendingRegistrationPromise = attempt;
 
-    return pendingRegistrationPromise;
+    return attempt;
   } catch (error) {
     console.error('Error registering for push:', error);
     return null;

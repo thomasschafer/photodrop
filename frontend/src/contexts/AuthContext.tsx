@@ -116,6 +116,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       needsGroupSelection: boolean,
       selectionToken?: string | null
     ) => {
+      // Any /auth/refresh still in flight belongs to the session we just
+      // replaced; invalidate it so it can't write its token over the new one.
+      // First, before anything is awaited: a refresh resolving during the cache
+      // clear below would still see the old epoch and apply its result, and
+      // when the new session carries no token of its own (accessToken === null,
+      // the group-selection case) nothing later overwrites the key it wrote.
+      bumpSessionEpoch();
       // A magic link can sign a *different* person in on a browser that still
       // holds the previous user's caches: photodrop:user:api and
       // photodrop:group:photo-list are NetworkFirst, so without this the new
@@ -124,9 +131,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // it in that order — once the state lands the feed starts fetching, and a
       // clear running behind that would delete the new session's fresh entries.
       await clearAllUserCaches();
-      // Any /auth/refresh still in flight belongs to the session we just
-      // replaced; invalidate it so it can't write its token over the new one.
-      bumpSessionEpoch();
       if (accessToken) {
         localStorage.setItem('accessToken', accessToken);
       }
@@ -170,12 +174,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const registration = await navigator.serviceWorker.ready;
           const subscription = await registration.pushManager.getSubscription();
           if (subscription) {
-            await api.push.unsubscribe(subscription.endpoint);
-            // Close the browser-side channel too. Deleting only the backend row
-            // leaves a live PushSubscription on this device, so the endpoint
-            // outlives the session and the next person to sign in here inherits
-            // it instead of registering their own.
-            await subscription.unsubscribe();
+            try {
+              await api.push.unsubscribe(subscription.endpoint);
+            } finally {
+              // Close the browser-side channel too, whatever the backend call
+              // did. Deleting only the backend row leaves a live
+              // PushSubscription on this device, so the endpoint outlives the
+              // session and the next person to sign in here inherits it instead
+              // of registering their own — and that must not hinge on a network
+              // request succeeding.
+              await subscription.unsubscribe();
+            }
           }
         } catch (pushError) {
           console.error('Error cleaning up push subscription:', pushError);

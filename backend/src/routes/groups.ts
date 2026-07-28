@@ -13,6 +13,7 @@ import {
   updateMemberImageProtection,
   updateMemberDisplayName,
   getMemberNames,
+  isGroupOwner,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
 import { updateMemberSchema, imageProtectionSchema, displayNameSchema } from '../lib/schemas';
@@ -123,20 +124,36 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
     throw new NotFoundError('User is not a member of this group');
   }
 
+  // Refused up front, before anything is revoked: the owner keeps both their
+  // membership and their notifications.
+  if (await isGroupOwner(c.env.DB, userId, groupId)) {
+    throw new ForbiddenError('Cannot remove the group owner');
+  }
+
+  // Both notification channels have to be revoked, or the removed member's
+  // browser/device keeps receiving this group's photos and caption text.
+  //
+  // Revoked *before* the membership row goes, because D1 gives us no
+  // transaction across the two and only this ordering is safe to retry: a
+  // failure here leaves a member whose notifications are already gone (they
+  // simply re-subscribe), whereas deleting the membership first and then
+  // failing would strand the subscription and device-token rows with no way
+  // back — the retry 404s on the membership that no longer exists, and the
+  // removed member keeps receiving the group's photos.
+  await Promise.all([
+    deleteAllUserPushSubscriptionsForGroup(c.env.DB, userId, groupId),
+    deleteAllUserDeviceTokensForGroup(c.env.DB, userId, groupId),
+  ]);
+
   const result = await deleteMembership(c.env.DB, userId, groupId);
   if (!result.success) {
+    // Ownership was checked above; deleteMembership re-checks it against the
+    // group row, so this can only mean it changed underneath us.
     if (result.error === 'is_owner') {
       throw new ForbiddenError('Cannot remove the group owner');
     }
     throw new InternalServerError('Failed to remove member');
   }
-
-  // Both notification channels have to be revoked, or the removed member's
-  // browser/device keeps receiving this group's photos and caption text.
-  await Promise.all([
-    deleteAllUserPushSubscriptionsForGroup(c.env.DB, userId, groupId),
-    deleteAllUserDeviceTokensForGroup(c.env.DB, userId, groupId),
-  ]);
 
   return c.json({ message: 'Member removed successfully' });
 });

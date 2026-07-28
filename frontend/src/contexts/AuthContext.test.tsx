@@ -463,6 +463,52 @@ describe('AuthProvider session resilience', () => {
     expect(subscriptionUnsubscribe).toHaveBeenCalled();
   });
 
+  it('closes the browser push subscription even when the backend call fails', async () => {
+    // One failed request must not be able to strand a live PushSubscription on
+    // the device — that is exactly the endpoint the next person to sign in here
+    // would inherit.
+    const subscriptionUnsubscribe = vi.fn().mockResolvedValue(true);
+    const subscription = {
+      endpoint: 'https://push.example/abc',
+      unsubscribe: subscriptionUnsubscribe,
+    };
+    vi.stubGlobal('PushManager', class {});
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: {
+        ready: Promise.resolve({
+          pushManager: { getSubscription: async () => subscription },
+        }),
+      },
+    });
+
+    const { api } = await import('../lib/api');
+    vi.mocked(api.push.unsubscribe).mockRejectedValue(new Error('network down'));
+    const logoutRef: { current: (() => Promise<void>) | null } = { current: null };
+    function LogoutConsumer() {
+      const { logout } = useAuth();
+      useEffect(() => {
+        logoutRef.current = logout;
+      }, [logout]);
+      return null;
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <LogoutConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(logoutRef.current).not.toBeNull());
+
+    await act(async () => {
+      await logoutRef.current!();
+    });
+
+    expect(subscriptionUnsubscribe).toHaveBeenCalled();
+  });
+
   it('clears the previous session caches before publishing a magic-link login', async () => {
     // User A -> user B via a magic link in the same browser: A's NetworkFirst
     // /users/me and photo-list entries must be gone before B's state lands,
@@ -522,6 +568,78 @@ describe('AuthProvider session resilience', () => {
 
     expect(screen.getByTestId('status').textContent).toBe('user:Ada');
     expect(localStorage.getItem('accessToken')).toBe('b-token');
+  });
+
+  it('retires the old session before login awaits the cache clear', async () => {
+    // A refresh belonging to the session being replaced can resolve while login
+    // is parked on clearAllUserCaches. Bumping the epoch only afterwards leaves
+    // that refresh free to persist its token — and when the magic link carries
+    // no token of its own (the group-selection case) login never overwrites it,
+    // so the previous user's freshly minted token survives in storage.
+    let resolveRefresh!: (data: unknown) => void;
+    mockRefresh.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRefresh = resolve;
+      })
+    );
+    let finishCacheClear!: () => void;
+    vi.mocked(clearAllUserCaches).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishCacheClear = resolve;
+      })
+    );
+
+    const loginRef: { current: ReturnType<typeof useAuth>['login'] | null } = { current: null };
+    function LoginConsumer() {
+      const { login, user: u } = useAuth();
+      useEffect(() => {
+        loginRef.current = login;
+      }, [login]);
+      return <span data-testid="status">{u ? `user:${u.name}` : 'anon'}</span>;
+    }
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <LoginConsumer />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('user:Tom');
+    await act(async () => {});
+
+    // Put a refresh for the current session in flight.
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
+
+    // A magic link signs a different person in with no token (they still have
+    // to pick a group); login parks on the cache clear.
+    const otherUser = { ...user, id: 'u2', name: 'Ada', email: 'ada@example.com' };
+    let pending!: Promise<void>;
+    act(() => {
+      pending = loginRef.current!(null, otherUser, null, [currentGroup], true, 'selection-token');
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // The old session's refresh comes back mid-clear.
+    await act(async () => {
+      resolveRefresh(refreshResponse);
+      await Promise.resolve();
+    });
+
+    finishCacheClear();
+    await act(async () => {
+      await pending;
+    });
+
+    expect(screen.getByTestId('status').textContent).toBe('user:Ada');
+    // 'fresh-token' would mean the superseded refresh wrote Tom's new token
+    // into the browser Ada is now signed in on.
+    expect(localStorage.getItem('accessToken')).toBe('initial-token');
   });
 
   it('keeps a stored token when the cold-start check cannot reach the server', async () => {

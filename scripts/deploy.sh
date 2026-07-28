@@ -185,6 +185,13 @@ echo ""
 AASA_PATH="dist/.well-known/apple-app-site-association"
 if [ -f "$AASA_PATH" ]; then
     if [ -n "${APPLE_TEAM_ID:-}" ]; then
+        # An Apple Team ID is exactly ten alphanumerics. Substituting anything
+        # else produces a syntactically valid file that iOS silently declines
+        # to verify, which is the failure mode this whole block exists to stop.
+        if ! printf '%s' "$APPLE_TEAM_ID" | grep -qE '^[A-Z0-9]{10}$'; then
+            echo "Error: APPLE_TEAM_ID is not a valid Apple Team ID (ten alphanumerics)"
+            exit 1
+        fi
         sed -i.bak "s/TEAM_ID/$APPLE_TEAM_ID/g" "$AASA_PATH" && rm -f "$AASA_PATH.bak"
         if grep -q "TEAM_ID" "$AASA_PATH"; then
             echo "Error: apple-app-site-association still contains a TEAM_ID placeholder"

@@ -110,16 +110,14 @@
           (cd backend && echo "y" | npx wrangler d1 migrations apply photodrop-db --local)
           echo ""
 
-          # Per browser rather than guarding on the cache directory as a whole:
-          # a cache restored from a chromium-only run already has the directory,
-          # so a single guard would skip installing webkit forever.
-          for browser in chromium webkit; do
-            if [ -z "$(find "$HOME/.cache/ms-playwright" -maxdepth 1 -name "$browser-*" 2>/dev/null)" ]; then
-              echo "Installing Playwright $browser..."
-              npx playwright install "$browser"
-              echo ""
-            fi
-          done
+          # Let Playwright decide what is missing rather than guessing from a
+          # cache path. It already skips browsers it has, and it knows where
+          # they live on each OS — the cache is under ~/.cache on Linux but
+          # ~/Library/Caches on macOS, and the directory name carries a build
+          # revision that changes with the Playwright version.
+          echo "Ensuring Playwright browsers..."
+          npx playwright install chromium webkit
+          echo ""
 
           npx playwright test "$@"
         '';
