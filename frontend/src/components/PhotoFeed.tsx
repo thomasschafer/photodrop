@@ -370,6 +370,25 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           });
         },
         onDetailsRefreshed: (details) => setPhotoReactionDetails(photoId, details),
+        // Absolute, not a delta. When two toggles of the same emoji overlap
+        // and one fails, only the newer may roll back, so the pair can no
+        // longer be composed back to the server's answer — the engine refetches
+        // it instead. This matters more here than in the lightbox: `photos` is
+        // the copy the lightbox re-seeds from, so leaving it wrong spreads.
+        onResync: (authoritative) => {
+          setPhotos((prev) =>
+            prev.map((p) =>
+              p.id === photoId
+                ? {
+                    ...p,
+                    reactions: authoritative.reactions,
+                    userReactions: authoritative.userReactions,
+                  }
+                : p
+            )
+          );
+          setPhotoReactionDetails(photoId, authoritative.details);
+        },
       }
     );
   };

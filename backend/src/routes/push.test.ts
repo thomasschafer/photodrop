@@ -202,17 +202,22 @@ describe('push validation', () => {
       mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 9, resetAt: 1_000_000 });
       // The middleware's probabilistic cleanup needs an execution context the
       // test app has no reason to provide; this keeps it out of the way.
+      // Restored in a finally: leaking this spy would pin Math.random() at 1
+      // for every later test in the file if the assertion below fails.
       const random = vi.spyOn(Math, 'random').mockReturnValue(1);
-      mockCreatePushSubscription.mockResolvedValue({ id: 'sub-1', deletionToken: 'tok' });
-      const app = createApp({ ENVIRONMENT: 'production' });
+      try {
+        mockCreatePushSubscription.mockResolvedValue({ id: 'sub-1', deletionToken: 'tok' });
+        const app = createApp({ ENVIRONMENT: 'production' });
 
-      const res = await authedPost(app, '/push/subscribe', {
-        endpoint: 'https://push.example.com/abc',
-        keys: { p256dh: 'key', auth: 'auth' },
-      });
+        const res = await authedPost(app, '/push/subscribe', {
+          endpoint: 'https://push.example.com/abc',
+          keys: { p256dh: 'key', auth: 'auth' },
+        });
 
-      expect(res.status).toBe(201);
-      random.mockRestore();
+        expect(res.status).toBe(201);
+      } finally {
+        random.mockRestore();
+      }
     });
   });
 

@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   getReactions: vi.fn(),
   getComments: vi.fn(),
+  addReaction: vi.fn(),
+  removeReaction: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
@@ -202,11 +204,16 @@ describe('PhotoFeed', () => {
     // The retry succeeds with more still to come, so the sentinel stays
     // mounted: the retry control can only disappear because the failure was
     // actually cleared, not because the whole sentinel unmounted.
+    //
+    // Paging fires once more after that, since the sentinel is still in view.
+    // That request must never settle — a page of zero rows would end the feed
+    // and unmount the sentinel, taking the retry control with it and making
+    // the assertion below pass for the very reason this setup rules out.
     mocks.list
       .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
       .mockRejectedValueOnce(new Error('network'))
       .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: true })
-      .mockResolvedValue({ photos: [], hasMore: true });
+      .mockReturnValue(new Promise(() => {}));
 
     renderFeed();
     await act(async () => {});
@@ -219,6 +226,32 @@ describe('PhotoFeed', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(screen.getByText('photo b')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
+
+  it('resyncs the feed from the server when a reaction toggle fails', async () => {
+    // Two toggles of the same emoji can overlap, and only the newer may roll
+    // back, so the pair cannot be composed back to the server's answer. The
+    // feed is the copy the lightbox re-seeds from, so a wrong value here
+    // spreads — it takes the refetched absolute state instead.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.list.mockResolvedValue({ photos: [makePhoto('a')], hasMore: false });
+    mocks.addReaction.mockRejectedValue(new Error('network'));
+    mocks.getReactions.mockResolvedValue({
+      reactions: [{ emoji: '❤️', userId: 'someone-else', userName: 'Ada', profileColor: 'teal' }],
+    });
+
+    renderFeed();
+    await act(async () => {});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add reaction' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: 'React with ❤️' }));
+    });
+
+    // The server's answer: one ❤️, and not from this user.
+    expect(await screen.findByRole('button', { name: 'Add ❤️ reaction' })).toHaveTextContent('1');
   });
 
   it('stops retrying after a failed page instead of spinning on it', async () => {
