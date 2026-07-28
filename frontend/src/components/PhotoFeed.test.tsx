@@ -59,6 +59,20 @@ async function scrollToSentinel() {
   });
 }
 
+// The feed watches the document for content growth, which is how it notices
+// thumbnails resolving and pushing the sentinel back out of view. happy-dom
+// has no ResizeObserver, so capture the callback and fire it on demand.
+let triggerContentResize: (() => void) | null = null;
+
+class TestResizeObserver {
+  constructor(callback: () => void) {
+    triggerContentResize = callback;
+  }
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 function renderFeed(isAdmin = false) {
   return render(
     <MemoryRouter initialEntries={['/']}>
@@ -70,6 +84,8 @@ function renderFeed(isAdmin = false) {
 describe('PhotoFeed', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    triggerContentResize = null;
+    vi.stubGlobal('ResizeObserver', TestResizeObserver);
     mocks.getReactions.mockResolvedValue({ reactions: [] });
     mocks.getComments.mockResolvedValue({ comments: [] });
   });
@@ -149,6 +165,53 @@ describe('PhotoFeed', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
     expect(screen.getAllByText('photo a')).toHaveLength(1);
     expect(screen.getByText('photo c')).toBeInTheDocument();
+  });
+
+  it('loads more when growing thumbnails push the sentinel back into view', async () => {
+    // Scrolling to the bottom of a short document leaves the sentinel visible,
+    // then each thumbnail resolving from its placeholder grows the page and
+    // pushes it below the fold again — with no scroll and no viewport change
+    // to announce it. Only content growth reports this.
+    mocks.list
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
+      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: false });
+
+    renderFeed();
+    await act(async () => {});
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+
+    putSentinelInView();
+    expect(triggerContentResize).toBeTypeOf('function');
+    await act(async () => {
+      triggerContentResize?.();
+    });
+
+    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 1);
+  });
+
+  it('offers a retry after a failed page, and resumes paging when it is used', async () => {
+    putSentinelInView();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // The retry succeeds with more still to come, so the sentinel stays
+    // mounted: the retry control can only disappear because the failure was
+    // actually cleared, not because the whole sentinel unmounted.
+    mocks.list
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: true })
+      .mockResolvedValue({ photos: [], hasMore: true });
+
+    renderFeed();
+    await act(async () => {});
+
+    const retry = await screen.findByRole('button', { name: 'Try again' });
+    await act(async () => {
+      fireEvent.click(retry);
+    });
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getByText('photo b')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
   });
 
   it('stops retrying after a failed page instead of spinning on it', async () => {

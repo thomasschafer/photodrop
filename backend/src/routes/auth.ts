@@ -112,17 +112,20 @@ const REFRESH_COOKIE_MAX_AGE = REFRESH_TOKEN_TTL_SECONDS;
  * Attributes for the refresh cookie. Setting and clearing must agree on all of
  * them — a browser only replaces a cookie when the attributes match.
  *
- * `secure` follows the request scheme rather than being hardcoded: WebKit
+ * `secure` is relaxed for plain-HTTP requests outside production: WebKit
  * refuses to store a `Secure` cookie delivered over plain HTTP, where Chromium
  * special-cases http://localhost. Hardcoding it meant Safari and the WebKit e2e
  * run never stored a refresh cookie locally, so every /auth/refresh failed with
- * "No refresh token provided" and any 401 logged the user out. Production is
- * served over HTTPS, so it still gets `Secure`.
+ * "No refresh token provided" and any 401 logged the user out.
+ *
+ * Production is pinned on ENVIRONMENT rather than left to the request scheme:
+ * a single request arriving over plain HTTP would otherwise replace the
+ * `Secure` cookie with one that travels in cleartext for the next 30 days.
  */
-function refreshCookieOptions(c: Context, maxAge: number): CookieOptions {
+function refreshCookieOptions(c: Context<AppEnv>, maxAge: number): CookieOptions {
   return {
     httpOnly: true,
-    secure: new URL(c.req.url).protocol === 'https:',
+    secure: c.env.ENVIRONMENT === 'production' || new URL(c.req.url).protocol === 'https:',
     sameSite: 'Lax',
     maxAge,
     path: '/',

@@ -129,7 +129,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
         const seen = new Set(prev.map((p) => p.id));
         return [...prev, ...data.photos.filter((p) => !seen.has(p.id))];
       });
-      setHasMore(data.hasMore ?? false);
+      // A page of no rows at all cannot advance the offset, so honouring a
+      // hasMore that contradicts it would re-request the same empty page
+      // forever. Zero rows served is the end of the feed whatever the flag
+      // says. This is not the earlier mistake of counting deduped rows: a page
+      // of duplicates still advances the offset and paging continues.
+      setHasMore(data.photos.length > 0 && (data.hasMore ?? false));
     } catch (err) {
       console.error('Failed to load more photos:', err);
       // Nothing was appended, so the sentinel is still on screen and every
@@ -161,18 +166,29 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   }, [hasMore, loading, loadingMore, loadMoreFailed, loadMorePhotos]);
 
-  // Re-checked after each page settles (the viewport may still not be full),
-  // and on the events that move the sentinel relative to the viewport. Scroll
-  // is passive and only reads a bounding rect, and resize covers the lazily
-  // loaded thumbnails growing the page under a stationary viewport.
+  // Re-checked after each page settles (the viewport may still not be full)
+  // and on every event that can move the sentinel relative to the viewport.
+  //
+  // The ResizeObserver is the one that matters most, and window resize would
+  // not substitute for it. Each thumbnail is a 200px placeholder until its
+  // authenticated fetch resolves, then grows to as much as 400px, so a page of
+  // twenty can add thousands of pixels after first paint. Scrolling to the
+  // bottom of the short document leaves the sentinel visible, and then the
+  // growth pushes it back below the fold with no scroll and no viewport change
+  // to announce it. That is what stranded the feed at twenty photos on CI.
   useEffect(() => {
     maybeLoadMore();
 
     window.addEventListener('scroll', maybeLoadMore, { passive: true });
     window.addEventListener('resize', maybeLoadMore);
+    const contentObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => maybeLoadMore());
+    contentObserver?.observe(document.documentElement);
+
     return () => {
       window.removeEventListener('scroll', maybeLoadMore);
       window.removeEventListener('resize', maybeLoadMore);
+      contentObserver?.disconnect();
     };
   }, [maybeLoadMore, photos.length]);
 
@@ -517,6 +533,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             className="h-16 flex items-center justify-center text-text-muted text-sm"
           >
             {loadingMore && 'Loading more photos...'}
+            {loadMoreFailed && !loadingMore && (
+              <span className="flex items-center gap-2">
+                <span role="alert">Couldn&apos;t load more photos.</span>
+                <Button onClick={loadMorePhotos} size="sm" variant="secondary">
+                  Try again
+                </Button>
+              </span>
+            )}
           </div>
         )}
       </PullToRefresh>
