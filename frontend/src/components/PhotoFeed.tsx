@@ -57,6 +57,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -71,11 +72,11 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  // Lets an in-flight page dedupe against the list as it stands when the
-  // response lands, rather than the snapshot its closure captured — the feed
-  // can change underneath it (a delete, a reaction) while the request is out.
-  const photosRef = useRef(photos);
-  photosRef.current = photos;
+  // How many rows the server has already served us, which is what the next
+  // page's offset must be. Deliberately not photos.length: duplicates are
+  // dropped on the way in, so the two diverge as soon as anything is uploaded
+  // mid-scroll, and paging by the kept count would re-request the same rows.
+  const nextOffsetRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
   const { photoId } = useParams<{ photoId: string }>();
@@ -98,7 +99,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       setError(null);
       const data = await api.photos.list(20, 0);
       setPhotos(data.photos);
+      nextOffsetRef.current = data.photos.length;
       setHasMore(data.hasMore ?? false);
+      setLoadMoreFailed(false);
       setFeedReactionDetails(new Map());
       reactionsEngine.resetCache();
     } catch (err) {
@@ -113,57 +116,42 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
     try {
       setLoadingMore(true);
-      const data = await api.photos.list(20, photos.length);
-      // Offset paging over a newest-first list: anything uploaded since page 1
-      // shifts every later photo down, so the next page can repeat photos we
-      // already hold. Duplicate ids would collide as React keys and make the
-      // lightbox's findIndex resolve to the wrong copy.
-      const existing = new Set(photosRef.current.map((p) => p.id));
-      const fresh = data.photos.filter((p) => !existing.has(p.id));
+      setLoadMoreFailed(false);
+      const data = await api.photos.list(20, nextOffsetRef.current);
+      // Count what the server served, not what we chose to keep. Offset paging
+      // over a newest-first list means an upload since the last page shifts
+      // everything down and repeats rows we already hold; advancing by the
+      // deduped count would ask for the same rows forever.
+      nextOffsetRef.current += data.photos.length;
+      // Those repeats still must not reach the list: duplicate ids collide as
+      // React keys and make the lightbox's findIndex resolve to the wrong copy.
       setPhotos((prev) => {
         const seen = new Set(prev.map((p) => p.id));
-        return [...prev, ...fresh.filter((p) => !seen.has(p.id))];
+        return [...prev, ...data.photos.filter((p) => !seen.has(p.id))];
       });
-      // A page that adds nothing can't advance the offset, so asking again
-      // would repeat the same request forever — and the sentinel re-check
-      // below would make that a spin rather than a stall. Treat it as the end.
-      setHasMore(fresh.length > 0 && (data.hasMore ?? false));
+      setHasMore(data.hasMore ?? false);
     } catch (err) {
       console.error('Failed to load more photos:', err);
+      // Nothing was appended, so the sentinel is still on screen and every
+      // trigger below would fire again immediately. Stop until the user acts.
+      setLoadMoreFailed(true);
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, photos.length]);
+  }, [loadingMore, hasMore]);
 
   useEffect(() => {
     loadPhotos();
   }, []);
 
-  // Infinite scroll: observe sentinel element
-  useEffect(() => {
-    if (!loadMoreRef.current || !hasMore || loading) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !loadingMore) {
-          loadMorePhotos();
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    observer.observe(loadMoreRef.current);
-    return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, loadMorePhotos]);
-
-  // Once the user is parked at the bottom there is no further scroll to
-  // re-trigger the observer, so a notification it fails to deliver — or one
-  // that lands while the sentinel is briefly out of view as lazily loaded
-  // thumbnails resize the page — strands the feed with more to fetch. After
-  // each page settles, ask the sentinel directly instead of waiting to be
-  // told again. Terminates because a page that adds nothing clears hasMore.
-  useEffect(() => {
-    if (!hasMore || loading || loadingMore) return;
+  // Paging used to rely solely on an IntersectionObserver over the sentinel.
+  // A notification it failed to deliver stranded the feed for good: nothing
+  // re-asked, and once the user is at the bottom there is no further scroll to
+  // trigger it again. That was reproducible on CI under WebKit, where the
+  // second page was never even requested. So the sentinel is consulted
+  // directly instead, from every event that can bring it into view.
+  const maybeLoadMore = useCallback(() => {
+    if (!hasMore || loading || loadingMore || loadMoreFailed) return;
     const sentinel = loadMoreRef.current;
     if (!sentinel) return;
 
@@ -171,7 +159,22 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     if (top < window.innerHeight && bottom > 0) {
       loadMorePhotos();
     }
-  }, [hasMore, loading, loadingMore, photos.length, loadMorePhotos]);
+  }, [hasMore, loading, loadingMore, loadMoreFailed, loadMorePhotos]);
+
+  // Re-checked after each page settles (the viewport may still not be full),
+  // and on the events that move the sentinel relative to the viewport. Scroll
+  // is passive and only reads a bounding rect, and resize covers the lazily
+  // loaded thumbnails growing the page under a stationary viewport.
+  useEffect(() => {
+    maybeLoadMore();
+
+    window.addEventListener('scroll', maybeLoadMore, { passive: true });
+    window.addEventListener('resize', maybeLoadMore);
+    return () => {
+      window.removeEventListener('scroll', maybeLoadMore);
+      window.removeEventListener('resize', maybeLoadMore);
+    };
+  }, [maybeLoadMore, photos.length]);
 
   useEffect(() => {
     if (!loading && photoId && photos.length > 0 && selectedPhotoIndex === -1) {

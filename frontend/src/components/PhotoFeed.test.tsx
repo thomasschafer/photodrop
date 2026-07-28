@@ -50,24 +50,13 @@ function makePhoto(id: string): Photo {
   };
 }
 
-// happy-dom has no IntersectionObserver that fires, so capture the feed's
-// callback and invoke it to simulate the load-more sentinel scrolling in.
-let triggerLoadMore: (() => void) | null = null;
-
-class TestIntersectionObserver {
-  constructor(callback: IntersectionObserverCallback) {
-    triggerLoadMore = () =>
-      callback([{ isIntersecting: true }] as IntersectionObserverEntry[], this);
-  }
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-  takeRecords() {
-    return [];
-  }
-  root = null;
-  rootMargin = '';
-  thresholds = [];
+// The feed reads the sentinel's position rather than waiting to be told it is
+// visible, so these drive it the same way a real scroll does: place the
+// sentinel, then dispatch the event.
+async function scrollToSentinel() {
+  await act(async () => {
+    window.dispatchEvent(new Event('scroll'));
+  });
 }
 
 function renderFeed(isAdmin = false) {
@@ -81,8 +70,6 @@ function renderFeed(isAdmin = false) {
 describe('PhotoFeed', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    triggerLoadMore = null;
-    vi.stubGlobal('IntersectionObserver', TestIntersectionObserver);
     mocks.getReactions.mockResolvedValue({ reactions: [] });
     mocks.getComments.mockResolvedValue({ comments: [] });
   });
@@ -91,29 +78,6 @@ describe('PhotoFeed', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-  });
-
-  it('does not repeat a photo when the next page overlaps the previous one', async () => {
-    // Offset paging over a newest-first list: an upload landing between the
-    // two requests shifts the list down, so page 2 re-sends the tail of page
-    // 1. Appending it blindly duplicates React keys and leaves the lightbox's
-    // findIndex resolving to the first copy.
-    mocks.list
-      .mockResolvedValueOnce({ photos: [makePhoto('a'), makePhoto('b')], hasMore: true })
-      .mockResolvedValueOnce({ photos: [makePhoto('b'), makePhoto('c')], hasMore: false });
-
-    renderFeed();
-    await act(async () => {});
-
-    expect(triggerLoadMore).toBeTypeOf('function');
-    await act(async () => {
-      triggerLoadMore?.();
-    });
-
-    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 2);
-    expect(screen.getAllByRole('listitem')).toHaveLength(3);
-    expect(screen.getAllByText('photo b')).toHaveLength(1);
-    expect(screen.getByText('photo c')).toBeInTheDocument();
   });
 
   // Places the load-more sentinel inside the viewport. happy-dom reports an
@@ -149,20 +113,62 @@ describe('PhotoFeed', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
   });
 
-  it('stops paging when a page adds nothing, rather than requesting it forever', async () => {
-    // The offset is derived from how many photos we hold, so a page whose
-    // every entry is a duplicate cannot advance it. Combined with the
-    // in-view re-check above, retrying would spin on the same request.
+  it('loads the next page when the user scrolls the sentinel into view', async () => {
+    // The sentinel starts out of view, so nothing loads until the scroll.
+    mocks.list
+      .mockResolvedValueOnce({ photos: [makePhoto('a'), makePhoto('b')], hasMore: true })
+      .mockResolvedValueOnce({ photos: [makePhoto('c')], hasMore: false });
+
+    renderFeed();
+    await act(async () => {});
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+
+    putSentinelInView();
+    await scrollToSentinel();
+
+    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 2);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+  });
+
+  it('keeps paging past a page of rows it already holds', async () => {
+    // Uploads between two fetches shift a newest-first list down, so a page
+    // can be entirely rows we hold. Those must not reach the list — duplicate
+    // React keys — but they must still advance the offset, or the feed both
+    // re-requests them forever and silently truncates mid-history.
     putSentinelInView();
     mocks.list
-      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
-      .mockResolvedValue({ photos: [makePhoto('a')], hasMore: true });
+      .mockResolvedValueOnce({ photos: [makePhoto('a'), makePhoto('b')], hasMore: true })
+      .mockResolvedValueOnce({ photos: [makePhoto('a'), makePhoto('b')], hasMore: true })
+      .mockResolvedValueOnce({ photos: [makePhoto('c')], hasMore: false });
 
     renderFeed();
     await act(async () => {});
 
-    expect(mocks.list).toHaveBeenCalledTimes(2);
-    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 2);
+    expect(mocks.list).toHaveBeenNthCalledWith(3, 20, 4);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    expect(screen.getAllByText('photo a')).toHaveLength(1);
+    expect(screen.getByText('photo c')).toBeInTheDocument();
+  });
+
+  it('stops retrying after a failed page instead of spinning on it', async () => {
+    // Nothing was appended, so the sentinel is still on screen and every
+    // trigger would fire again immediately.
+    putSentinelInView();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.list
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
+      .mockRejectedValue(new Error('network'));
+
+    renderFeed();
+    await act(async () => {});
+    const afterFailure = mocks.list.mock.calls.length;
+
+    await scrollToSentinel();
+    await scrollToSentinel();
+
+    expect(mocks.list).toHaveBeenCalledTimes(afterFailure);
+    expect(afterFailure).toBe(2);
   });
 
   it('lets a second upload show its message for the full duration', async () => {

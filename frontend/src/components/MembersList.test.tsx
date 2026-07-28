@@ -38,11 +38,19 @@ vi.mock('../contexts/AuthContext', () => {
 
 import { MembersList } from './MembersList';
 
-function makeMember(userId: string, name: string, displayName: string | null = null) {
+// `name` is what the group sees, so it defaults the canonical name only for
+// members with no override — an overridden member must be given both.
+function makeMember(
+  userId: string,
+  name: string,
+  displayName: string | null = null,
+  canonicalName: string = name
+) {
   return {
     userId,
     name,
     displayName,
+    canonicalName,
     email: `${userId}@example.com`,
     profileColor: 'teal' as const,
     role: 'member' as const,
@@ -169,7 +177,10 @@ describe('MembersList display names', () => {
   });
 
   it('flags only the members shown under an override', async () => {
-    await renderMembers([makeMember('alice', 'Ali', 'Ali'), makeMember('bob', 'Bob')]);
+    await renderMembers([
+      makeMember('alice', 'Ali', 'Ali', 'Alice Smith'),
+      makeMember('bob', 'Bob'),
+    ]);
 
     const badges = screen.getAllByText('Display name');
     expect(badges).toHaveLength(1);
@@ -177,6 +188,19 @@ describe('MembersList display names', () => {
       'title',
       'A display name is set for Family, so this is not their own name'
     );
+  });
+
+  it('names the person behind an override, and only where one is set', async () => {
+    await renderMembers([
+      makeMember('alice', 'Ali', 'Ali', 'Alice Smith'),
+      makeMember('bob', 'Bob'),
+    ]);
+
+    // Labelled rather than left as a second bare name, so it cannot be read as
+    // a different member.
+    expect(screen.getByText('Own name: Alice Smith')).toBeInTheDocument();
+    expect(screen.getByText('Bob')).toBeInTheDocument();
+    expect(screen.queryByText('Own name: Bob')).not.toBeInTheDocument();
   });
 
   it('offers the member’s own name as the default when no override is set', async () => {
@@ -191,12 +215,31 @@ describe('MembersList display names', () => {
     ).toBeInTheDocument();
   });
 
+  it('names what clearing an override reverts to, and never offers it for editing', async () => {
+    await renderMembers([makeMember('alice', 'Ali', 'Ali', 'Alice Smith')]);
+
+    openEditor('Ali');
+
+    expect(screen.getByText(/is shown as/)).toHaveTextContent(
+      'Alice Smith is shown as Ali in Family. Their own name is theirs alone to change; this one applies only to Family.'
+    );
+    expect(
+      screen.getByText('Leave empty to go back to showing their own name, Alice Smith.')
+    ).toBeInTheDocument();
+    // The one editable field is the override: the canonical name is shown only
+    // as the placeholder the empty field falls back to.
+    expect(displayNameField()).toHaveValue('Ali');
+    expect(displayNameField()).toHaveAttribute('placeholder', 'Alice Smith');
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+  });
+
   it('sets a display name and relabels the row with the resolved name', async () => {
     mocks.setMemberDisplayName.mockResolvedValue({
       message: 'Display name updated',
       userId: 'alice',
       displayName: 'Ali',
       name: 'Ali',
+      canonicalName: 'Alice',
     });
     await renderMembers([makeMember('alice', 'Alice')]);
 
@@ -207,8 +250,30 @@ describe('MembersList display names', () => {
     await waitFor(() => expect(screen.getByText('Ali')).toBeInTheDocument());
     expect(mocks.setMemberDisplayName).toHaveBeenCalledWith('g1', 'alice', 'Ali');
     expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    expect(screen.getByText('Own name: Alice')).toBeInTheDocument();
     expect(screen.getAllByText('Display name')).toHaveLength(1);
     expect(screen.getByRole('status')).toHaveTextContent('Now showing as Ali in Family');
+  });
+
+  it('takes the canonical name from the response, so a row cannot go stale', async () => {
+    // The member renamed themselves after this list was fetched; the response
+    // is re-read server-side, so the row must follow it rather than the name it
+    // was rendered with.
+    mocks.setMemberDisplayName.mockResolvedValue({
+      message: 'Display name updated',
+      userId: 'alice',
+      displayName: 'Ali B',
+      name: 'Ali B',
+      canonicalName: 'Alice Jones',
+    });
+    await renderMembers([makeMember('alice', 'Ali', 'Ali', 'Alice Smith')]);
+
+    openEditor('Ali');
+    fireEvent.change(displayNameField(), { target: { value: 'Ali B' } });
+    save();
+
+    await waitFor(() => expect(screen.getByText('Own name: Alice Jones')).toBeInTheDocument());
+    expect(screen.queryByText('Own name: Alice Smith')).not.toBeInTheDocument();
   });
 
   it('clears the override from an empty field and restores the member’s own name', async () => {
@@ -217,8 +282,9 @@ describe('MembersList display names', () => {
       userId: 'alice',
       displayName: null,
       name: 'Alice',
+      canonicalName: 'Alice',
     });
-    await renderMembers([makeMember('alice', 'Ali', 'Ali')]);
+    await renderMembers([makeMember('alice', 'Ali', 'Ali', 'Alice')]);
 
     openEditor('Ali');
     // An empty field is how the override is cleared, so Save must stay live.
@@ -229,11 +295,14 @@ describe('MembersList display names', () => {
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
     expect(mocks.setMemberDisplayName).toHaveBeenCalledWith('g1', 'alice', null);
     expect(screen.queryByText('Display name')).not.toBeInTheDocument();
+    // With no override the name in the row is already the member's own, so
+    // repeating it under the email would be noise.
+    expect(screen.queryByText('Own name: Alice')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Alice is now shown under their own name');
   });
 
   it('skips the request when the field is left unchanged', async () => {
-    await renderMembers([makeMember('alice', 'Ali', 'Ali')]);
+    await renderMembers([makeMember('alice', 'Ali', 'Ali', 'Alice Smith')]);
 
     openEditor('Ali');
     save();

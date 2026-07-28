@@ -38,6 +38,12 @@ export interface MembershipWithGroup extends Membership {
 export interface MembershipWithUser extends Membership {
   /** Group-resolved name: the display name override when set, else `users.name`. */
   user_name: string;
+  /**
+   * The user's own `users.name`, the same in every group and writable only by
+   * the user themselves. Carried alongside `user_name` so an admin surface can
+   * show whose name an override stands in for; never surface it to non-admins.
+   */
+  canonical_name: string;
   user_email: string;
   user_profile_color: ProfileColor;
 }
@@ -166,28 +172,53 @@ export async function updateMemberDisplayName(
   return result.meta.changes > 0;
 }
 
+export interface MemberNames {
+  /** The name this group shows: the override when set, else the canonical name. */
+  resolvedName: string;
+  /** The user's own name, identical in every group and only theirs to change. */
+  canonicalName: string;
+}
+
 /**
- * The name to show for a user inside a group. Null when the user has no
- * membership of that group (or no longer exists), which callers must handle
- * rather than falling back to the canonical name — a non-member has no
- * resolved name in the group at all.
+ * Both names a user has inside a group. Null when the user has no membership of
+ * that group (or no longer exists), which callers must handle rather than
+ * falling back to the canonical name — a non-member has no resolved name in the
+ * group at all.
+ */
+export async function getMemberNames(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<MemberNames | null> {
+  const result = await db
+    .prepare(
+      `SELECT ${RESOLVED_MEMBER_NAME} as resolved_name, u.name as canonical_name
+       FROM memberships m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.user_id = ? AND m.group_id = ?`
+    )
+    .bind(userId, groupId)
+    .first<{ resolved_name: string; canonical_name: string }>();
+
+  if (!result) {
+    return null;
+  }
+
+  return { resolvedName: result.resolved_name, canonicalName: result.canonical_name };
+}
+
+/**
+ * The name to show for a user inside a group, for callers that must not handle
+ * the canonical name at all (it is not theirs to render).
  */
 export async function getResolvedMemberName(
   db: D1Database,
   userId: string,
   groupId: string
 ): Promise<string | null> {
-  const result = await db
-    .prepare(
-      `SELECT ${RESOLVED_MEMBER_NAME} as resolved_name
-       FROM memberships m
-       JOIN users u ON u.id = m.user_id
-       WHERE m.user_id = ? AND m.group_id = ?`
-    )
-    .bind(userId, groupId)
-    .first<{ resolved_name: string }>();
+  const names = await getMemberNames(db, userId, groupId);
 
-  return result?.resolved_name ?? null;
+  return names?.resolvedName ?? null;
 }
 
 // User functions
@@ -265,7 +296,8 @@ export async function getGroupMembers(
     db
       .prepare(
         `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, m.display_name,
-                ${RESOLVED_MEMBER_NAME} as user_name, u.email as user_email, u.profile_color as user_profile_color
+                ${RESOLVED_MEMBER_NAME} as user_name, u.name as canonical_name,
+                u.email as user_email, u.profile_color as user_profile_color
          FROM memberships m
          JOIN users u ON m.user_id = u.id
          WHERE m.group_id = ?

@@ -11,7 +11,7 @@ const mockGetMembership = vi.fn();
 const mockUpdateMemberImageProtection = vi.fn();
 const mockUpdateMembershipRole = vi.fn();
 const mockUpdateMemberDisplayName = vi.fn();
-const mockGetResolvedMemberName = vi.fn();
+const mockGetMemberNames = vi.fn();
 // No route here may call this: users.name is tenant-wide, so an admin writing
 // it renames the person in every group they belong to. It stays mocked so the
 // member routes can assert they never reach for it.
@@ -36,7 +36,7 @@ vi.mock('../lib/db', () => ({
   updateMembershipRole: (...args: unknown[]) => mockUpdateMembershipRole(...args),
   deleteMembership: (...args: unknown[]) => mockDeleteMembership(...args),
   updateMemberDisplayName: (...args: unknown[]) => mockUpdateMemberDisplayName(...args),
-  getResolvedMemberName: (...args: unknown[]) => mockGetResolvedMemberName(...args),
+  getMemberNames: (...args: unknown[]) => mockGetMemberNames(...args),
   updateUserName: (...args: unknown[]) => mockUpdateUserName(...args),
   updateMemberImageProtection: (...args: unknown[]) => mockUpdateMemberImageProtection(...args),
   deleteAllUserPushSubscriptionsForGroup: (...args: unknown[]) =>
@@ -438,7 +438,7 @@ describe('GET /groups/:groupId/members', () => {
     app.onError(errorHandler);
   });
 
-  it('reports the resolved name to show and the raw override separately', async () => {
+  it('reports the resolved name to show, the raw override, and the canonical name', async () => {
     mockGetGroupMembers.mockResolvedValue({
       ownerId: 'admin-user',
       members: [
@@ -450,6 +450,7 @@ describe('GET /groups/:groupId/members', () => {
           image_protection: 1,
           display_name: 'Mum',
           user_name: 'Mum',
+          canonical_name: 'Jane Doe',
           user_email: 'jane@example.com',
           user_profile_color: 'teal',
         },
@@ -461,6 +462,7 @@ describe('GET /groups/:groupId/members', () => {
           image_protection: 1,
           display_name: null,
           user_name: 'Bob Smith',
+          canonical_name: 'Bob Smith',
           user_email: 'bob@example.com',
           user_profile_color: 'sage',
         },
@@ -473,15 +475,26 @@ describe('GET /groups/:groupId/members', () => {
 
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
-      members: Array<{ userId: string; name: string; displayName: string | null }>;
+      members: Array<{
+        userId: string;
+        name: string;
+        displayName: string | null;
+        canonicalName: string;
+      }>;
     };
-    // An admin UI needs both: what to render, and whether it is an override it
-    // can offer to reset.
-    expect(json.members[0]).toMatchObject({ userId: 'user-1', name: 'Mum', displayName: 'Mum' });
+    // An admin UI needs all three: what to render, whether it is an override it
+    // can offer to reset, and whose name that override stands in for.
+    expect(json.members[0]).toMatchObject({
+      userId: 'user-1',
+      name: 'Mum',
+      displayName: 'Mum',
+      canonicalName: 'Jane Doe',
+    });
     expect(json.members[1]).toMatchObject({
       userId: 'user-2',
       name: 'Bob Smith',
       displayName: null,
+      canonicalName: 'Bob Smith',
     });
   });
 });
@@ -492,7 +505,7 @@ describe('PATCH /groups/:groupId/members/:userId/display-name', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUpdateMemberDisplayName.mockResolvedValue(true);
-    mockGetResolvedMemberName.mockResolvedValue('Mum');
+    mockGetMemberNames.mockResolvedValue({ resolvedName: 'Mum', canonicalName: 'Jane Doe' });
 
     app = new Hono();
     app.use('*', async (c, next) => {
@@ -562,8 +575,20 @@ describe('PATCH /groups/:groupId/members/:userId/display-name', () => {
     const res = await patchDisplayName('user-1', { displayName: 'Mum' });
 
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { userId: string; displayName: string; name: string };
-    expect(json).toMatchObject({ userId: 'user-1', displayName: 'Mum', name: 'Mum' });
+    const json = (await res.json()) as {
+      userId: string;
+      displayName: string;
+      name: string;
+      canonicalName: string;
+    };
+    // The canonical name comes back too, so the admin's list row stays complete
+    // (and correct if the member renamed themselves) without a refetch.
+    expect(json).toMatchObject({
+      userId: 'user-1',
+      displayName: 'Mum',
+      name: 'Mum',
+      canonicalName: 'Jane Doe',
+    });
     expect(mockUpdateMemberDisplayName).toHaveBeenCalledWith({}, 'user-1', 'group-1', 'Mum');
   });
 
@@ -589,14 +614,18 @@ describe('PATCH /groups/:groupId/members/:userId/display-name', () => {
 
   it('clears the override on an explicit null, restoring the canonical name', async () => {
     authenticateAs('admin-user', 'admin');
-    mockGetResolvedMemberName.mockResolvedValue('Jane Doe');
+    mockGetMemberNames.mockResolvedValue({ resolvedName: 'Jane Doe', canonicalName: 'Jane Doe' });
 
     const res = await patchDisplayName('user-1', { displayName: null });
 
     expect(res.status).toBe(200);
     expect(mockUpdateMemberDisplayName).toHaveBeenCalledWith({}, 'user-1', 'group-1', null);
-    const json = (await res.json()) as { displayName: string | null; name: string };
-    expect(json).toMatchObject({ displayName: null, name: 'Jane Doe' });
+    const json = (await res.json()) as {
+      displayName: string | null;
+      name: string;
+      canonicalName: string;
+    };
+    expect(json).toMatchObject({ displayName: null, name: 'Jane Doe', canonicalName: 'Jane Doe' });
   });
 
   it('rejects a body with no displayName rather than reading it as a clear', async () => {
@@ -652,6 +681,17 @@ describe('PATCH /groups/:groupId/members/:userId/display-name', () => {
 
     expect(res.status).toBe(404);
     expect(mockUpdateMemberDisplayName).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 rather than a nameless response when the names cannot be re-read', async () => {
+    authenticateAs('admin-user', 'admin');
+    mockGetMemberNames.mockResolvedValue(null);
+
+    const res = await patchDisplayName('user-1', { displayName: 'Mum' });
+
+    expect(res.status).toBe(500);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe('Failed to resolve the member name after the update');
   });
 
   it('returns 500 when the update changes no row', async () => {

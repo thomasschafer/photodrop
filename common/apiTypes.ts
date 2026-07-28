@@ -173,10 +173,17 @@ export interface MemberJson {
   /**
    * The group-scoped override, or null when the member is shown under their own
    * canonical name. Lets an admin UI tell "overridden" from "not set" and offer
-   * a reset; the canonical name itself is never exposed here, and only the user
-   * themselves can change it.
+   * a reset.
    */
   displayName: string | null;
+  /**
+   * The member's own name, the same in every group. Read-only here: only the
+   * user themselves can change it, and no endpoint accepts it. Shown so an
+   * admin can tell whose name an override stands in for — this shape is
+   * returned by the admin-only members endpoint, so it must not be reused for
+   * any response a non-admin can receive about another member.
+   */
+  canonicalName: string;
   email: string;
   profileColor: ProfileColor;
   role: MembershipRole;
@@ -191,6 +198,14 @@ export interface MemberDisplayNameUpdatedResponse extends MessageResponse {
   displayName: string | null;
   /** The member's resolved name after the change, ready to render. */
   name: string;
+  /**
+   * The member's canonical name, re-read with the resolved one so a caller
+   * holding a member row can refresh every name on it from this response alone,
+   * even if the member renamed themselves meanwhile. Only ever the caller's own
+   * name unless the caller is an admin of the group: the route rejects a
+   * non-admin targeting anyone but themselves.
+   */
+  canonicalName: string;
 }
 
 export interface MembersResponse {

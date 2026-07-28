@@ -8,6 +8,7 @@ import {
   updateMemberImageProtection,
   updateMemberDisplayName,
   getResolvedMemberName,
+  getMemberNames,
   getGroupMembers,
   getGroupPhotoKeys,
   getGroupPhotoCount,
@@ -451,6 +452,7 @@ describe('Membership functions', () => {
             image_protection: 1,
             display_name: 'Mum',
             user_name: 'Mum',
+            canonical_name: 'Jane Doe',
             user_email: 'jane@example.com',
             user_profile_color: 'teal',
           },
@@ -471,18 +473,65 @@ describe('Membership functions', () => {
           expect.stringContaining('m.display_name')
         );
       });
+
+      it('carries the canonical name alongside the resolved one', async () => {
+        const members = [
+          {
+            user_id: 'user-1',
+            group_id: 'group-1',
+            role: 'member',
+            joined_at: 1000,
+            image_protection: 1,
+            display_name: 'Mum',
+            user_name: 'Mum',
+            canonical_name: 'Jane Doe',
+            user_email: 'jane@example.com',
+            user_profile_color: 'teal',
+          },
+        ];
+        const db = createMockDb(members);
+
+        const { members: result } = await getGroupMembers(db, 'group-1');
+
+        expect(result[0].canonical_name).toBe('Jane Doe');
+        // Only the admin members list may show it, so it has to be selected
+        // separately rather than inferred from the resolved name.
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('u.name as canonical_name')
+        );
+      });
+    });
+
+    describe('getMemberNames', () => {
+      it('returns both the name this group sees and the user’s own name', async () => {
+        const db = createMockDb([{ resolved_name: 'Mum', canonical_name: 'Jane Doe' }]);
+
+        const result = await getMemberNames(db, 'user-1', 'group-1');
+
+        expect(result).toEqual({ resolvedName: 'Mum', canonicalName: 'Jane Doe' });
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('COALESCE(m.display_name, u.name) as resolved_name')
+        );
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('u.name as canonical_name')
+        );
+        expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
+      });
+
+      it('returns null when the user is not a member of the group', async () => {
+        const db = createMockDb([]);
+
+        await expect(getMemberNames(db, 'user-1', 'group-1')).resolves.toBeNull();
+      });
     });
 
     describe('getResolvedMemberName', () => {
-      it('returns the name this group sees for the user', async () => {
-        const db = createMockDb([{ resolved_name: 'Mum' }]);
+      it('returns the name this group sees for the user, and nothing else', async () => {
+        const db = createMockDb([{ resolved_name: 'Mum', canonical_name: 'Jane Doe' }]);
 
         const result = await getResolvedMemberName(db, 'user-1', 'group-1');
 
         expect(result).toBe('Mum');
-        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-          expect.stringContaining('COALESCE(m.display_name, u.name) as resolved_name')
-        );
         expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
       });
 

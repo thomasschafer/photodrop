@@ -32,8 +32,8 @@ export function MembersList() {
   } | null>(null);
   const [editingDisplayName, setEditingDisplayName] = useState<{
     memberId: string;
-    /** The name the member is shown under right now, override or not. */
-    shownName: string;
+    /** The member's own name — what clearing the override reverts to. */
+    canonicalName: string;
     /** The stored override, so an unchanged field can skip the request. */
     savedDisplayName: string | null;
     value: string;
@@ -185,7 +185,7 @@ export function MembersList() {
   const handleDisplayNameRequest = (member: MemberJson) => {
     setEditingDisplayName({
       memberId: member.userId,
-      shownName: member.name,
+      canonicalName: member.canonicalName,
       savedDisplayName: member.displayName,
       value: member.displayName ?? '',
     });
@@ -212,12 +212,20 @@ export function MembersList() {
         memberId,
         nextDisplayName
       );
-      // The response carries the resolved name, which is the only way to learn
-      // the member's canonical name after clearing an override — it is never
-      // exposed while one is set.
+      // Take every name from the response rather than deriving them: it is
+      // re-read server-side after the write, so a canonical name changed by the
+      // member meanwhile lands here too. Only this member's row is touched, so
+      // a change to another row made while this request was in flight survives.
       setMembers((prev) =>
         prev.map((m) =>
-          m.userId === memberId ? { ...m, name: updated.name, displayName: updated.displayName } : m
+          m.userId === memberId
+            ? {
+                ...m,
+                name: updated.name,
+                displayName: updated.displayName,
+                canonicalName: updated.canonicalName,
+              }
+            : m
         )
       );
       setEditingDisplayName(null);
@@ -425,18 +433,22 @@ export function MembersList() {
             editingDisplayName.savedDisplayName === null ? (
               <>
                 <span className="font-medium text-text-primary">
-                  {editingDisplayName.shownName}
+                  {editingDisplayName.canonicalName}
                 </span>{' '}
                 is shown under their own name. Give them a different name just for {groupName} —
                 their name in other groups is unaffected.
               </>
             ) : (
               <>
-                Shown as{' '}
+                <span className="font-medium text-text-primary">
+                  {editingDisplayName.canonicalName}
+                </span>{' '}
+                is shown as{' '}
                 <span className="font-medium text-text-primary">
                   {editingDisplayName.savedDisplayName}
                 </span>{' '}
-                in {groupName} instead of their own name. This name applies only to {groupName}.
+                in {groupName}. Their own name is theirs alone to change; this one applies only to{' '}
+                {groupName}.
               </>
             )
           }
@@ -451,19 +463,12 @@ export function MembersList() {
             value={editingDisplayName.value}
             onChange={(value) => setEditingDisplayName({ ...editingDisplayName, value })}
             onEnter={handleDisplayNameConfirm}
-            // With no override set, the shown name is the member's own, so it
-            // can be offered as the placeholder. Once one is set the canonical
-            // name is no longer exposed, so the reset is described instead.
-            placeholder={
-              editingDisplayName.savedDisplayName === null
-                ? editingDisplayName.shownName
-                : 'Their own name'
-            }
-            hint={
-              editingDisplayName.savedDisplayName === null
-                ? `Leave empty to keep showing their own name, ${editingDisplayName.shownName}.`
-                : 'Leave empty to go back to showing their own name.'
-            }
+            // An empty field means "no override", which shows the member's own
+            // name — so that is what the placeholder previews.
+            placeholder={editingDisplayName.canonicalName}
+            hint={`Leave empty to ${
+              editingDisplayName.savedDisplayName === null ? 'keep' : 'go back to'
+            } showing their own name, ${editingDisplayName.canonicalName}.`}
             autoFocus
           />
         </ConfirmModal>
@@ -505,7 +510,19 @@ export function MembersList() {
                         </span>
                       )}
                     </div>
-                    <div className="text-sm text-text-secondary truncate">{member.email}</div>
+                    <div className="text-sm text-text-secondary truncate">
+                      {member.displayName !== null && (
+                        <>
+                          {/* Labelled, not merely set beside the email: two bare
+                              names on one line read as two different people. */}
+                          <span>Own name: {member.canonicalName}</span>
+                          <span className="mx-1.5 text-text-muted" aria-hidden="true">
+                            ·
+                          </span>
+                        </>
+                      )}
+                      {member.email}
+                    </div>
                   </div>
                 </div>
 

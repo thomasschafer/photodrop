@@ -12,7 +12,7 @@ import {
   deleteGroup,
   updateMemberImageProtection,
   updateMemberDisplayName,
-  getResolvedMemberName,
+  getMemberNames,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
 import { updateMemberSchema, imageProtectionSchema, displayNameSchema } from '../lib/schemas';
@@ -71,6 +71,7 @@ groups.get('/:groupId/members', requireAdmin, async (c) => {
       userId: m.user_id,
       name: m.user_name,
       displayName: m.display_name,
+      canonicalName: m.canonical_name,
       email: m.user_email,
       profileColor: m.user_profile_color,
       role: m.role,
@@ -167,10 +168,11 @@ groups.patch('/:groupId/members/:userId/display-name', requireAuth, async (c) =>
     throw new InternalServerError('Failed to update display name');
   }
 
-  // Re-resolve rather than assuming: when the override is cleared the effective
-  // name is the canonical one, which this route never otherwise reads.
-  const name = await getResolvedMemberName(c.env.DB, userId, groupId);
-  if (name === null) {
+  // Re-read rather than assuming: when the override is cleared the effective
+  // name is the canonical one, which this route never otherwise reads, and the
+  // canonical name may have changed since the caller last loaded the member.
+  const names = await getMemberNames(c.env.DB, userId, groupId);
+  if (names === null) {
     throw new InternalServerError('Failed to resolve the member name after the update');
   }
 
@@ -178,7 +180,8 @@ groups.patch('/:groupId/members/:userId/display-name', requireAuth, async (c) =>
     message: 'Display name updated',
     userId,
     displayName,
-    name,
+    name: names.resolvedName,
+    canonicalName: names.canonicalName,
   } satisfies MemberDisplayNameUpdatedResponse);
 });
 
