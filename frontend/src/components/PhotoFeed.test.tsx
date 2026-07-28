@@ -63,12 +63,15 @@ async function scrollToSentinel() {
 // thumbnails resolving and pushing the sentinel back out of view. happy-dom
 // has no ResizeObserver, so capture the callback and fire it on demand.
 let triggerContentResize: (() => void) | null = null;
+let resizeObserved: Element[] = [];
 
 class TestResizeObserver {
   constructor(callback: () => void) {
     triggerContentResize = callback;
   }
-  observe() {}
+  observe(target: Element) {
+    resizeObserved.push(target);
+  }
   unobserve() {}
   disconnect() {}
 }
@@ -85,6 +88,7 @@ describe('PhotoFeed', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     triggerContentResize = null;
+    resizeObserved = [];
     vi.stubGlobal('ResizeObserver', TestResizeObserver);
     mocks.getReactions.mockResolvedValue({ reactions: [] });
     mocks.getComments.mockResolvedValue({ comments: [] });
@@ -182,6 +186,9 @@ describe('PhotoFeed', () => {
 
     putSentinelInView();
     expect(triggerContentResize).toBeTypeOf('function');
+    // The document element is pinned to the viewport by height: 100%, so only
+    // watching the list itself reports thumbnails growing.
+    expect(resizeObserved).toContain(screen.getByRole('list', { name: 'Photo feed' }));
     await act(async () => {
       triggerContentResize?.();
     });

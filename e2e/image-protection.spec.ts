@@ -28,8 +28,15 @@ async function effectiveUserSelect(locator: Locator): Promise<string> {
 }
 
 // ProtectedImage sets no user-select at all when protection is off, so the
-// computed value is the initial one.
-const UNPROTECTED_USER_SELECT = 'auto';
+// computed value is the initial one — which differs by engine: Chromium
+// reports the unprefixed property's 'auto', WebKit the prefixed property's
+// 'text'. Both mean selection is not suppressed. Asserting membership rather
+// than "not none" keeps '' from passing.
+const UNPROTECTED_USER_SELECT = ['auto', 'text'];
+
+function expectUnprotected(userSelect: string): void {
+  expect(UNPROTECTED_USER_SELECT).toContain(userSelect);
+}
 
 test.describe('Image protection', () => {
   let testGroup: TestGroup;
@@ -169,7 +176,7 @@ test.describe('Image protection', () => {
       const imgAfter = page.locator('article img').first();
       await expect(imgAfter).toBeVisible();
       userSelect = await effectiveUserSelect(imgAfter);
-      expect(userSelect).toBe(UNPROTECTED_USER_SELECT);
+      expectUnprotected(userSelect);
     } finally {
       // Restore protection state for subsequent tests
       await makeDirectApiCall(
@@ -246,7 +253,7 @@ test.describe('Image protection', () => {
     await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
     const imgAfter = page.locator('article img').first();
     await expect(imgAfter).toBeVisible();
-    expect(await effectiveUserSelect(imgAfter)).toBe(UNPROTECTED_USER_SELECT);
+    expectUnprotected(await effectiveUserSelect(imgAfter));
 
     // Re-enable via UI and verify protection is restored
     await page.getByRole('tab', { name: 'Group' }).click();
@@ -309,7 +316,7 @@ test.describe('Image protection', () => {
 
       const lightboxImgAfter = page.locator('[role="dialog"] img').first();
       await expect(lightboxImgAfter).toBeVisible({ timeout: 5000 });
-      expect(await effectiveUserSelect(lightboxImgAfter)).toBe(UNPROTECTED_USER_SELECT);
+      expectUnprotected(await effectiveUserSelect(lightboxImgAfter));
     } finally {
       // Restore
       await makeDirectApiCall(

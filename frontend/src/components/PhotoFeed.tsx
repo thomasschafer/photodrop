@@ -72,6 +72,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const feedListRef = useRef<HTMLDivElement>(null);
   // How many rows the server has already served us, which is what the next
   // page's offset must be. Deliberately not photos.length: duplicates are
   // dropped on the way in, so the two diverge as soon as anything is uploaded
@@ -176,6 +177,10 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   // bottom of the short document leaves the sentinel visible, and then the
   // growth pushes it back below the fold with no scroll and no viewport change
   // to announce it. That is what stranded the feed at twenty photos on CI.
+  //
+  // It watches the list rather than the document element, which is pinned to
+  // the viewport by `html, body, #root { height: 100% }` and so never reports
+  // content growth at all.
   useEffect(() => {
     maybeLoadMore();
 
@@ -183,7 +188,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     window.addEventListener('resize', maybeLoadMore);
     const contentObserver =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => maybeLoadMore());
-    contentObserver?.observe(document.documentElement);
+    if (feedListRef.current) {
+      contentObserver?.observe(feedListRef.current);
+    }
 
     return () => {
       window.removeEventListener('scroll', maybeLoadMore);
@@ -448,7 +455,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             {successMessage}
           </div>
         )}
-        <div className="flex flex-col gap-6" role="list" aria-label="Photo feed">
+        <div ref={feedListRef} className="flex flex-col gap-6" role="list" aria-label="Photo feed">
           {photos.map((photo, index) => (
             <article
               key={photo.id}
