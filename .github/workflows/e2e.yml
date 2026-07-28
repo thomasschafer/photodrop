@@ -12,9 +12,23 @@ concurrency:
 
 jobs:
   e2e:
-    name: E2E Tests
+    # WebKit is the engine behind Safari and every iOS browser, the platform
+    # photodrop is used on most, and it has already produced bugs chromium
+    # cannot show: it does not implement unprefixed `user-select`, and it
+    # refuses `Secure` cookies over http where chromium special-cases
+    # localhost. Both legs run in parallel, so wall clock is unchanged.
+    name: E2E Tests (${{ matrix.browser }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            config: playwright.config.ts
+          - browser: webkit
+            config: playwright.webkit.config.ts
 
     steps:
       - name: Checkout code
@@ -25,13 +39,21 @@ jobs:
         with:
           install-playwright: 'true'
 
+      # The browser binaries come from the test-e2e script, but WebKit also
+      # needs system libraries that ubuntu-latest does not ship. Installing
+      # them needs apt, so it cannot live in the Nix script that macOS
+      # developers run locally.
+      - name: Install WebKit system dependencies
+        if: matrix.browser == 'webkit'
+        run: npx --yes playwright install-deps webkit
+
       - name: Run E2E tests
-        run: nix run .#test-e2e
+        run: nix run .#test-e2e -- --config ${{ matrix.config }}
 
       - name: Upload test report
         uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: playwright-report/
           retention-days: 7

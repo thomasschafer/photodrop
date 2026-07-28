@@ -110,11 +110,16 @@
           (cd backend && echo "y" | npx wrangler d1 migrations apply photodrop-db --local)
           echo ""
 
-          if [ ! -d "$HOME/.cache/ms-playwright" ]; then
-            echo "Installing Playwright browsers..."
-            npx playwright install chromium
-            echo ""
-          fi
+          # Per browser rather than guarding on the cache directory as a whole:
+          # a cache restored from a chromium-only run already has the directory,
+          # so a single guard would skip installing webkit forever.
+          for browser in chromium webkit; do
+            if [ -z "$(find "$HOME/.cache/ms-playwright" -maxdepth 1 -name "$browser-*" 2>/dev/null)" ]; then
+              echo "Installing Playwright $browser..."
+              npx playwright install "$browser"
+              echo ""
+            fi
+          done
 
           npx playwright test "$@"
         '';
