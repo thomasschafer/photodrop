@@ -212,18 +212,27 @@ describe('refresh token sessions', () => {
     vi.useRealTimers();
   });
 
+  /** Sending no cookie makes the request a device that has no session yet. */
+  async function postSwitchGroup(refreshToken?: string) {
+    const accessToken = await generateAccessToken('user-1', 'group-1', 'member', SECRET);
+    return app.request('/auth/switch-group', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        ...(refreshToken ? { Cookie: `refreshToken=${refreshToken}` } : {}),
+      },
+      body: JSON.stringify({ groupId: 'group-1' }),
+    });
+  }
+
   /**
    * Signs a device in and returns its refresh token. Uses /auth/switch-group
    * because it is the shortest real path to a session; deliberately sends no
    * cookie, so each call is a separate device.
    */
   async function signIn(): Promise<string> {
-    const accessToken = await generateAccessToken('user-1', 'group-1', 'member', SECRET);
-    const res = await app.request('/auth/switch-group', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groupId: 'group-1' }),
-    });
+    const res = await postSwitchGroup();
 
     expect(res.status).toBe(200);
     return refreshCookieFrom(res);
@@ -324,6 +333,31 @@ describe('refresh token sessions', () => {
       expect((await postRefresh(second)).status).toBe(200);
     });
 
+    it('still accepts the superseded token minutes after the rotation it missed', async () => {
+      // The case the window exists for is not only two tabs racing: a client
+      // whose rotation response was lost comes back when the app is next used,
+      // which is minutes later, not milliseconds. A window measured in seconds
+      // read that as reuse and signed the device out.
+      const first = await signIn();
+      const second = refreshCookieFrom(await postRefresh(first));
+      vi.setSystemTime((NOW + 2 * 60) * 1000);
+
+      const res = await postRefresh(first);
+
+      expect(res.status).toBe(200);
+      expect(store.rows.size).toBe(1);
+      expect(await jtiOf(refreshCookieFrom(res))).toBe(await jtiOf(second));
+    });
+
+    it('keeps the grace window measured in minutes, and well short of the refresh cadence', () => {
+      // Both bounds are deliberate. Too short and an honest client that lost a
+      // response is signed out; too long and a captured superseded token — which
+      // the grace path will exchange for the family's live token and a fresh
+      // access token — stays usable for that whole time.
+      expect(ROTATION_GRACE_SECONDS).toBeGreaterThanOrEqual(2 * 60);
+      expect(ROTATION_GRACE_SECONDS).toBeLessThan(14 * 60);
+    });
+
     it('treats the superseded token as reuse once the grace window closes', async () => {
       const first = await signIn();
       await postRefresh(first);
@@ -415,21 +449,48 @@ describe('refresh token sessions', () => {
       // the session the cookie names — the old refresh token would stay valid.
       const refreshToken = await signIn();
       const [family] = [...store.rows.keys()];
-      const accessToken = await generateAccessToken('user-1', 'group-1', 'member', SECRET);
 
-      const res = await app.request('/auth/switch-group', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          Cookie: `refreshToken=${refreshToken}`,
-        },
-        body: JSON.stringify({ groupId: 'group-1' }),
-      });
+      const res = await postSwitchGroup(refreshToken);
 
       expect(res.status).toBe(200);
       expect(store.rows.size).toBe(1);
       expect(store.get(family)?.jti).toBe(await jtiOf(refreshCookieFrom(res)));
+    });
+
+    it('keeps the session alive when switch-group races a refresh from another tab', async () => {
+      // Refresh is single-flighted in the client, but switch-group is a
+      // different endpoint: one tab can rotate the family while another is
+      // already in flight with the cookie that was current a moment ago.
+      const refreshToken = await signIn();
+      const [family] = [...store.rows.keys()];
+      const rotated = refreshCookieFrom(await postRefresh(refreshToken));
+
+      const res = await postSwitchGroup(refreshToken);
+
+      expect(res.status).toBe(200);
+      // The family the other tab is still using survives, and this response is
+      // tied to it rather than to a second session — deleting it would have
+      // signed that tab out on its next refresh.
+      expect(store.rows.size).toBe(1);
+      expect(store.get(family)).not.toBeNull();
+      expect(await jtiOf(refreshCookieFrom(res))).toBe(store.get(family)?.jti);
+      expect((await postRefresh(rotated)).status).toBe(200);
+    });
+
+    it('replaces a cookie too old to be a straggler rather than leaving it alive', async () => {
+      const refreshToken = await signIn();
+      const [family] = [...store.rows.keys()];
+      await postRefresh(refreshToken);
+      vi.setSystemTime((NOW + ROTATION_GRACE_SECONDS + 1) * 1000);
+
+      const res = await postSwitchGroup(refreshToken);
+
+      expect(res.status).toBe(200);
+      // Past the window the cookie names a session this device can no longer
+      // reach, so it goes: logout only revokes the family the cookie names, and
+      // an abandoned one would stay valid for its full 30 days.
+      expect(store.get(family)).toBeNull();
+      expect(store.rows.size).toBe(1);
     });
 
     it('ends the session when the refreshed group membership is gone', async () => {

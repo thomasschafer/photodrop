@@ -257,6 +257,31 @@ describe('GET /photos/:id/comments', () => {
     const json = (await res.json()) as { comments: Array<{ authorName: string }> };
     expect(json.comments[0].authorName).toBe('New Name');
   });
+
+  it('falls back to the stored name for an author who has left the group', async () => {
+    // The account still exists, so this is not the deleted-user case; what is
+    // gone is the membership the name resolved against. The snapshot in
+    // author_name is the name this group saw at the time, which is what a
+    // display-name override was for — the canonical name must not surface here.
+    mockGetCommentsByPhotoId.mockResolvedValue([
+      {
+        id: 'comment-1',
+        photo_id: 'photo-1',
+        user_id: 'user-2',
+        author_name: 'Mum',
+        user_name: null,
+        author_profile_color: 'teal',
+        content: 'hello',
+        created_at: 1000,
+        deleted_at: null,
+      },
+    ]);
+
+    const res = await app.request('/photos/photo-1/comments', { headers: authHeaders });
+
+    const json = (await res.json()) as { comments: Array<{ authorName: string }> };
+    expect(json.comments[0].authorName).toBe('Mum');
+  });
 });
 
 describe('POST /photos/:id/comments', () => {

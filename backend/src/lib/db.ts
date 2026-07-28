@@ -61,6 +61,43 @@ export interface MembershipWithUser extends Membership {
  */
 const RESOLVED_MEMBER_NAME = 'COALESCE(m.display_name, u.name)';
 
+/**
+ * The same name, for queries that LEFT JOIN the membership because the row may
+ * be gone: a user's comments, reactions and photos outlive their membership.
+ *
+ * Resolving to NULL rather than falling through to `u.name` is the whole point.
+ * A member who set a display name did so to keep their canonical name from the
+ * group; removing them must not hand it over, and `COALESCE(m.display_name,
+ * u.name)` over a missing membership row does exactly that, retroactively, on
+ * every trace they left behind. Callers decide what to show instead — the
+ * group-scoped snapshot they already store, or FORMER_MEMBER_NAME.
+ */
+const RESOLVED_MEMBER_NAME_IF_MEMBER = `CASE WHEN m.user_id IS NULL THEN NULL ELSE ${RESOLVED_MEMBER_NAME} END`;
+
+/**
+ * Shown in place of a name for someone who has left the group but whose photos
+ * and reactions it still displays. Neutral by design: the group learns that the
+ * person is no longer a member, which it can see anyway, and nothing else.
+ */
+export const FORMER_MEMBER_NAME = 'Former member';
+
+/**
+ * The name to show for the author of something the group still displays after
+ * the author has gone, given the group-resolved name (null once they are not a
+ * member) and whether their account still exists.
+ *
+ * Null means the account itself is gone, which callers render differently from a
+ * former member — the two states are distinct and both are already visible from
+ * other columns, so collapsing them would only lose information.
+ */
+function pastAuthorName(resolvedName: string | null, accountExists: boolean): string | null {
+  if (resolvedName !== null) {
+    return resolvedName;
+  }
+
+  return accountExists ? FORMER_MEMBER_NAME : null;
+}
+
 export interface MagicLinkToken {
   token: string;
   group_id: string | null;
@@ -101,6 +138,15 @@ export interface PhotoReactionWithUser extends PhotoReaction {
   user_profile_color: ProfileColor;
 }
 
+/**
+ * The raw row behind a PhotoReactionWithUser: the name is unresolved until the
+ * reactor's membership is accounted for, so it is nullable here and never in the
+ * type callers see.
+ */
+interface PhotoReactionRow extends Omit<PhotoReactionWithUser, 'user_name'> {
+  user_name: string | null;
+}
+
 export interface Comment {
   id: string;
   photo_id: string;
@@ -118,7 +164,11 @@ export interface PhotoWithCounts extends Photo {
   comment_count: number;
   reactions: ReactionSummary[];
   user_reactions: string[];
-  /** Null when the uploader's account has since been deleted. */
+  /**
+   * Null when the uploader's account has since been deleted; FORMER_MEMBER_NAME
+   * when the account exists but has left this group, since the name it resolved
+   * to was the group's to see only while they were in it.
+   */
   uploader_name: string | null;
   uploader_profile_color: ProfileColor | null;
 }
@@ -375,27 +425,47 @@ export async function updateUserLastSeen(db: D1Database, userId: string): Promis
   await db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now, userId).run();
 }
 
-export async function updateUserName(
-  db: D1Database,
-  userId: string,
-  name: string
-): Promise<boolean> {
-  const result = await db
-    .prepare('UPDATE users SET name = ? WHERE id = ?')
-    .bind(name, userId)
-    .run();
-
-  return result.meta.changes > 0;
+/** The parts of a user's own profile they may change. */
+export interface UserProfileUpdate {
+  name?: string;
+  profileColor?: ProfileColor;
 }
 
-export async function updateUserProfileColor(
+/**
+ * Apply a profile update as one statement.
+ *
+ * D1 has no multi-statement transaction, so writing the fields separately would
+ * leave a request that failed halfway with one of them applied and a 500
+ * reporting that nothing was. Building a single UPDATE from whichever fields
+ * were sent is what makes the route's all-or-nothing response honest.
+ */
+export async function updateUserProfile(
   db: D1Database,
   userId: string,
-  color: ProfileColor
+  update: UserProfileUpdate
 ): Promise<boolean> {
+  const assignments: string[] = [];
+  const values: (string | ProfileColor)[] = [];
+
+  if (update.name !== undefined) {
+    assignments.push('name = ?');
+    values.push(update.name);
+  }
+
+  if (update.profileColor !== undefined) {
+    assignments.push('profile_color = ?');
+    values.push(update.profileColor);
+  }
+
+  // An update with nothing to set would be a statement that cannot be written,
+  // not a no-op to swallow: callers validate the body before getting here.
+  if (assignments.length === 0) {
+    throw new Error(`updateUserProfile called with no fields to update (user ${userId})`);
+  }
+
   const result = await db
-    .prepare('UPDATE users SET profile_color = ? WHERE id = ?')
-    .bind(color, userId)
+    .prepare(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`)
+    .bind(...values, userId)
     .run();
 
   return result.meta.changes > 0;
@@ -1074,9 +1144,11 @@ export async function getCommentsByPhotoId(db: D1Database, photoId: string): Pro
     .prepare(
       // The photo join is what scopes the name to a group: a comment is only
       // ever read in the context of the group its photo belongs to, so that is
-      // the membership whose display name applies.
+      // the membership whose display name applies. Once that membership is gone
+      // user_name is null and the caller falls back to c.author_name, the
+      // group-scoped name snapshotted when the comment was written.
       `SELECT c.id, c.photo_id, c.user_id, c.author_name,
-              ${RESOLVED_MEMBER_NAME} as user_name, u.profile_color as author_profile_color,
+              ${RESOLVED_MEMBER_NAME_IF_MEMBER} as user_name, u.profile_color as author_profile_color,
               c.content, c.created_at, c.deleted_at
        FROM comments c
        JOIN photos p ON p.id = c.photo_id
@@ -1121,9 +1193,11 @@ export async function getPhotoReactionsWithUsers(
   const result = await db
     .prepare(
       // Reactions are shown in the group the reacted-to photo belongs to, so
-      // the photo join supplies the group whose display names apply.
+      // the photo join supplies the group whose display names apply. A reaction
+      // left by someone since removed from the group keeps its row but loses its
+      // name: there is no snapshot to fall back on here, unlike a comment.
       `SELECT pr.photo_id, pr.user_id, pr.emoji, pr.created_at,
-              ${RESOLVED_MEMBER_NAME} as user_name, u.profile_color as user_profile_color
+              ${RESOLVED_MEMBER_NAME_IF_MEMBER} as user_name, u.profile_color as user_profile_color
        FROM photo_reactions pr
        JOIN photos p ON p.id = pr.photo_id
        JOIN users u ON pr.user_id = u.id
@@ -1132,15 +1206,23 @@ export async function getPhotoReactionsWithUsers(
        ORDER BY pr.created_at ASC`
     )
     .bind(photoId)
-    .all<PhotoReactionWithUser>();
+    .all<PhotoReactionRow>();
 
-  return result.results || [];
+  // The users join is an inner one, so a row here always has an account behind
+  // it: a null name can only mean the reaction outlived its author's membership.
+  return (result.results || []).map((row) => ({
+    ...row,
+    user_name: row.user_name ?? FORMER_MEMBER_NAME,
+  }));
 }
 
 // Internal type for the aggregated query result. The uploader columns come from
-// a LEFT JOIN, so they are null once that account no longer exists.
+// a LEFT JOIN, so they are null once that account no longer exists — and the
+// name is also null once the uploader has left the group, which
+// uploader_user_id is what tells the two apart.
 interface PhotoWithCountsRow extends Photo {
   comment_count: number;
+  uploader_user_id: string | null;
   uploader_name: string | null;
   uploader_profile_color: ProfileColor | null;
 }
@@ -1177,7 +1259,8 @@ export async function listPhotosWithCounts(
         p.uploaded_at,
         p.thumbnail_r2_key,
         COALESCE(c.comment_count, 0) as comment_count,
-        ${RESOLVED_MEMBER_NAME} as uploader_name,
+        u.id as uploader_user_id,
+        ${RESOLVED_MEMBER_NAME_IF_MEMBER} as uploader_name,
         u.profile_color as uploader_profile_color
       FROM photos p
       LEFT JOIN (
@@ -1263,7 +1346,7 @@ export async function listPhotosWithCounts(
     comment_count: photo.comment_count,
     reactions: reactionsByPhoto.get(photo.id) || [],
     user_reactions: userReactionsByPhoto.get(photo.id) || [],
-    uploader_name: photo.uploader_name,
+    uploader_name: pastAuthorName(photo.uploader_name, photo.uploader_user_id !== null),
     uploader_profile_color: photo.uploader_profile_color,
   }));
 }

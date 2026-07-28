@@ -14,6 +14,7 @@ import {
   pruneExpiredSessions,
   rotateSession,
   touchSession,
+  type Session,
 } from './db';
 import { generateId } from './crypto';
 import { REFRESH_TOKEN_TTL_SECONDS, type RefreshTokenPayload } from './jwt';
@@ -29,15 +30,35 @@ export interface SessionIdentity {
  * How long the immediately superseded refresh token stays acceptable.
  *
  * Rotation is not atomic from the client's point of view: two tabs can present
- * the same token at the same moment, and a client whose response is lost still
- * holds the token the server has already rotated away. Both are indistinguishable
- * from a replay, so without a grace window ordinary use would trip reuse
- * detection and sign the device out. A few seconds is enough for either case and
- * short enough that a leaked token is worthless: it also cannot be *used* within
- * the window (the grace path never issues a new token id), it only avoids
- * punishing the family.
+ * the same token at the same moment, and a client whose response is lost (a
+ * backgrounded PWA, a cell handover, a 5xx) still holds the token the server has
+ * already rotated away. Both are indistinguishable from a replay, so outside
+ * this window ordinary use trips reuse detection and signs the device out.
+ *
+ * What the window costs is not just leniency. Inside it, whoever presents the
+ * superseded token is handed the family's *current* token id plus a fresh access
+ * token: the grace path returns a SessionIdentity and /auth/refresh mints from
+ * it like any other refresh. So a captured superseded token is fully usable
+ * until the window closes — the window bounds the opportunity to take over the
+ * session, not merely the capability to annoy the family. That is also why the
+ * window cannot simply be removed: an attacker holding a stolen token who
+ * refreshed once between each of the victim's refreshes would ride an unbounded
+ * grace path forever and never be detected. Elapsed time is the only
+ * discriminator between a straggler and a replay that exists here.
+ *
+ * Five minutes is the compromise. The client refreshes every 14 minutes and also
+ * refreshes on demand behind a 401, so a lost response is followed either by a
+ * prompt retry (well inside five minutes) or by the next interval tick (outside
+ * it, and still a sign-out). Covering the whole 14-minute cadence would make the
+ * hijack window as long as the refresh interval; five minutes covers every case
+ * where the client comes back promptly, stays below the 15-minute access token
+ * lifetime an attacker would gain anyway, and keeps a stolen token's usable life
+ * in minutes rather than the token's own 30 days.
+ *
+ * Reuse detections are logged (see classifyFailedRotation) so the real
+ * false-positive rate can be measured before this is tuned again.
  */
-export const ROTATION_GRACE_SECONDS = 30;
+export const ROTATION_GRACE_SECONDS = 5 * 60;
 
 /**
  * Expired rows deleted per refresh. Bounded so the hot path cost cannot grow
@@ -51,6 +72,42 @@ function nowSeconds(): number {
 
 function newExpiry(): number {
   return nowSeconds() + REFRESH_TOKEN_TTL_SECONDS;
+}
+
+/**
+ * The family's session, if it still has a usable one. Null covers "no row"
+ * (signed out, already pruned, or a family that never existed) and "expired"
+ * alike. Deliberately read-only: an expired row is left for the next prune
+ * rather than deleted here.
+ */
+async function getLiveSession(db: D1Database, familyId: string): Promise<Session | null> {
+  const session = await getSessionByFamily(db, familyId);
+
+  return session && session.expires_at > nowSeconds() ? session : null;
+}
+
+/**
+ * Whether a token the guarded rotation refused is the one this session has just
+ * rotated away, presented soon enough to be a straggler rather than a replay.
+ * See ROTATION_GRACE_SECONDS for what the bound is worth.
+ */
+function isWithinRotationGrace(session: Session, token: RefreshTokenPayload): boolean {
+  return (
+    session.previous_jti === token.jti &&
+    nowSeconds() - session.rotated_at <= ROTATION_GRACE_SECONDS
+  );
+}
+
+/**
+ * Accept a straggler: hand back the session's current token id, deliberately not
+ * a new one, so this path can never fork a family into two live tokens no matter
+ * how often it is hit — and so it cannot lose a race against the rotation that
+ * superseded the presented token.
+ */
+async function acceptSupersededToken(db: D1Database, session: Session): Promise<SessionIdentity> {
+  await touchSession(db, session.family_id);
+
+  return { jti: session.jti, familyId: session.family_id };
 }
 
 /** Begin a brand new session (a new device, or one whose session is gone). */
@@ -83,8 +140,19 @@ export async function reissueSession(
       return { jti, familyId: presented.familyId };
     }
 
-    // The cookie names a session that could not be rotated — already rotated
-    // away, expired, or revoked. Delete whatever is left of it before starting a
+    // Rotation was refused, but the cookie may still be the token another tab's
+    // /auth/refresh rotated away moments ago: these endpoints and /auth/refresh
+    // are separate, and the client only single-flights the latter, so they
+    // genuinely race. Honouring the same grace window keeps this request on the
+    // live family instead of deleting a session the other tab is still using.
+    const session = await getLiveSession(db, presented.familyId);
+    if (session && isWithinRotationGrace(session, presented)) {
+      return acceptSupersededToken(db, session);
+    }
+
+    // The cookie names a session that is genuinely unusable — no row, expired,
+    // revoked, or a token this family stopped recognising long enough ago that
+    // it cannot be a straggler. Delete whatever is left of it before starting a
     // fresh one, so the old family cannot outlive this request. Deliberately no
     // reuse detection here: these endpoints authenticated the caller
     // independently, and a stale cookie on them is ordinary rather than
@@ -129,29 +197,18 @@ async function classifyFailedRotation(
   db: D1Database,
   token: RefreshTokenPayload
 ): Promise<SessionIdentity | null> {
-  const session = await getSessionByFamily(db, token.familyId);
-
-  // No row: signed out on this device, expired and pruned, or a session that
-  // never existed. Nothing to revoke, and nothing to infer.
+  // No usable session: signed out on this device, expired (whether or not
+  // pruning has reached it yet), or a family that never existed. Nothing to
+  // revoke, and nothing to infer — an expired session is not evidence of a leak.
+  const session = await getLiveSession(db, token.familyId);
   if (!session) {
     return null;
   }
 
-  const now = nowSeconds();
-
-  // The session itself has run out. Not a leak — the row is left for the next
-  // prune rather than deleted here, so this path stays read-only.
-  if (session.expires_at <= now) {
-    return null;
-  }
-
   // The token this one replaced, presented within the grace window: a concurrent
-  // refresh from another tab, or a retry after a lost response. Hand back the
-  // session's current token id — deliberately not a new one, so this path can
-  // never fork a family into two live tokens no matter how often it is hit.
-  if (session.previous_jti === token.jti && now - session.rotated_at <= ROTATION_GRACE_SECONDS) {
-    await touchSession(db, token.familyId);
-    return { jti: session.jti, familyId: session.family_id };
+  // refresh from another tab, or a retry after a lost response.
+  if (isWithinRotationGrace(session, token)) {
+    return acceptSupersededToken(db, session);
   }
 
   // Everything the guarded UPDATE rejects is accounted for above except one
@@ -173,9 +230,23 @@ async function classifyFailedRotation(
     );
   }
 
+  // Logged in enough detail to tell a real leak from a client we punished for
+  // coming back late: a burst of detections whose presented token *was* the
+  // superseded one, just past the window, means ROTATION_GRACE_SECONDS is too
+  // tight rather than that tokens are leaking. No token material is logged —
+  // ids only, and they are worthless without the signed token itself.
+  const now = nowSeconds();
   logger.warn('Refresh token reuse detected, revoking session family', {
     userId: token.sub,
     familyId: token.familyId,
+    presentedJti: token.jti,
+    currentJti: session.jti,
+    /** True when only the grace window's length stood between this and acceptance. */
+    presentedSupersededToken: session.previous_jti === token.jti,
+    secondsSinceRotation: now - session.rotated_at,
+    secondsSinceLastUse: now - session.last_used_at,
+    sessionAgeSeconds: now - session.created_at,
+    graceSeconds: ROTATION_GRACE_SECONDS,
   });
   await deleteSessionFamily(db, token.familyId);
   return null;

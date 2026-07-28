@@ -14,7 +14,7 @@ import {
   getGroupPhotoCount,
   deleteGroup,
   deletePhoto,
-  updateUserName,
+  updateUserProfile,
   createPushSubscription,
   countUserPushSubscriptionsForGroup,
   getUserPushSubscriptionsForGroup,
@@ -38,7 +38,6 @@ import {
   getPhotoReactionsWithUsers,
   listPhotosWithCounts,
   createUser,
-  updateUserProfileColor,
   createSession,
   getSessionByFamily,
   rotateSession,
@@ -1234,8 +1233,13 @@ describe('Comment functions', () => {
 
       await getCommentsByPhotoId(db, 'photo-1');
 
+      // Guarded on the membership existing: resolving straight through COALESCE
+      // would fall back to u.name for an author who has left the group, handing
+      // the group the canonical name their display name was hiding.
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        expect.stringContaining('COALESCE(m.display_name, u.name) as user_name')
+        expect.stringContaining(
+          'CASE WHEN m.user_id IS NULL THEN NULL ELSE COALESCE(m.display_name, u.name) END as user_name'
+        )
       );
       // The photo join supplies that group; without it the membership row
       // matched could be from any group the author belongs to.
@@ -1333,13 +1337,34 @@ describe('Reaction functions', () => {
       expect(result).toEqual([]);
     });
 
+    it('shows a neutral label for a reactor who has left the group', async () => {
+      // The membership row is gone, so the query resolves no name: the reaction
+      // stays visible but the group must not be shown the canonical name a
+      // display name was standing in for.
+      const db = createMockDb([
+        {
+          photo_id: 'photo-1',
+          user_id: 'user-gone',
+          emoji: '❤️',
+          created_at: 1000,
+          user_name: null,
+        },
+      ]);
+
+      const result = await getPhotoReactionsWithUsers(db, 'photo-1');
+
+      expect(result[0].user_name).toBe('Former member');
+    });
+
     it('resolves reactor names against the group the reacted-to photo is in', async () => {
       const db = createMockDb([]);
 
       await getPhotoReactionsWithUsers(db, 'photo-1');
 
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        expect.stringContaining('COALESCE(m.display_name, u.name) as user_name')
+        expect.stringContaining(
+          'CASE WHEN m.user_id IS NULL THEN NULL ELSE COALESCE(m.display_name, u.name) END as user_name'
+        )
       );
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
         expect.stringContaining('JOIN photos p ON p.id = pr.photo_id')
@@ -1385,7 +1410,7 @@ describe('listPhotosWithCounts', () => {
     expect(result[0].reactions[1]).toEqual({ emoji: '😂', count: 3 });
   });
 
-  it('carries the uploader through, and nulls when their account is gone', async () => {
+  it('carries the uploader through, labels former members, and nulls when their account is gone', async () => {
     const photos = [
       {
         id: 'photo-1',
@@ -1396,6 +1421,7 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 0,
+        uploader_user_id: 'user-1',
         uploader_name: 'Alice',
         uploader_profile_color: 'teal',
       },
@@ -1408,8 +1434,24 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 900,
         thumbnail_r2_key: 'thumbs/2.jpg',
         comment_count: 0,
+        uploader_user_id: null,
         uploader_name: null,
         uploader_profile_color: null,
+      },
+      {
+        id: 'photo-3',
+        group_id: 'group-1',
+        r2_key: 'photos/3.jpg',
+        caption: 'Uploader left the group',
+        uploaded_by: 'user-left',
+        uploaded_at: 800,
+        thumbnail_r2_key: 'thumbs/3.jpg',
+        comment_count: 0,
+        // The account still exists; only the membership that resolved their
+        // name for this group is gone.
+        uploader_user_id: 'user-left',
+        uploader_name: null,
+        uploader_profile_color: 'sage',
       },
     ];
     const db = createSequentialAllMockDb([photos, []]);
@@ -1420,11 +1462,21 @@ describe('listPhotosWithCounts', () => {
     expect(result[0].uploader_profile_color).toBe('teal');
     expect(result[1].uploader_name).toBeNull();
     expect(result[1].uploader_profile_color).toBeNull();
+    // A removed member is labelled rather than nulled, so the feed still
+    // distinguishes them from a deleted account — and never names them.
+    expect(result[2].uploader_name).toBe('Former member');
 
     // The mocked rows would map through even if the query stopped asking for
     // the uploader, so pin the projection and the joins that produce them.
     expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-      expect.stringContaining('COALESCE(m.display_name, u.name) as uploader_name')
+      expect.stringContaining(
+        'CASE WHEN m.user_id IS NULL THEN NULL ELSE COALESCE(m.display_name, u.name) END as uploader_name'
+      )
+    );
+    // The account-exists signal the label depends on: without it a removed
+    // member and a deleted account are indistinguishable.
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining('u.id as uploader_user_id')
     );
     // Scoped to the photo's own group, so an uploader's display name in some
     // other group can never be the one shown here.
@@ -1694,11 +1746,11 @@ describe('Profile color functions', () => {
     });
   });
 
-  describe('updateUserProfileColor', () => {
+  describe('updateUserProfile', () => {
     it('updates profile color', async () => {
       const db = createMockDb([]);
 
-      const result = await updateUserProfileColor(db, 'user-1', 'sage');
+      const result = await updateUserProfile(db, 'user-1', { profileColor: 'sage' });
 
       expect(result).toBe(true);
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
@@ -1706,6 +1758,40 @@ describe('Profile color functions', () => {
       );
       expect(db._mocks.mockBind).toHaveBeenCalledWith('sage', 'user-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
+    });
+
+    it('updates the name on its own', async () => {
+      const db = createMockDb([]);
+
+      await updateUserProfile(db, 'user-1', { name: 'Jane Smith' });
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith('UPDATE users SET name = ? WHERE id = ?');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('Jane Smith', 'user-1');
+    });
+
+    it('writes both fields in a single statement', async () => {
+      // D1 has no transaction to roll back a second statement that fails after
+      // the first landed, so a request that changes both fields must be one
+      // statement or it is not all-or-nothing at all.
+      const db = createMockDb([]);
+
+      await updateUserProfile(db, 'user-1', { name: 'Jane Smith', profileColor: 'sage' });
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledTimes(1);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'UPDATE users SET name = ?, profile_color = ? WHERE id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('Jane Smith', 'sage', 'user-1');
+      expect(db._mocks.mockRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws rather than issuing an update with nothing to set', async () => {
+      const db = createMockDb([]);
+
+      await expect(updateUserProfile(db, 'user-1', {})).rejects.toThrow(
+        'updateUserProfile called with no fields to update'
+      );
+      expect(db._mocks.mockPrepare).not.toHaveBeenCalled();
     });
   });
 });
@@ -1740,12 +1826,14 @@ describe('mutations report rows affected rather than statement success', () => {
   const cases: Array<{ name: string; run: (db: D1Database) => Promise<boolean> }> = [
     { name: 'deleteGroup', run: (db) => deleteGroup(db, 'group-1') },
     { name: 'deletePhoto', run: (db) => deletePhoto(db, 'photo-1', 'group-1') },
-    { name: 'updateUserName', run: (db) => updateUserName(db, 'user-1', 'New Name') },
+    {
+      name: 'updateUserProfile',
+      run: (db) => updateUserProfile(db, 'user-1', { name: 'New Name' }),
+    },
     {
       name: 'updateMemberDisplayName',
       run: (db) => updateMemberDisplayName(db, 'user-1', 'group-1', 'Mum'),
     },
-    { name: 'updateUserProfileColor', run: (db) => updateUserProfileColor(db, 'user-1', 'teal') },
     { name: 'deleteComment', run: (db) => deleteComment(db, 'comment-1') },
     {
       name: 'deleteMembership',

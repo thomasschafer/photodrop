@@ -9,6 +9,7 @@ const mockCreateDeviceToken = vi.fn();
 const mockCountUserDeviceTokensSince = vi.fn();
 const mockDeleteDeviceTokenForOtherUsers = vi.fn();
 const mockDeleteUserDeviceTokensForToken = vi.fn();
+const mockCheckRateLimit = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
@@ -32,9 +33,12 @@ vi.mock('../lib/db', () => ({
   countUserDeviceTokensSince: (...args: unknown[]) => mockCountUserDeviceTokensSince(...args),
 }));
 
-vi.mock('../middleware/rateLimit', () => ({
-  createRateLimitMiddleware: () => async (_c: unknown, next: () => Promise<void>) => next(),
-  rateLimitKeys: { byUserId: () => () => '' },
+// The rate limit middleware itself is deliberately left real: stubbing it out
+// made removing it from a route chain invisible to these tests. Only its storage
+// is mocked, so a test can drive the limiter to its 429.
+vi.mock('../lib/rateLimit', () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+  cleanupExpiredRateLimits: vi.fn(),
 }));
 
 vi.mock('../lib/fcm', () => ({
@@ -46,10 +50,12 @@ vi.mock('../lib/fcm', () => ({
 import push from './push';
 import { errorHandler } from '../lib/errorHandler';
 
-function createApp() {
+// The limiter only engages in production, so everything except the rate limit
+// tests runs with the default environment and is unaffected by it.
+function createApp(env: Record<string, unknown> = {}) {
   const app = new Hono();
   app.use('*', async (c, next) => {
-    c.env = { JWT_SECRET: 'test-secret', DB: {} };
+    c.env = { JWT_SECRET: 'test-secret', DB: {}, ...env };
     await next();
   });
   app.route('/push', push);
@@ -170,6 +176,43 @@ describe('push validation', () => {
         'group-1',
         'https://push.example.com/abc'
       );
+    });
+
+    it('refuses a caller who has exhausted the hourly registration limit', async () => {
+      // The other half of the two-sided defence: the per-group cap bounds how
+      // many subscriptions can exist at once, this bounds how fast they can be
+      // created. Driving the real middleware is what pins it to this route —
+      // asserting only its configuration would not notice it leaving the chain.
+      mockCheckRateLimit.mockResolvedValue({ allowed: false, remaining: 0, resetAt: 1_000_000 });
+      const app = createApp({ ENVIRONMENT: 'production' });
+
+      const res = await authedPost(app, '/push/subscribe', {
+        endpoint: 'https://push.example.com/abc',
+        keys: { p256dh: 'key', auth: 'auth' },
+      });
+
+      expect(res.status).toBe(429);
+      expect(mockCreatePushSubscription).not.toHaveBeenCalled();
+      // 10 per hour, keyed by the authenticated user: a per-IP key would punish
+      // a whole household, and the window is what makes the cap meaningful.
+      expect(mockCheckRateLimit).toHaveBeenCalledWith({}, 'push-subscribe:user-1', 10, 3600);
+    });
+
+    it('subscribes normally while the caller is under the hourly limit', async () => {
+      mockCheckRateLimit.mockResolvedValue({ allowed: true, remaining: 9, resetAt: 1_000_000 });
+      // The middleware's probabilistic cleanup needs an execution context the
+      // test app has no reason to provide; this keeps it out of the way.
+      const random = vi.spyOn(Math, 'random').mockReturnValue(1);
+      mockCreatePushSubscription.mockResolvedValue({ id: 'sub-1', deletionToken: 'tok' });
+      const app = createApp({ ENVIRONMENT: 'production' });
+
+      const res = await authedPost(app, '/push/subscribe', {
+        endpoint: 'https://push.example.com/abc',
+        keys: { p256dh: 'key', auth: 'auth' },
+      });
+
+      expect(res.status).toBe(201);
+      random.mockRestore();
     });
   });
 

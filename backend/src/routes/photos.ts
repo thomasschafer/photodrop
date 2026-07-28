@@ -496,6 +496,12 @@ photos.get('/:id/comments', requireAuth, async (c) => {
       // Soft-deleting a comment nulls its user_id too, so a null user_id only
       // means "the author's account is gone" for a comment that is still live.
       // Checking deleted_at first keeps the two states distinguishable.
+      //
+      // For a live author, user_name is the name their membership resolves to
+      // now, and null once that membership is gone — at which point the stored
+      // author_name takes over. That snapshot is the name this group saw when
+      // the comment was written, so it is what a removed member's display-name
+      // override keeps standing behind after they leave.
       const authorName = isDeleted
         ? comment.author_name
         : comment.user_id === null
