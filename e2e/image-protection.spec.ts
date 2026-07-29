@@ -1,5 +1,5 @@
 import { API_BASE } from './helpers/ports';
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import {
   createTestGroup,
   createTestMember,
@@ -9,6 +9,34 @@ import {
 } from './helpers/setup';
 import { loginWithMagicLink, getAuthToken, getUserIdFromToken } from './helpers/auth';
 import { uploadPhotoViaApi, makeDirectApiCall } from './helpers/api';
+
+/**
+ * WebKit does not implement the unprefixed `user-select`, so there the computed
+ * style carries the effective value only under the `-webkit-` prefix. Reading
+ * both keeps these assertions about what the browser actually renders rather
+ * than about one engine's property naming.
+ *
+ * Unprotected images are asserted against UNPROTECTED_USER_SELECT rather than
+ * "not none": the `||` fallback above returns '' if neither property resolves,
+ * which would satisfy a negative assertion while telling us nothing.
+ */
+async function effectiveUserSelect(locator: Locator): Promise<string> {
+  return locator.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return style.getPropertyValue('user-select') || style.getPropertyValue('-webkit-user-select');
+  });
+}
+
+// ProtectedImage sets no user-select at all when protection is off, so the
+// computed value is the initial one — which differs by engine: Chromium
+// reports the unprefixed property's 'auto', WebKit the prefixed property's
+// 'text'. Both mean selection is not suppressed. Asserting membership rather
+// than "not none" keeps '' from passing.
+const UNPROTECTED_USER_SELECT = ['auto', 'text'];
+
+function expectUnprotected(userSelect: string): void {
+  expect(UNPROTECTED_USER_SELECT).toContain(userSelect);
+}
 
 test.describe('Image protection', () => {
   let testGroup: TestGroup;
@@ -59,7 +87,7 @@ test.describe('Image protection', () => {
     await expect(img).toBeVisible();
 
     // The image should have inline styles for protection
-    const userSelect = await img.evaluate((el) => getComputedStyle(el).userSelect);
+    const userSelect = await effectiveUserSelect(img);
     expect(userSelect).toBe('none');
   });
 
@@ -121,7 +149,7 @@ test.describe('Image protection', () => {
     // Verify images ARE protected initially
     const img = page.locator('article img').first();
     await expect(img).toBeVisible();
-    let userSelect = await img.evaluate((el) => getComputedStyle(el).userSelect);
+    let userSelect = await effectiveUserSelect(img);
     expect(userSelect).toBe('none');
 
     // Disable image protection for admin (self) via API
@@ -147,8 +175,8 @@ test.describe('Image protection', () => {
       // Verify images are NO LONGER protected
       const imgAfter = page.locator('article img').first();
       await expect(imgAfter).toBeVisible();
-      userSelect = await imgAfter.evaluate((el) => getComputedStyle(el).userSelect);
-      expect(userSelect).not.toBe('none');
+      userSelect = await effectiveUserSelect(imgAfter);
+      expectUnprotected(userSelect);
     } finally {
       // Restore protection state for subsequent tests
       await makeDirectApiCall(
@@ -209,7 +237,7 @@ test.describe('Image protection', () => {
     await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
     const img = page.locator('article img').first();
     await expect(img).toBeVisible();
-    expect(await img.evaluate((el) => getComputedStyle(el).userSelect)).toBe('none');
+    expect(await effectiveUserSelect(img)).toBe('none');
 
     // Navigate to Group tab and toggle own protection off via UI
     await page.getByRole('tab', { name: 'Group' }).click();
@@ -225,7 +253,7 @@ test.describe('Image protection', () => {
     await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
     const imgAfter = page.locator('article img').first();
     await expect(imgAfter).toBeVisible();
-    expect(await imgAfter.evaluate((el) => getComputedStyle(el).userSelect)).not.toBe('none');
+    expectUnprotected(await effectiveUserSelect(imgAfter));
 
     // Re-enable via UI and verify protection is restored
     await page.getByRole('tab', { name: 'Group' }).click();
@@ -240,7 +268,7 @@ test.describe('Image protection', () => {
     await expect(page.getByText('Protected photo')).toBeVisible({ timeout: 5000 });
     const imgRestored = page.locator('article img').first();
     await expect(imgRestored).toBeVisible();
-    expect(await imgRestored.evaluate((el) => getComputedStyle(el).userSelect)).toBe('none');
+    expect(await effectiveUserSelect(imgRestored)).toBe('none');
   });
 
   test('lightbox images respect protection toggle', async ({ page, request }) => {
@@ -268,7 +296,7 @@ test.describe('Image protection', () => {
     // Lightbox should open — check protection on lightbox images
     const lightboxImg = page.locator('[role="dialog"] img').first();
     await expect(lightboxImg).toBeVisible({ timeout: 5000 });
-    expect(await lightboxImg.evaluate((el) => getComputedStyle(el).userSelect)).toBe('none');
+    expect(await effectiveUserSelect(lightboxImg)).toBe('none');
 
     // Close lightbox, disable protection, reopen
     await page.getByRole('button', { name: 'Close' }).click();
@@ -288,9 +316,7 @@ test.describe('Image protection', () => {
 
       const lightboxImgAfter = page.locator('[role="dialog"] img').first();
       await expect(lightboxImgAfter).toBeVisible({ timeout: 5000 });
-      expect(await lightboxImgAfter.evaluate((el) => getComputedStyle(el).userSelect)).not.toBe(
-        'none'
-      );
+      expectUnprotected(await effectiveUserSelect(lightboxImgAfter));
     } finally {
       // Restore
       await makeDirectApiCall(

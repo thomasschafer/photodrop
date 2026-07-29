@@ -1,0 +1,90 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
+
+const mocks = vi.hoisted(() => ({ switchGroup: vi.fn() }));
+
+vi.mock('../contexts/AuthContext', () => {
+  const groups = [
+    { id: 'g1', name: 'Family', role: 'member' as const, ownerId: 'u0', imageProtection: false },
+    { id: 'g2', name: 'Friends', role: 'member' as const, ownerId: 'u0', imageProtection: false },
+  ];
+  const auth = {
+    user: { id: 'u1', name: 'Tom', email: 'tom@example.com', profileColor: 'teal' as const },
+    currentGroup: groups[0],
+    groups,
+    switchGroup: mocks.switchGroup,
+    logout: vi.fn(),
+    updateProfile: vi.fn(),
+  };
+  return { useAuth: () => auth };
+});
+
+vi.mock('../contexts/ThemeContext', () => ({
+  useTheme: () => ({
+    theme: 'system' as const,
+    setTheme: vi.fn(),
+    resolvedTheme: 'light' as const,
+  }),
+}));
+
+import { MobileMenu } from './MobileMenu';
+
+function selectOtherGroup() {
+  const trigger = screen.getByRole('button', { name: 'Menu' });
+  fireEvent.click(trigger);
+  fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitemradio', { name: /Friends/ }));
+  return trigger;
+}
+
+describe('MobileMenu', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns focus to the trigger once the switch completes', async () => {
+    let finishSwitch!: () => void;
+    mocks.switchGroup.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSwitch = resolve;
+        })
+    );
+
+    render(<MobileMenu />);
+    const trigger = selectOtherGroup();
+
+    // The trigger is disabled while switching, so it cannot hold focus yet.
+    expect(trigger).toBeDisabled();
+
+    await act(async () => {
+      finishSwitch();
+    });
+
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('returns focus to the trigger when the switch fails', async () => {
+    let failSwitch!: (err: Error) => void;
+    mocks.switchGroup.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          failSwitch = reject;
+        })
+    );
+
+    render(<MobileMenu />);
+    const trigger = selectOtherGroup();
+
+    await act(async () => {
+      failSwitch(new Error('network down'));
+    });
+
+    expect(trigger).toHaveFocus();
+  });
+});

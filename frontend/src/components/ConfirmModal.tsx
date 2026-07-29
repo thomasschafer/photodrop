@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '../lib/useFocusTrap';
 import { Button } from './Button';
 
 interface ConfirmModalProps {
@@ -32,18 +33,16 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
-  const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
-  const getFocusableElements = useCallback(() => {
-    if (!modalRef.current) return [];
-    return Array.from(
-      modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-    );
-  }, []);
+  useFocusTrap(modalRef);
 
   useEffect(() => {
+    // React applies a child's autoFocus while committing, i.e. before this
+    // effect runs. Focusing the confirm button unconditionally would steal
+    // focus straight back off that child (e.g. the rename modal's text input,
+    // whose confirm button is enabled from the start), so the user's typing
+    // would go nowhere.
+    if (modalRef.current?.contains(document.activeElement)) return;
     confirmButtonRef.current?.focus();
   }, []);
 
@@ -51,33 +50,12 @@ export function ConfirmModal({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onCancel();
-        return;
-      }
-
-      if (e.key === 'Tab') {
-        const focusable = getFocusableElements();
-        if (focusable.length === 0) return;
-
-        const firstElement = focusable[0];
-        const lastElement = focusable[focusable.length - 1];
-
-        if (e.shiftKey) {
-          if (document.activeElement === firstElement) {
-            e.preventDefault();
-            lastElement.focus();
-          }
-        } else {
-          if (document.activeElement === lastElement) {
-            e.preventDefault();
-            firstElement.focus();
-          }
-        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel, getFocusableElements]);
+  }, [onCancel]);
 
   return (
     <div
@@ -106,13 +84,7 @@ export function ConfirmModal({
             <div />
           )}
           <div className="flex items-center gap-3">
-            <Button
-              ref={cancelButtonRef}
-              onClick={onCancel}
-              disabled={isLoading}
-              variant="secondary"
-              size="md"
-            >
+            <Button onClick={onCancel} disabled={isLoading} variant="secondary" size="md">
               {cancelLabel}
             </Button>
             <Button

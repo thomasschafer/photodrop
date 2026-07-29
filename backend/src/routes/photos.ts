@@ -12,7 +12,7 @@ import {
   getPhotoReactionsWithUsers,
   getGroupPushSubscriptions,
   getGroupDeviceTokens,
-  getUserById,
+  getResolvedMemberName,
   createComment,
   getCommentsByPhotoId,
   getComment,
@@ -36,9 +36,11 @@ import {
   BadRequestError,
   NotFoundError,
   ForbiddenError,
+  HttpError,
   requireParam,
   parseJsonBody,
 } from '../lib/http';
+import { CAPTION_MAX_LENGTH } from '@photodrop/common/limits';
 import type {
   PhotoListResponse,
   PhotoUploadResponse,
@@ -88,11 +90,20 @@ async function sendPhotoUploadNotifications(
   photoId: string,
   caption: string | null
 ): Promise<void> {
-  // Get uploader info (shared by both notification types)
-  const uploader = await getUserById(env.DB, uploaderId);
+  // The notification is about this group, so the uploader's name in this group
+  // is the one to use — not their canonical name. Guarded like the two send
+  // blocks below: this runs in waitUntil, where an unguarded rejection would
+  // take down both notification channels (and surface as an unhandled
+  // rejection) over nothing more than a missing name.
+  let uploaderName: string | null = null;
+  try {
+    uploaderName = await getResolvedMemberName(env.DB, uploaderId, groupId);
+  } catch (nameError) {
+    console.error('Failed to resolve the uploader name for notifications:', nameError);
+  }
 
   // Use just the first name to keep the notification short and friendly.
-  const uploaderFirstName = uploader?.name?.trim().split(/\s+/)[0] || 'Someone';
+  const uploaderFirstName = uploaderName?.trim().split(/\s+/)[0] || 'Someone';
   const title = `New photo`;
   // Sanitize caption to prevent injection in push notifications
   // Push payloads are plain text (not rendered as HTML), so just truncate
@@ -189,9 +200,22 @@ photos.get('/', requireAuth, async (c) => {
   } satisfies PhotoListResponse);
 });
 
+function photoUploadedResponse(c: Context<AppEnv>, photoId: string) {
+  return c.json(
+    {
+      id: photoId,
+      message: 'Photo uploaded successfully',
+    } satisfies PhotoUploadResponse,
+    201
+  );
+}
+
 photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
   let photoR2Key: string | null = null;
   let thumbnailR2Key: string | null = null;
+  // Set once the photo row exists; from that point the R2 objects it points at
+  // must be kept, whatever else fails.
+  let committedPhotoId: string | null = null;
 
   try {
     const formData = await c.req.formData();
@@ -200,8 +224,8 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
     const caption = formData.get('caption') as string | null;
 
     // Validate caption length
-    if (caption && Array.from(caption).length > 2000) {
-      return c.json({ error: 'Caption must be 2000 characters or less' }, 400);
+    if (caption && Array.from(caption).length > CAPTION_MAX_LENGTH) {
+      throw new BadRequestError(`Caption must be ${CAPTION_MAX_LENGTH} characters or less`);
     }
 
     if (!photo) {
@@ -296,20 +320,31 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
       currentUser.id,
       caption || undefined
     );
+    committedPhotoId = photoId;
 
     // Send push notifications in background (non-blocking)
     c.executionCtx.waitUntil(
       sendPhotoUploadNotifications(c.env, currentUser.groupId, currentUser.id, photoId, caption)
     );
 
-    return c.json(
-      {
-        id: photoId,
-        message: 'Photo uploaded successfully',
-      } satisfies PhotoUploadResponse,
-      201
-    );
+    return photoUploadedResponse(c, photoId);
   } catch (error) {
+    // Validation is expressed as thrown HttpErrors, which carry their own
+    // status; nothing has been written to R2 by the time they are raised.
+    if (error instanceof HttpError) {
+      throw error;
+    }
+
+    if (committedPhotoId) {
+      // The row is committed, so the upload itself succeeded — only the
+      // best-effort work after it (scheduling notifications, which needs an
+      // execution context) failed. Deleting the R2 objects here would leave a
+      // photo whose download and thumbnail 404 forever, so keep them and report
+      // the upload for what it is.
+      console.error('Photo upload succeeded but post-commit work failed:', error);
+      return photoUploadedResponse(c, committedPhotoId);
+    }
+
     console.error('Error uploading photo:', error);
 
     // Clean up any R2 files that were uploaded before the failure
@@ -466,10 +501,20 @@ photos.get('/:id/comments', requireAuth, async (c) => {
   return c.json({
     comments: comments.map((comment) => {
       const isDeleted = comment.deleted_at !== null;
-      const isUserDeleted = !comment.user_id;
-      const authorName = isUserDeleted
-        ? 'Deleted user'
-        : (comment.user_name ?? comment.author_name);
+      // Soft-deleting a comment nulls its user_id too, so a null user_id only
+      // means "the author's account is gone" for a comment that is still live.
+      // Checking deleted_at first keeps the two states distinguishable.
+      //
+      // For a live author, user_name is the name their membership resolves to
+      // now, and null once that membership is gone — at which point the stored
+      // author_name takes over. That snapshot is the name this group saw when
+      // the comment was written, so it is what a removed member's display-name
+      // override keeps standing behind after they leave.
+      const authorName = isDeleted
+        ? comment.author_name
+        : comment.user_id === null
+          ? 'Deleted user'
+          : (comment.user_name ?? comment.author_name);
 
       return {
         id: comment.id,
@@ -489,12 +534,15 @@ photos.post('/:id/comments', requireAuth, commentRateLimit, async (c) => {
   const photo = await requirePhoto(c);
   const currentUser = c.get('user');
 
-  const user = await getUserById(c.env.DB, currentUser.id);
-  if (!user) {
+  // The stored author_name is the fallback shown once the account is gone, so
+  // it has to be the name this group sees — snapshotting the canonical name
+  // would make old comments disagree with the member list.
+  const authorName = await getResolvedMemberName(c.env.DB, currentUser.id, currentUser.groupId);
+  if (authorName === null) {
     throw new NotFoundError('User not found');
   }
 
-  const commentId = await createComment(c.env.DB, photo.id, currentUser.id, user.name, content);
+  const commentId = await createComment(c.env.DB, photo.id, currentUser.id, authorName, content);
 
   return c.json(
     {

@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } fr
 import type { ReactionSummary, ReactionWithUser } from './types';
 import { EMOJI_OPTIONS, LONG_PRESS_TIMEOUT_MS } from './types';
 import { useDropdown } from '../../lib/useDropdown';
+import { useLongPress } from '../../lib/useLongPress';
 import { isHorizontalNavKey } from '../../lib/keyboard';
 
 export interface ReactionPillsProps {
@@ -41,73 +42,38 @@ function ReactionPillButton({
   onShowTooltip,
   enableLongPress,
 }: ReactionPillButtonProps) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const startPosRef = useRef<{ x: number; y: number } | null>(null);
-  const longPressedRef = useRef(false);
+  const onLongPress = useCallback(() => {
+    onLoadDetails();
+    onShowTooltip();
+  }, [onLoadDetails, onShowTooltip]);
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
-
-  const handleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      if (!enableLongPress) return;
-      longPressedRef.current = false;
-      const touch = e.touches[0];
-      startPosRef.current = { x: touch.clientX, y: touch.clientY };
-      timerRef.current = setTimeout(() => {
-        longPressedRef.current = true;
-        onLoadDetails();
-        onShowTooltip();
-      }, LONG_PRESS_TIMEOUT_MS);
-    },
-    [enableLongPress, onLoadDetails, onShowTooltip]
-  );
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!startPosRef.current) return;
-    const touch = e.touches[0];
-    const deltaX = Math.abs(touch.clientX - startPosRef.current.x);
-    const deltaY = Math.abs(touch.clientY - startPosRef.current.y);
-    if (deltaX > 10 || deltaY > 10) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      startPosRef.current = null;
-    }
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    startPosRef.current = null;
-  }, []);
+  const {
+    onClick: guardLongPressClick,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+  } = useLongPress({ onLongPress, delay: LONG_PRESS_TIMEOUT_MS });
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (longPressedRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        longPressedRef.current = false;
-        return;
-      }
+      // The click that terminates a long press is the tooltip gesture, not a
+      // tap — useLongPress cancels its default in that case and nothing else.
+      guardLongPressClick(e);
+      if (e.defaultPrevented) return;
       e.stopPropagation();
       onClick();
     },
-    [onClick]
+    [guardLongPressClick, onClick]
   );
 
   return (
     <div className="relative group">
       <button
-        onTouchStart={enableLongPress ? handleTouchStart : undefined}
-        onTouchMove={enableLongPress ? handleTouchMove : undefined}
-        onTouchEnd={enableLongPress ? handleTouchEnd : undefined}
+        onTouchStart={enableLongPress ? onTouchStart : undefined}
+        onTouchMove={enableLongPress ? onTouchMove : undefined}
+        onTouchEnd={enableLongPress ? onTouchEnd : undefined}
+        onTouchCancel={enableLongPress ? onTouchCancel : undefined}
         onClick={handleClick}
         className={`${pillBaseClass} px-2.5 gap-1 ${
           isUserReaction ? 'bg-accent/25 hover:bg-accent/35' : 'bg-bg-tertiary hover:bg-bg-border'
@@ -154,6 +120,12 @@ export function ReactionPills({
     itemCount: EMOJI_OPTIONS.length,
     initialFocusIndex: currentReactionIndex >= 0 ? currentReactionIndex : 0,
     horizontal: true,
+    // Viewport positioning pins the picker to fixed coordinates measured once
+    // against the trigger, so scrolling would leave it stranded away from the
+    // pill it belongs to (and the trigger can scroll off screen entirely).
+    // Closing it is both cheaper and less confusing than chasing the trigger
+    // on every scroll event, and matches how the long-press tooltip behaves.
+    closeOnScroll: useViewportPositioning,
   });
 
   const selectEmoji = useCallback(

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
+import { setLocalStorageItem } from '../lib/storage';
 
 type Theme = 'system' | 'light' | 'dark';
 type ResolvedTheme = 'light' | 'dark';
@@ -37,7 +38,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setTheme = useCallback((newTheme: Theme) => {
     setThemeState(newTheme);
-    localStorage.setItem(STORAGE_KEY, newTheme);
+    setLocalStorageItem(STORAGE_KEY, newTheme);
   }, []);
 
   // Apply theme class to document and update meta theme-color

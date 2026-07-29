@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { CAPTION_MAX_LENGTH } from '@photodrop/common/limits';
 import { api } from '../lib/api';
 import {
   compressImage,
@@ -8,6 +9,10 @@ import {
   formatFileSize,
 } from '../lib/imageCompression';
 import { Button } from './Button';
+
+// Only start showing the character counter near the limit, so it doesn't
+// nag over a normal-length caption.
+const CAPTION_COUNTER_THRESHOLD = CAPTION_MAX_LENGTH - 100;
 
 interface PhotoUploadProps {
   onUploadComplete?: () => void;
@@ -23,6 +28,13 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
   const [previewLoading, setPreviewLoading] = useState(false);
   const [progress, setProgress] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Bumped by every new selection (and by cancelling), so results arriving
+  // from a superseded one can be dropped. The picker stays on screen for the
+  // whole of a slow HEIC conversion — selectedFile isn't set until it
+  // finishes — so a second selection genuinely does run in parallel, and
+  // without this the preview and the bytes we upload can come from different
+  // files, whichever pipeline happens to finish last.
+  const fileRequestIdRef = useRef(0);
 
   const handleFile = useCallback(async (file: File) => {
     const validation = validateImageFile(file);
@@ -30,6 +42,9 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
       setError(validation.error || 'Invalid file');
       return;
     }
+
+    const requestId = ++fileRequestIdRef.current;
+    const isCurrentRequest = () => fileRequestIdRef.current === requestId;
 
     setError(null);
     setPreviewLoading(true);
@@ -41,6 +56,7 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
       try {
         processedFile = await convertHeicToJpeg(file);
       } catch (err) {
+        if (!isCurrentRequest()) return;
         console.error('HEIC conversion failed:', err);
         setError('Could not process HEIC file. Please try a different image.');
         setPreviewLoading(false);
@@ -48,14 +64,17 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
       }
     }
 
+    if (!isCurrentRequest()) return;
     setSelectedFile(processedFile);
 
     const reader = new FileReader();
     reader.onload = (e) => {
+      if (!isCurrentRequest()) return;
       setPreview(e.target?.result as string);
       setPreviewLoading(false);
     };
     reader.onerror = () => {
+      if (!isCurrentRequest()) return;
       setError('Failed to generate image preview');
       setPreviewLoading(false);
     };
@@ -101,6 +120,9 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
   };
 
   const handleCancel = () => {
+    // Discard anything still being processed, so it can't repopulate the
+    // preview after the user has cleared it.
+    fileRequestIdRef.current += 1;
     setSelectedFile(null);
     setPreview(null);
     setCaption('');
@@ -171,12 +193,14 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
               onChange={(e) => setCaption(e.target.value)}
               disabled={uploading}
               rows={2}
-              maxLength={2000}
+              maxLength={CAPTION_MAX_LENGTH}
               className="input-field resize-none"
               placeholder="Add a caption..."
             />
-            {Array.from(caption).length > 1900 && (
-              <p className="text-xs text-text-muted mt-1">{Array.from(caption).length}/2000</p>
+            {Array.from(caption).length > CAPTION_COUNTER_THRESHOLD && (
+              <p className="text-xs text-text-muted mt-1">
+                {Array.from(caption).length}/{CAPTION_MAX_LENGTH}
+              </p>
             )}
           </div>
 

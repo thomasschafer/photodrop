@@ -1,12 +1,11 @@
-import { useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
 import { isVerticalNavKey } from '../lib/keyboard';
 import { useDropdown } from '../lib/useDropdown';
-import { useColorSelect } from '../lib/useColorSelect';
 import { Avatar } from './Avatar';
-import { ColorPickerModal } from './ColorPickerModal';
+import { ProfileModals, type ProfileModalKind } from './ProfileModals';
 
 type Theme = 'system' | 'light' | 'dark';
 
@@ -65,13 +64,12 @@ const themes: { value: Theme; label: string; icon: JSX.Element }[] = [
 
 export function MobileMenu() {
   const { user, currentGroup, groups, switchGroup, logout } = useAuth();
-  const handleColorSelect = useColorSelect();
   const { theme, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [openModal, setOpenModal] = useState<ProfileModalKind | null>(null);
   const buildStamp = import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_GIT_SHA || 'dev';
-  const itemCount = groups.length + themes.length + 2;
+  const itemCount = groups.length + themes.length + 3;
   const currentGroupIndex = groups.findIndex((g) => g.id === currentGroup?.id);
 
   const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
@@ -81,6 +79,19 @@ export function MobileMenu() {
     initialFocusIndex: currentGroupIndex >= 0 ? currentGroupIndex : 0,
     closeOnScroll: true,
   });
+
+  // The trigger carries `disabled` while switching, and setIsLoading(false)
+  // doesn't re-render synchronously, so focusing it from the handler itself is
+  // a silent no-op on a still-disabled element — focus is left on <body> and a
+  // keyboard user has to tab from the top of the page. Ask for the focus here
+  // and hand it back once the re-render has dropped the disabled attribute.
+  const restoreTriggerFocus = useRef(false);
+  useEffect(() => {
+    if (!isLoading && restoreTriggerFocus.current) {
+      restoreTriggerFocus.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [isLoading, triggerRef]);
 
   const handleGroupSelect = async (groupId: string) => {
     if (groupId === currentGroup?.id) {
@@ -96,8 +107,8 @@ export function MobileMenu() {
     } catch (error) {
       console.error('Failed to switch group:', error);
     } finally {
+      restoreTriggerFocus.current = true;
       setIsLoading(false);
-      triggerRef.current?.focus();
     }
   };
 
@@ -123,8 +134,14 @@ export function MobileMenu() {
     return null;
   }
 
-  const changeColorIdx = groups.length + themes.length;
+  const changeNameIdx = groups.length + themes.length;
+  const changeColorIdx = changeNameIdx + 1;
   const signOutIdx = changeColorIdx + 1;
+
+  const openProfileModal = (kind: ProfileModalKind) => {
+    setIsOpen(false);
+    setOpenModal(kind);
+  };
 
   return (
     <>
@@ -254,12 +271,30 @@ export function MobileMenu() {
                 </span>
               </div>
               <button
+                ref={setOptionRef(changeNameIdx)}
+                role="menuitem"
+                onClick={() => openProfileModal('name')}
+                onKeyDown={(e) => handleOptionKeyDown(e, changeNameIdx)}
+                className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-text-secondary bg-transparent transition-colors hover:bg-bg-tertiary"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                Change name
+              </button>
+              <button
                 ref={setOptionRef(changeColorIdx)}
                 role="menuitem"
-                onClick={() => {
-                  setIsOpen(false);
-                  setShowColorPicker(true);
-                }}
+                onClick={() => openProfileModal('color')}
                 onKeyDown={(e) => handleOptionKeyDown(e, changeColorIdx)}
                 className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-text-secondary bg-transparent transition-colors hover:bg-bg-tertiary"
               >
@@ -297,16 +332,13 @@ export function MobileMenu() {
         )}
       </div>
 
-      {showColorPicker && (
-        <ColorPickerModal
-          currentColor={user.profileColor}
-          onSelect={handleColorSelect}
-          onClose={() => {
-            setShowColorPicker(false);
-            triggerRef.current?.focus();
-          }}
-        />
-      )}
+      <ProfileModals
+        open={openModal}
+        onClose={() => {
+          setOpenModal(null);
+          triggerRef.current?.focus();
+        }}
+      />
     </>
   );
 }

@@ -8,6 +8,9 @@ const mockGenerateAccessToken = vi.fn();
 const mockGenerateRefreshToken = vi.fn();
 const mockVerifyJWT = vi.fn();
 const mockVerifyGroupSelectionToken = vi.fn();
+const mockReissueSession = vi.fn();
+const mockRefreshSession = vi.fn();
+const mockRevokeSession = vi.fn();
 
 vi.mock('../lib/db', () => ({
   getMembership: (...args: unknown[]) => mockGetMembership(...args),
@@ -28,6 +31,16 @@ vi.mock('../lib/jwt', () => ({
   generateGroupSelectionToken: vi.fn(),
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
   verifyGroupSelectionToken: (...args: unknown[]) => mockVerifyGroupSelectionToken(...args),
+  REFRESH_TOKEN_TTL_SECONDS: 30 * 24 * 60 * 60,
+}));
+
+// The session store these routes revoke and rotate against. Its behaviour is
+// exercised end-to-end in auth-sessions.test.ts; here it is stubbed so these
+// tests stay about the endpoints' own logic.
+vi.mock('../lib/sessions', () => ({
+  reissueSession: (...args: unknown[]) => mockReissueSession(...args),
+  refreshSession: (...args: unknown[]) => mockRefreshSession(...args),
+  revokeSession: (...args: unknown[]) => mockRevokeSession(...args),
 }));
 
 vi.mock('../lib/magic-links', () => ({ verifyMagicLink: vi.fn() }));
@@ -112,6 +125,7 @@ describe('POST /auth/switch-group', () => {
     app = createApp();
     mockGenerateAccessToken.mockResolvedValue('new-access-token');
     mockGenerateRefreshToken.mockResolvedValue('new-refresh-token');
+    mockReissueSession.mockResolvedValue({ jti: 'jti-1', familyId: 'family-1' });
     mockGetUserById.mockResolvedValue(user);
   });
 
@@ -255,6 +269,7 @@ describe('POST /auth/select-group', () => {
     app = createApp();
     mockGenerateAccessToken.mockResolvedValue('new-access-token');
     mockGenerateRefreshToken.mockResolvedValue('new-refresh-token');
+    mockReissueSession.mockResolvedValue({ jti: 'jti-1', familyId: 'family-1' });
     mockGetUserById.mockResolvedValue(user);
   });
 

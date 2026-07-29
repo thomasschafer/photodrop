@@ -5,8 +5,13 @@ interface ProtectedImageProps extends ImgHTMLAttributes<HTMLImageElement> {
   protected: boolean;
 }
 
+// WebKit does not implement unprefixed `user-select` (CSS.supports reports
+// false, and setting it is a silent no-op), so the prefixed property must be
+// set alongside it or protection does nothing at all in Safari — the platform
+// this app is used on most.
 const PROTECTED_STYLE: CSSProperties = {
   WebkitTouchCallout: 'none',
+  WebkitUserSelect: 'none',
   userSelect: 'none',
 };
 

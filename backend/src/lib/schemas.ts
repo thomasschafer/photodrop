@@ -2,7 +2,7 @@
  * Zod request validation schemas
  */
 import { z } from 'zod';
-import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
+import { COMMENT_MAX_LENGTH, NAME_MAX_LENGTH } from '@photodrop/common/limits';
 import { ALLOWED_EMOJIS, canonicalizeEmoji } from '@photodrop/common/reactions';
 import { PROFILE_COLORS } from '@photodrop/common/profileColors';
 
@@ -24,9 +24,15 @@ export const sendLoginLinkSchema = z.object({
   email: emailSchema,
 });
 
+const nameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Name cannot be empty')
+  .max(NAME_MAX_LENGTH, `Name must be ${NAME_MAX_LENGTH} characters or less`);
+
 export const verifyMagicLinkSchema = z.object({
   token: z.string().min(1),
-  name: z.string().trim().min(1).max(100).optional(),
+  name: nameSchema.optional(),
 });
 
 export const switchGroupSchema = z.object({
@@ -57,8 +63,19 @@ export const addCommentSchema = z.object({
 });
 
 // Push schemas
+// Real push service endpoints are a few hundred characters at most; the bound
+// stops a caller from stuffing arbitrarily large URLs into rows the upload path
+// later turns into outbound requests.
+const PUSH_ENDPOINT_MAX_LENGTH = 2048;
+
 export const subscribeSchema = z.object({
-  endpoint: z.string().url(),
+  endpoint: z
+    .string()
+    .url()
+    .max(
+      PUSH_ENDPOINT_MAX_LENGTH,
+      `Endpoint must be ${PUSH_ENDPOINT_MAX_LENGTH} characters or less`
+    ),
   keys: z.object({
     p256dh: z.string().min(1),
     auth: z.string().min(1),
@@ -84,20 +101,37 @@ export const deviceTokenSchema = z.object({
 });
 
 // User schemas
-export const updateProfileSchema = z.object({
-  profileColor: z.enum(PROFILE_COLORS, { error: 'Invalid profile color' }),
+export const updateProfileSchema = z
+  .object({
+    name: nameSchema.optional(),
+    profileColor: z.enum(PROFILE_COLORS, { error: 'Invalid profile color' }).optional(),
+  })
+  // Both fields are optional individually, but a body with neither changes
+  // nothing — reporting that as a successful update would be a lie.
+  .refine((body) => body.name !== undefined || body.profileColor !== undefined, {
+    error: 'Provide at least one of name or profileColor to update',
+  });
+
+// A member's role is the only thing an admin may change about them here: their
+// name belongs to the user, and a per-group override goes through the
+// display-name route instead.
+export const updateMemberSchema = z.object({
+  role: z.enum(['admin', 'member'], {
+    error: (issue) =>
+      issue.input === 'owner'
+        ? 'Cannot promote to owner — owner is set at group creation only'
+        : issue.input === undefined
+          ? 'Provide a role to update'
+          : undefined,
+  }),
 });
 
-export const updateMemberSchema = z.object({
-  role: z
-    .enum(['admin', 'member'], {
-      error: (issue) =>
-        issue.input === 'owner'
-          ? 'Cannot promote to owner — owner is set at group creation only'
-          : undefined,
-    })
-    .optional(),
-  name: z.string().trim().min(1).max(100).optional(),
+export const displayNameSchema = z.object({
+  // Required, and explicitly nullable: null is the only way to clear an
+  // override, so an absent key must not be read as "clear it".
+  displayName: z.union([nameSchema, z.null()], {
+    error: 'displayName must be a non-empty string, or null to clear the override',
+  }),
 });
 
 export const imageProtectionSchema = z.object({

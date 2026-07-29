@@ -54,7 +54,17 @@ export interface InviteSentResponse extends MessageResponse {
   existingUser: boolean;
 }
 
+/**
+ * The caller's own account. `name` is the canonical name — the only name shown
+ * outside a group context, and the only one the user themselves can change.
+ */
 export interface MeResponse extends UserJson {
+  /**
+   * The caller's display name override in `currentGroup`, or null when they
+   * have no override there (or no current group). The name others see in that
+   * group is this value when set, otherwise `name`.
+   */
+  currentGroupDisplayName: string | null;
   createdAt: number;
   lastSeenAt: number | null;
   currentGroup: GroupJson | null;
@@ -155,12 +165,47 @@ export interface GroupsListResponse {
 
 export interface MemberJson {
   userId: string;
+  /**
+   * The name to display for this member in this group: `displayName` when one
+   * is set, otherwise the member's canonical name. Always safe to render.
+   */
   name: string;
+  /**
+   * The group-scoped override, or null when the member is shown under their own
+   * canonical name. Lets an admin UI tell "overridden" from "not set" and offer
+   * a reset.
+   */
+  displayName: string | null;
+  /**
+   * The member's own name, the same in every group. Read-only here: only the
+   * user themselves can change it, and no endpoint accepts it. Shown so an
+   * admin can tell whose name an override stands in for — this shape is
+   * returned by the admin-only members endpoint, so it must not be reused for
+   * any response a non-admin can receive about another member.
+   */
+  canonicalName: string;
   email: string;
   profileColor: ProfileColor;
   role: MembershipRole;
   joinedAt: number;
   imageProtection: boolean;
+}
+
+/** Result of setting or clearing a member's per-group display name. */
+export interface MemberDisplayNameUpdatedResponse extends MessageResponse {
+  userId: string;
+  /** The override now stored, or null if it was cleared. */
+  displayName: string | null;
+  /** The member's resolved name after the change, ready to render. */
+  name: string;
+  /**
+   * The member's canonical name, re-read with the resolved one so a caller
+   * holding a member row can refresh every name on it from this response alone,
+   * even if the member renamed themselves meanwhile. Only ever the caller's own
+   * name unless the caller is an admin of the group: the route rejects a
+   * non-admin targeting anyone but themselves.
+   */
+  canonicalName: string;
 }
 
 export interface MembersResponse {
@@ -189,7 +234,10 @@ export interface UsersListResponse {
   }>;
 }
 
+/** The caller's profile after the update, whichever fields the request changed. */
 export interface ProfileUpdatedResponse extends MessageResponse {
+  /** The canonical name — group display names are unaffected by this endpoint. */
+  name: string;
   profileColor: ProfileColor;
 }
 

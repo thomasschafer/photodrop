@@ -173,6 +173,42 @@ fi
 echo "Frontend built"
 echo ""
 
+# Resolve the Apple App Site Association file, which iOS fetches to decide
+# whether it may open our universal links. Its appID must be prefixed with the
+# real Apple Team ID; the checked-in file carries a TEAM_ID placeholder because
+# the value belongs to the developer account rather than the repo.
+#
+# A placeholder that ships unsubstituted is the worst outcome: iOS fetches the
+# file, silently fails to verify the association, and every magic link opens
+# Safari instead of the app with nothing to indicate why. So either substitute
+# it or serve nothing at all — never serve a file that cannot verify.
+AASA_PATH="dist/.well-known/apple-app-site-association"
+if [ -f "$AASA_PATH" ]; then
+    if [ -n "${APPLE_TEAM_ID:-}" ]; then
+        # An Apple Team ID is exactly ten alphanumerics. Substituting anything
+        # else produces a syntactically valid file that iOS silently declines
+        # to verify, which is the failure mode this whole block exists to stop.
+        if ! printf '%s' "$APPLE_TEAM_ID" | grep -qE '^[A-Z0-9]{10}$'; then
+            echo "Error: APPLE_TEAM_ID is not a valid Apple Team ID (ten alphanumerics)"
+            exit 1
+        fi
+        sed -i.bak "s/TEAM_ID/$APPLE_TEAM_ID/g" "$AASA_PATH" && rm -f "$AASA_PATH.bak"
+        if grep -q "TEAM_ID" "$AASA_PATH"; then
+            echo "Error: apple-app-site-association still contains a TEAM_ID placeholder"
+            echo "after substitution. Refusing to deploy an association iOS cannot verify."
+            exit 1
+        fi
+        echo "Apple App Site Association: Team ID applied"
+    elif grep -q "TEAM_ID" "$AASA_PATH"; then
+        rm -f "$AASA_PATH"
+        echo "Warning: APPLE_TEAM_ID is not set, so iOS universal links are not"
+        echo "configured. Omitting apple-app-site-association rather than serving"
+        echo "a placeholder that would silently fail to verify."
+        echo "Set APPLE_TEAM_ID to your Apple Developer Team ID to enable them."
+    fi
+fi
+echo ""
+
 echo "Deploying frontend to Pages..."
 PAGES_PROJECT="${PAGES_PROJECT:-photodrop}"
 if ! npx --yes wrangler pages deploy dist --project-name="$PAGES_PROJECT"; then

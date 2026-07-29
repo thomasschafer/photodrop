@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { api, ApiError } from '../../lib/api';
 import { COMMENT_MAX_LENGTH } from '@photodrop/common/limits';
 import type { User } from '../../lib/api';
-import type { Photo, Comment } from './types';
+import type { OnPhotoUpdate, Photo, Comment } from './types';
 
 /** How long a freshly posted comment stays highlighted. Must be at least as
  *  long as the `.comment-flash` animation in index.css. */
@@ -13,7 +13,7 @@ interface UseLightboxCommentsArgs {
   prevPhoto: Photo | undefined;
   nextPhoto: Photo | undefined;
   user: User | null;
-  onPhotoUpdate: (photo: Partial<Photo> & { id: string }) => void;
+  onPhotoUpdate: OnPhotoUpdate;
 }
 
 /**
@@ -53,6 +53,17 @@ export function useLightboxComments({
     setLoadError(false);
     setDeleteError(null);
     setPostedCommentId(null);
+    // In-flight requests for the photo we just left can never clear these:
+    // every settle path is guarded on currentPhotoIdRef. Left set they stay
+    // set for the rest of the lightbox session — a permanent spinner, a
+    // comment box disabled on every photo, or a Delete button stuck on "...".
+    setLoading(false);
+    setSubmitting(false);
+    setDeletingId(null);
+    // The confirm dialog belongs to a comment on the photo we just left, so
+    // it must not survive the swipe (its Delete would run against the new
+    // photo's id with the old comment id).
+    setConfirmDeleteId(null);
   }, [photo.id]);
 
   // Highlight the new comment briefly, then let it settle in with the rest.
@@ -138,7 +149,11 @@ export function useLightboxComments({
       };
       const updated = [created, ...base];
       cache.current.set(photoId, updated);
-      onPhotoUpdate({ id: photoId, commentCount: photo.commentCount + 1 });
+      // A delta against the feed's live copy, not against the count this
+      // submit captured when it started: a delete for the same photo is
+      // guarded separately (deletingId, not submitting) and can settle in
+      // between, and pushing a plain value would overwrite its result.
+      onPhotoUpdate(photoId, (live) => ({ commentCount: live.commentCount + 1 }));
       if (currentPhotoIdRef.current === photoId) {
         setComments(updated);
         setNewComment('');
@@ -182,7 +197,9 @@ export function useLightboxComments({
       );
       cache.current.set(photoId, updated);
       // Tombstones aren't counted — drop the authoritative non-deleted count.
-      onPhotoUpdate({ id: photoId, commentCount: photo.commentCount - 1 });
+      // As a delta against the feed's live copy, for the same reason as the
+      // increment in submitComment: a post can be in flight alongside this.
+      onPhotoUpdate(photoId, (live) => ({ commentCount: live.commentCount - 1 }));
       if (currentPhotoIdRef.current === photoId) {
         setComments(updated);
         setConfirmDeleteId(null);

@@ -18,11 +18,23 @@ export function AuthVerifyPage() {
   const [name, setName] = useState('');
   const [nameError, setNameError] = useState('');
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
-  const verificationAttempted = useRef(false);
+  // The token this page is currently verifying, or has verified. It both
+  // deduplicates the verify effect and decides whether a response is still
+  // wanted — see verify() below.
+  const activeToken = useRef<string | null>(null);
   const nameFormShownAt = useRef<number | null>(null);
 
+  // Both handlers below take the token their response came from and drop it
+  // unless that token is still the one on screen. Opening a second link while
+  // the first request is in flight leaves that request live: applying its
+  // result would sign the user in off the link they navigated away from, or
+  // bury the new link's screen under the old one's error. (Checked against the
+  // ref rather than an effect-cleanup flag, which StrictMode's immediate
+  // teardown of the first pass would trip.)
   const handleVerificationResult = useCallback(
-    (data: Awaited<ReturnType<typeof api.auth.verifyMagicLink>>) => {
+    async (verifiedToken: string, data: Awaited<ReturnType<typeof api.auth.verifyMagicLink>>) => {
+      if (activeToken.current !== verifiedToken) return;
+
       if ('needsName' in data) {
         setStatus('needs_name');
         setShowExpiryWarning(false);
@@ -30,7 +42,10 @@ export function AuthVerifyPage() {
         return;
       }
 
-      login(
+      // Awaited: login purges the previous session's caches before publishing
+      // the new state, and navigating before that finishes would let the feed
+      // read another user's cached photo list.
+      await login(
         data.accessToken,
         data.user,
         data.currentGroup ?? null,
@@ -48,7 +63,9 @@ export function AuthVerifyPage() {
     [login, navigate]
   );
 
-  const handleVerificationError = useCallback((error: unknown) => {
+  const handleVerificationError = useCallback((verifiedToken: string, error: unknown) => {
+    if (activeToken.current !== verifiedToken) return;
+
     console.error('Failed to verify magic link:', error);
     setStatus('error');
 
@@ -66,18 +83,28 @@ export function AuthVerifyPage() {
   }, []);
 
   useEffect(() => {
-    if (!token || verificationAttempted.current) {
+    // Keyed by the token rather than a boolean. The guard exists for StrictMode's
+    // double effect invocation — a magic link is single-use, so verifying twice
+    // burns it — but a boolean also blocks the legitimate case where the :token
+    // param changes on a reused component instance, i.e. the user opens a second
+    // magic link from the first one's error screen.
+    if (!token || activeToken.current === token) {
       return;
     }
 
-    verificationAttempted.current = true;
+    activeToken.current = token;
 
     async function verify(tokenToVerify: string) {
+      // Drop whatever the previous token left on screen — otherwise a second
+      // link opened from the first one's error screen keeps showing that error
+      // until the new request comes back.
+      setStatus('verifying');
+      setErrorMessage('');
       try {
         const data = await api.auth.verifyMagicLink(tokenToVerify);
-        handleVerificationResult(data);
+        await handleVerificationResult(tokenToVerify, data);
       } catch (error) {
-        handleVerificationError(error);
+        handleVerificationError(tokenToVerify, error);
       }
     }
 
@@ -111,11 +138,12 @@ export function AuthVerifyPage() {
     setNameError('');
     setStatus('submitting_name');
 
+    const submittedToken = token!;
     try {
-      const data = await api.auth.verifyMagicLink(token!, name.trim());
-      handleVerificationResult(data);
+      const data = await api.auth.verifyMagicLink(submittedToken, name.trim());
+      await handleVerificationResult(submittedToken, data);
     } catch (error) {
-      handleVerificationError(error);
+      handleVerificationError(submittedToken, error);
     }
   };
 

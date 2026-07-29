@@ -1,10 +1,5 @@
 import { Hono } from 'hono';
-import {
-  getUserById,
-  getUserMemberships,
-  getGroupMembers,
-  updateUserProfileColor,
-} from '../lib/db';
+import { getUserById, getUserMemberships, getGroupMembers, updateUserProfile } from '../lib/db';
 import { requireAdmin, requireAuth } from '../middleware/auth';
 import { updateProfileSchema } from '../lib/schemas';
 import { NotFoundError, InternalServerError, parseJsonBody } from '../lib/http';
@@ -50,6 +45,7 @@ users.get('/me', requireAuth, async (c) => {
   return c.json({
     id: user.id,
     name: user.name,
+    currentGroupDisplayName: currentMembership?.display_name ?? null,
     email: user.email,
     profileColor: user.profile_color,
     createdAt: user.created_at,
@@ -73,18 +69,35 @@ users.get('/me', requireAuth, async (c) => {
   } satisfies MeResponse);
 });
 
+// Update the caller's own profile. `name` here is the canonical name, which
+// only its owner may change; per-group display names are set elsewhere and are
+// untouched by this route.
 users.patch('/me/profile', requireAuth, async (c) => {
   const currentUser = c.get('user');
   // The schema only admits known profile colors, so no separate check is needed.
-  const { profileColor } = await parseJsonBody(c, updateProfileSchema);
+  const { name, profileColor } = await parseJsonBody(c, updateProfileSchema);
 
-  const updated = await updateUserProfileColor(c.env.DB, currentUser.id, profileColor);
-
+  // One statement for both fields: D1 cannot roll back a second write that
+  // fails after the first has landed, and a 500 that had already applied half
+  // the request would be a lie. The schema rejects a body with neither field, so
+  // there is always something to set.
+  const updated = await updateUserProfile(c.env.DB, currentUser.id, { name, profileColor });
   if (!updated) {
     throw new InternalServerError('Failed to update profile');
   }
 
-  return c.json({ message: 'Profile updated', profileColor } satisfies ProfileUpdatedResponse);
+  // Read back rather than echoing the request, so the response reports the
+  // stored profile in full even when only one field was sent.
+  const user = await getUserById(c.env.DB, currentUser.id);
+  if (!user) {
+    throw new NotFoundError('User not found');
+  }
+
+  return c.json({
+    message: 'Profile updated',
+    name: user.name,
+    profileColor: user.profile_color,
+  } satisfies ProfileUpdatedResponse);
 });
 
 export default users;

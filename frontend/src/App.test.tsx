@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import App from './App';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { publishDeepLink } from './lib/deepLink';
 
 vi.mock('./contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -56,5 +57,22 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send sign-in link' })).toBeInTheDocument();
+  });
+
+  it('follows a deep link published before it mounted', () => {
+    // Cold start: main.tsx reads the launch URL at module scope, which can beat
+    // React's first render. The link is buffered, so App picks it up on
+    // subscribe instead of the app silently opening at '/'.
+    publishDeepLink('/login');
+
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/']}>
+          <App />
+        </MemoryRouter>
+      </ThemeProvider>
+    );
+
+    expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
   });
 });

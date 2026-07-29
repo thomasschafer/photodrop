@@ -1,16 +1,19 @@
 import { Hono } from 'hono';
 import {
   createPushSubscription,
+  countUserPushSubscriptionsForGroup,
   deletePushSubscriptionForGroup,
   deleteAllPushSubscriptionsForEndpointWithToken,
   getUserPushSubscriptionsForGroup,
   createDeviceToken,
-  deleteDeviceToken,
+  deleteDeviceTokenForOtherUsers,
+  deleteUserDeviceTokensForToken,
   getDeviceToken,
   countUserDeviceTokensSince,
 } from '../lib/db';
 import { configureFcm, isFcmConfigured, sendFcmNotification } from '../lib/fcm';
 import { requireAuth } from '../middleware/auth';
+import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
 import {
   subscribeSchema,
   unsubscribeSchema,
@@ -31,6 +34,20 @@ import type { AppEnv } from '../types';
 const DEVICE_REGISTRATION_LIMIT = 10;
 const DEVICE_REGISTRATION_WINDOW_SECONDS = 60 * 60; // 1 hour
 
+// Every stored subscription becomes an outbound fetch() on every upload, so the
+// number a single member can register is bounded twice: by how fast they can
+// register them, and by how many may exist for one group at a time. Without
+// both, a member could register enough attacker-controlled endpoints to exhaust
+// the Worker's subrequest budget and to leak uploader names and captions to
+// arbitrary hosts.
+const MAX_SUBSCRIPTIONS_PER_USER_GROUP = 20;
+
+const subscribeRateLimit = createRateLimitMiddleware({
+  maxRequests: 10,
+  windowSeconds: 60 * 60, // 1 hour
+  keyFn: rateLimitKeys.byUserId('push-subscribe'),
+});
+
 const push = new Hono<AppEnv>();
 
 push.get('/vapid-public-key', (c) => {
@@ -42,11 +59,23 @@ push.get('/vapid-public-key', (c) => {
   return c.json({ publicKey } satisfies VapidPublicKeyResponse);
 });
 
-push.post('/subscribe', requireAuth, async (c) => {
+push.post('/subscribe', requireAuth, subscribeRateLimit, async (c) => {
   const user = c.get('user');
   const { endpoint, keys } = await parseJsonBody(c, subscribeSchema);
 
-  const { deletionToken } = await createPushSubscription(
+  const existingCount = await countUserPushSubscriptionsForGroup(
+    c.env.DB,
+    user.id,
+    user.groupId,
+    endpoint
+  );
+  if (existingCount >= MAX_SUBSCRIPTIONS_PER_USER_GROUP) {
+    throw new BadRequestError(
+      `You already have the maximum of ${MAX_SUBSCRIPTIONS_PER_USER_GROUP} push subscriptions for this group`
+    );
+  }
+
+  const result = await createPushSubscription(
     c.env.DB,
     user.id,
     user.groupId,
@@ -55,8 +84,18 @@ push.post('/subscribe', requireAuth, async (c) => {
     keys.auth
   );
 
+  if ('error' in result) {
+    // Another account already owns this endpoint for the group. Taking it over
+    // would hand its notifications — and a fresh deletion token — to whoever
+    // asked last, so refuse instead.
+    throw new ForbiddenError('This push endpoint is registered to another account');
+  }
+
   return c.json(
-    { message: 'Subscribed successfully', deletionToken } satisfies PushSubscribedResponse,
+    {
+      message: 'Subscribed successfully',
+      deletionToken: result.deletionToken,
+    } satisfies PushSubscribedResponse,
     201
   );
 });
@@ -117,6 +156,12 @@ push.post('/device', requireAuth, async (c) => {
     return c.json({ error: 'Too many device registrations. Please try again later.' }, 429);
   }
 
+  // Registering the token asserts this device now belongs to the caller, so any
+  // rows another account still holds for it must go first: otherwise the person
+  // signing in second keeps receiving the first user's notifications, including
+  // for groups they are not a member of.
+  await deleteDeviceTokenForOtherUsers(c.env.DB, user.id, token);
+
   await createDeviceToken(c.env.DB, user.id, user.groupId, platform, token);
 
   return c.json({ message: 'Device registered successfully' }, 201);
@@ -126,7 +171,9 @@ push.delete('/device', requireAuth, async (c) => {
   const user = c.get('user');
   const { token } = await parseJsonBody(c, deviceTokenSchema);
 
-  await deleteDeviceToken(c.env.DB, user.id, user.groupId, token);
+  // Unregistering is a device-level action (it happens on logout), so it clears
+  // the caller's rows for this token in every group, not just the current one.
+  await deleteUserDeviceTokensForToken(c.env.DB, user.id, token);
 
   return c.json({ message: 'Device unregistered successfully' });
 });

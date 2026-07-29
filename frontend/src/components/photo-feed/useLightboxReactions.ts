@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Photo } from './types';
+import type { OnPhotoUpdate, Photo } from './types';
 import type { ReactionActor } from './reactions';
 import { usePhotoReactionsEngine, type ReactionKeyState } from './usePhotoReactionsEngine';
 
@@ -8,7 +8,7 @@ interface UseLightboxReactionsArgs {
   prevPhoto: Photo | undefined;
   nextPhoto: Photo | undefined;
   user: ReactionActor | null;
-  onPhotoUpdate: (photo: Partial<Photo> & { id: string }) => void;
+  onPhotoUpdate: OnPhotoUpdate;
 }
 
 /**
@@ -87,17 +87,36 @@ export function useLightboxReactions({
     const photoId = photo.id;
     await engine.toggleReactionForPhoto(photoId, reactionState, emoji, user, {
       onOptimisticUpdate: (next) => setReactionState(next),
-      onSuccess: (next) => {
-        onPhotoUpdate({
-          id: photoId,
-          userReactions: next.userReactions,
-          reactions: next.reactions,
+      onSuccess: (reconcile) => {
+        // Re-apply this toggle to the feed's live copy of the photo instead of
+        // pushing the snapshot this toggle captured when it started: with two
+        // different emojis in flight at once, whichever settled last would
+        // otherwise overwrite the other's confirmed result (and swiping back
+        // would re-seed us from that clobbered feed state).
+        onPhotoUpdate(photoId, (live) => {
+          const { reactions, userReactions } = reconcile({
+            reactions: live.reactions,
+            userReactions: live.userReactions,
+          });
+          return { reactions, userReactions };
         });
       },
       onRollback: (reconcile) => {
         // Only roll the visible state back if we're still on this photo.
         if (currentPhotoIdRef.current !== photoId) return;
         setReactionState((prev) => reconcile(prev));
+      },
+      onResync: (authoritative) => {
+        // Absolute, not a delta: the feed and the lightbox may have drifted
+        // apart (the feed only ever saw confirmed successes), so both are
+        // overwritten with the server's answer rather than nudged.
+        onPhotoUpdate(photoId, {
+          reactions: authoritative.reactions,
+          userReactions: authoritative.userReactions,
+        });
+        if (currentPhotoIdRef.current === photoId) {
+          setReactionState(authoritative);
+        }
       },
       onDetailsRefreshed: (refreshed) => {
         if (currentPhotoIdRef.current === photoId) {

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { urlBase64ToUint8Array } from '../lib/push';
+import { setLocalStorageItem } from '../lib/storage';
 import { ConfirmModal } from './ConfirmModal';
 
 type PromptState = 'loading' | 'hidden' | 'show' | 'error';
@@ -23,7 +24,7 @@ function getStoredState(): StoredState {
 }
 
 function saveStoredState(state: StoredState): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  setLocalStorageItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 export function NotificationPrompt() {

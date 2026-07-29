@@ -36,9 +36,14 @@ describe('Date formatting utilities', () => {
   });
 
   describe('formatRelativeTime', () => {
+    // formatRelativeTime deliberately renders absolute dates in the viewer's
+    // local zone, so every instant here is built from local-time components
+    // (never a UTC literal): noon on 2026-01-18 wherever the suite runs. A
+    // UTC-noon instant would land on a different local calendar day beyond
+    // roughly UTC±12 and the expected strings below would be wrong there.
     beforeEach(() => {
       vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-01-18T12:00:00Z'));
+      vi.setSystemTime(new Date(2026, 0, 18, 12, 0, 0));
     });
 
     afterEach(() => {
@@ -82,34 +87,18 @@ describe('Date formatting utilities', () => {
     });
 
     it('should format absolute dates with correct ordinal suffixes', () => {
-      // Test various dates to check ordinal formatting
-      // 1st Jan 2026
-      const jan1 = new Date('2026-01-01T12:00:00Z').getTime() / 1000;
-      expect(formatRelativeTime(jan1)).toBe('1st Jan 2026');
+      // Local noon on the given calendar day, as a unix timestamp.
+      const localNoon = (year: number, monthIndex: number, day: number) =>
+        new Date(year, monthIndex, day, 12, 0, 0).getTime() / 1000;
 
-      // 2nd Jan 2026
-      const jan2 = new Date('2026-01-02T12:00:00Z').getTime() / 1000;
-      expect(formatRelativeTime(jan2)).toBe('2nd Jan 2026');
-
-      // 3rd Jan 2026
-      const jan3 = new Date('2026-01-03T12:00:00Z').getTime() / 1000;
-      expect(formatRelativeTime(jan3)).toBe('3rd Jan 2026');
-
-      // 11th Dec 2025 (special case)
-      const dec11 = new Date('2025-12-11T12:00:00Z').getTime() / 1000;
-      expect(formatRelativeTime(dec11)).toBe('11th Dec 2025');
-
-      // 21st Dec 2025
-      const dec21 = new Date('2025-12-21T12:00:00Z').getTime() / 1000;
-      expect(formatRelativeTime(dec21)).toBe('21st Dec 2025');
-
-      // 22nd Dec 2025
-      const dec22 = new Date('2025-12-22T12:00:00Z').getTime() / 1000;
-      expect(formatRelativeTime(dec22)).toBe('22nd Dec 2025');
-
-      // 23rd Dec 2025
-      const dec23 = new Date('2025-12-23T12:00:00Z').getTime() / 1000;
-      expect(formatRelativeTime(dec23)).toBe('23rd Dec 2025');
+      expect(formatRelativeTime(localNoon(2026, 0, 1))).toBe('1st Jan 2026');
+      expect(formatRelativeTime(localNoon(2026, 0, 2))).toBe('2nd Jan 2026');
+      expect(formatRelativeTime(localNoon(2026, 0, 3))).toBe('3rd Jan 2026');
+      // 11th is the special case that must not be "11st"
+      expect(formatRelativeTime(localNoon(2025, 11, 11))).toBe('11th Dec 2025');
+      expect(formatRelativeTime(localNoon(2025, 11, 21))).toBe('21st Dec 2025');
+      expect(formatRelativeTime(localNoon(2025, 11, 22))).toBe('22nd Dec 2025');
+      expect(formatRelativeTime(localNoon(2025, 11, 23))).toBe('23rd Dec 2025');
     });
   });
 });

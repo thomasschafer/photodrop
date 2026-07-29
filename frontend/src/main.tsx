@@ -8,34 +8,35 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
-import { DEEP_LINK_EVENT } from './lib/deepLink';
+import { deepLinkPathFromUrl, publishDeepLink } from './lib/deepLink';
 
-// Handle deep links when app is already running (warm start)
 if (Capacitor.isNativePlatform()) {
+  const currentFullPath = () => window.location.pathname + window.location.search;
+
+  // Warm start: the app is already showing something, so any path other than
+  // the one on screen is a real navigation.
   CapApp.addListener('appUrlOpen', ({ url }) => {
-    const urlObj = new URL(url);
-    const path = urlObj.pathname + urlObj.search;
-    const currentFullPath = window.location.pathname + window.location.search;
-    if (path && path !== currentFullPath) {
-      window.dispatchEvent(new CustomEvent(DEEP_LINK_EVENT, { detail: { path } }));
+    const path = deepLinkPathFromUrl(url);
+    if (path && path !== currentFullPath()) {
+      publishDeepLink(path);
     }
   });
 
-  // Handle cold start deep links (app opened via notification or URL)
-  CapApp.getLaunchUrl().then((result) => {
-    if (result?.url) {
-      try {
-        const urlObj = new URL(result.url);
-        const path = urlObj.pathname + urlObj.search;
-        const currentFullPath = window.location.pathname + window.location.search;
-        if (path && path !== '/' && path !== currentFullPath) {
-          window.dispatchEvent(new CustomEvent(DEEP_LINK_EVENT, { detail: { path } }));
-        }
-      } catch {
-        // Invalid URL, ignore
+  // Cold start (app opened via notification or URL). This resolves before React
+  // has necessarily mounted; publishDeepLink buffers the path until App
+  // subscribes. `/` is where the app opens anyway, so only a deeper path is
+  // worth replaying.
+  CapApp.getLaunchUrl()
+    .then((result) => {
+      if (!result?.url) return;
+      const path = deepLinkPathFromUrl(result.url);
+      if (path && path !== '/' && path !== currentFullPath()) {
+        publishDeepLink(path);
       }
-    }
-  });
+    })
+    .catch((error) => {
+      console.error('Failed to read the launch URL:', error);
+    });
 }
 
 createRoot(document.getElementById('root')!).render(

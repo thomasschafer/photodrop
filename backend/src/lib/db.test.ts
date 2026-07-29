@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   getUserMemberships,
   getMembership,
@@ -6,12 +6,17 @@ import {
   deleteMembership,
   updateMembershipRole,
   updateMemberImageProtection,
+  updateMemberDisplayName,
+  getResolvedMemberName,
+  getMemberNames,
+  getGroupMembers,
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
   deletePhoto,
-  updateUserName,
+  updateUserProfile,
   createPushSubscription,
+  countUserPushSubscriptionsForGroup,
   getUserPushSubscriptionsForGroup,
   getGroupPushSubscriptions,
   deletePushSubscription,
@@ -20,9 +25,12 @@ import {
   createDeviceToken,
   getDeviceToken,
   getGroupDeviceTokens,
-  deleteDeviceToken,
+  deleteUserDeviceTokensForToken,
+  deleteDeviceTokenForOtherUsers,
+  deleteAllUserDeviceTokensForGroup,
   deleteDeviceTokenByToken,
   countUserDeviceTokensSince,
+  markMagicLinkTokenUsed,
   createComment,
   getCommentsByPhotoId,
   getComment,
@@ -30,7 +38,12 @@ import {
   getPhotoReactionsWithUsers,
   listPhotosWithCounts,
   createUser,
-  updateUserProfileColor,
+  createSession,
+  getSessionByFamily,
+  rotateSession,
+  touchSession,
+  deleteSessionFamily,
+  pruneExpiredSessions,
 } from './db';
 import {
   getRandomProfileColor,
@@ -426,6 +439,132 @@ describe('Membership functions', () => {
     });
   });
 
+  describe('display names', () => {
+    describe('getGroupMembers', () => {
+      it('resolves each name against this group, and exposes the raw override', async () => {
+        const members = [
+          {
+            user_id: 'user-1',
+            group_id: 'group-1',
+            role: 'member',
+            joined_at: 1000,
+            image_protection: 1,
+            display_name: 'Mum',
+            user_name: 'Mum',
+            canonical_name: 'Jane Doe',
+            user_email: 'jane@example.com',
+            user_profile_color: 'teal',
+          },
+        ];
+        const db = createMockDb(members);
+
+        const { members: result } = await getGroupMembers(db, 'group-1');
+
+        expect(result[0].user_name).toBe('Mum');
+        expect(result[0].display_name).toBe('Mum');
+        // The mocked rows would map through whatever the query asked for, so
+        // pin the resolution itself: reading u.name directly here would show
+        // the canonical name beside members who have an override.
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('COALESCE(m.display_name, u.name) as user_name')
+        );
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('m.display_name')
+        );
+      });
+
+      it('carries the canonical name alongside the resolved one', async () => {
+        const members = [
+          {
+            user_id: 'user-1',
+            group_id: 'group-1',
+            role: 'member',
+            joined_at: 1000,
+            image_protection: 1,
+            display_name: 'Mum',
+            user_name: 'Mum',
+            canonical_name: 'Jane Doe',
+            user_email: 'jane@example.com',
+            user_profile_color: 'teal',
+          },
+        ];
+        const db = createMockDb(members);
+
+        const { members: result } = await getGroupMembers(db, 'group-1');
+
+        expect(result[0].canonical_name).toBe('Jane Doe');
+        // Only the admin members list may show it, so it has to be selected
+        // separately rather than inferred from the resolved name.
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('u.name as canonical_name')
+        );
+      });
+    });
+
+    describe('getMemberNames', () => {
+      it('returns both the name this group sees and the user’s own name', async () => {
+        const db = createMockDb([{ resolved_name: 'Mum', canonical_name: 'Jane Doe' }]);
+
+        const result = await getMemberNames(db, 'user-1', 'group-1');
+
+        expect(result).toEqual({ resolvedName: 'Mum', canonicalName: 'Jane Doe' });
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('COALESCE(m.display_name, u.name) as resolved_name')
+        );
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          expect.stringContaining('u.name as canonical_name')
+        );
+        expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
+      });
+
+      it('returns null when the user is not a member of the group', async () => {
+        const db = createMockDb([]);
+
+        await expect(getMemberNames(db, 'user-1', 'group-1')).resolves.toBeNull();
+      });
+    });
+
+    describe('getResolvedMemberName', () => {
+      it('returns the name this group sees for the user, and nothing else', async () => {
+        const db = createMockDb([{ resolved_name: 'Mum', canonical_name: 'Jane Doe' }]);
+
+        const result = await getResolvedMemberName(db, 'user-1', 'group-1');
+
+        expect(result).toBe('Mum');
+        expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
+      });
+
+      it('returns null when the user is not a member of the group', async () => {
+        const db = createMockDb([]);
+
+        await expect(getResolvedMemberName(db, 'user-1', 'group-1')).resolves.toBeNull();
+      });
+    });
+
+    describe('updateMemberDisplayName', () => {
+      it('sets an override on that one membership only', async () => {
+        const db = createMockDb();
+
+        const result = await updateMemberDisplayName(db, 'user-1', 'group-1', 'Mum');
+
+        expect(result).toBe(true);
+        expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+          'UPDATE memberships SET display_name = ? WHERE user_id = ? AND group_id = ?'
+        );
+        expect(db._mocks.mockBind).toHaveBeenCalledWith('Mum', 'user-1', 'group-1');
+      });
+
+      it('clears the override by writing null', async () => {
+        const db = createMockDb();
+
+        const result = await updateMemberDisplayName(db, 'user-1', 'group-1', null);
+
+        expect(result).toBe(true);
+        expect(db._mocks.mockBind).toHaveBeenCalledWith(null, 'user-1', 'group-1');
+      });
+    });
+  });
+
   describe('getUserMemberships includes image_protection', () => {
     it('returns image_protection in membership data', async () => {
       const memberships = [
@@ -449,6 +588,8 @@ describe('Membership functions', () => {
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
         expect.stringContaining('m.image_protection')
       );
+      // The caller's own display name for each group comes from this query.
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(expect.stringContaining('m.display_name'));
     });
   });
 });
@@ -577,10 +718,59 @@ describe('Push subscription functions', () => {
         'new-auth'
       );
 
-      // Verify the SQL includes ON CONFLICT DO UPDATE
+      // Verify the SQL includes ON CONFLICT DO UPDATE, guarded on the owner so
+      // the upsert can refresh a row but never reassign it.
       const prepareCall = db._mocks.mockPrepare.mock.calls[0][0];
       expect(prepareCall).toContain('ON CONFLICT');
       expect(prepareCall).toContain('DO UPDATE');
+      expect(prepareCall).toContain('WHERE push_subscriptions.user_id = excluded.user_id');
+    });
+
+    it('reports an endpoint owned by another user instead of taking it over', async () => {
+      const db = createMockDb([]);
+      // The guarded upsert matches no row when the endpoint belongs to someone
+      // else, which D1 reports as zero changes.
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
+
+      const result = await createPushSubscription(
+        db,
+        'user-2',
+        'group-1',
+        'https://push.example.com/abc',
+        'p256dh-key',
+        'auth-key'
+      );
+
+      expect(result).toEqual({ error: 'endpoint_owned_by_another_user' });
+    });
+  });
+
+  describe('countUserPushSubscriptionsForGroup', () => {
+    it('counts the user rows for a group, excluding the endpoint being subscribed', async () => {
+      const db = createMockDb([{ count: 4 }]);
+
+      const result = await countUserPushSubscriptionsForGroup(
+        db,
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc'
+      );
+
+      expect(result).toBe(4);
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        'user-1',
+        'group-1',
+        'https://push.example.com/abc'
+      );
+      expect(db._mocks.mockPrepare.mock.calls[0][0]).toContain('endpoint != ?');
+    });
+
+    it('returns 0 when the count row is missing', async () => {
+      const db = createMockDb([null]);
+
+      await expect(
+        countUserPushSubscriptionsForGroup(db, 'user-1', 'group-1', 'https://push.example.com/abc')
+      ).resolves.toBe(0);
     });
   });
 
@@ -682,6 +872,17 @@ describe('Push subscription functions', () => {
       const result = await getGroupPushSubscriptions(db, 'group-empty');
 
       expect(result).toEqual([]);
+    });
+
+    it('only returns subscriptions whose owner is still a member of the group', async () => {
+      const db = createMockDb([]);
+
+      await getGroupPushSubscriptions(db, 'group-1');
+
+      const query = db._mocks.mockPrepare.mock.calls[0][0] as string;
+      expect(query).toContain(
+        'JOIN memberships m ON m.user_id = ps.user_id AND m.group_id = ps.group_id'
+      );
     });
   });
 
@@ -842,6 +1043,20 @@ describe('Device token functions (native push)', () => {
       expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1');
     });
 
+    it('only returns tokens whose owner is still a member of the group', async () => {
+      const db = createMockDb([]);
+
+      await getGroupDeviceTokens(db, 'group-1');
+
+      // Rows left behind by a removed member must not receive the group's
+      // notifications, so the query joins memberships rather than trusting
+      // cleanup to have happened.
+      const query = db._mocks.mockPrepare.mock.calls[0][0] as string;
+      expect(query).toContain(
+        'JOIN memberships m ON m.user_id = dt.user_id AND m.group_id = dt.group_id'
+      );
+    });
+
     it('excludes specified user when excludeUserId provided', async () => {
       const deviceTokens = [
         {
@@ -871,17 +1086,46 @@ describe('Device token functions (native push)', () => {
     });
   });
 
-  describe('deleteDeviceToken', () => {
-    it('removes token for specific user+group+token', async () => {
+  describe('deleteUserDeviceTokensForToken', () => {
+    it('removes the token from every group the user registered it in', async () => {
+      const db = createMockDb([]);
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 3 } });
+
+      const result = await deleteUserDeviceTokensForToken(db, 'user-1', 'fcm-token-123');
+
+      expect(result).toBe(3);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM device_tokens WHERE user_id = ? AND token = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'fcm-token-123');
+    });
+  });
+
+  describe('deleteDeviceTokenForOtherUsers', () => {
+    it('detaches the token from every other account', async () => {
+      const db = createMockDb([]);
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 2 } });
+
+      const result = await deleteDeviceTokenForOtherUsers(db, 'user-2', 'fcm-token-123');
+
+      expect(result).toBe(2);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM device_tokens WHERE token = ? AND user_id != ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('fcm-token-123', 'user-2');
+    });
+  });
+
+  describe('deleteAllUserDeviceTokensForGroup', () => {
+    it('removes every token a user has for one group', async () => {
       const db = createMockDb([]);
 
-      const result = await deleteDeviceToken(db, 'user-1', 'group-1', 'fcm-token-123');
+      await deleteAllUserDeviceTokensForGroup(db, 'user-1', 'group-1');
 
-      expect(result).toBe(true);
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        'DELETE FROM device_tokens WHERE user_id = ? AND group_id = ? AND token = ?'
+        'DELETE FROM device_tokens WHERE user_id = ? AND group_id = ?'
       );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1', 'fcm-token-123');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
   });
@@ -983,6 +1227,31 @@ describe('Comment functions', () => {
 
       expect(result).toEqual([]);
     });
+
+    it("resolves author names against the group the comment's photo is in", async () => {
+      const db = createMockDb([]);
+
+      await getCommentsByPhotoId(db, 'photo-1');
+
+      // Guarded on the membership existing: resolving straight through COALESCE
+      // would fall back to u.name for an author who has left the group, handing
+      // the group the canonical name their display name was hiding.
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'CASE WHEN m.user_id IS NULL THEN NULL ELSE COALESCE(m.display_name, u.name) END as user_name'
+        )
+      );
+      // The photo join supplies that group; without it the membership row
+      // matched could be from any group the author belongs to.
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('JOIN photos p ON p.id = c.photo_id')
+      );
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'LEFT JOIN memberships m ON m.user_id = c.user_id AND m.group_id = p.group_id'
+        )
+      );
+    });
   });
 
   describe('getComment', () => {
@@ -1067,6 +1336,45 @@ describe('Reaction functions', () => {
 
       expect(result).toEqual([]);
     });
+
+    it('shows a neutral label for a reactor who has left the group', async () => {
+      // The membership row is gone, so the query resolves no name: the reaction
+      // stays visible but the group must not be shown the canonical name a
+      // display name was standing in for.
+      const db = createMockDb([
+        {
+          photo_id: 'photo-1',
+          user_id: 'user-gone',
+          emoji: '❤️',
+          created_at: 1000,
+          user_name: null,
+        },
+      ]);
+
+      const result = await getPhotoReactionsWithUsers(db, 'photo-1');
+
+      expect(result[0].user_name).toBe('Former member');
+    });
+
+    it('resolves reactor names against the group the reacted-to photo is in', async () => {
+      const db = createMockDb([]);
+
+      await getPhotoReactionsWithUsers(db, 'photo-1');
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'CASE WHEN m.user_id IS NULL THEN NULL ELSE COALESCE(m.display_name, u.name) END as user_name'
+        )
+      );
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining('JOIN photos p ON p.id = pr.photo_id')
+      );
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'LEFT JOIN memberships m ON m.user_id = pr.user_id AND m.group_id = p.group_id'
+        )
+      );
+    });
   });
 });
 
@@ -1102,7 +1410,7 @@ describe('listPhotosWithCounts', () => {
     expect(result[0].reactions[1]).toEqual({ emoji: '😂', count: 3 });
   });
 
-  it('carries the uploader through, and nulls when their account is gone', async () => {
+  it('carries the uploader through, labels former members, and nulls when their account is gone', async () => {
     const photos = [
       {
         id: 'photo-1',
@@ -1113,6 +1421,7 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 1000,
         thumbnail_r2_key: 'thumbs/1.jpg',
         comment_count: 0,
+        uploader_user_id: 'user-1',
         uploader_name: 'Alice',
         uploader_profile_color: 'teal',
       },
@@ -1125,8 +1434,24 @@ describe('listPhotosWithCounts', () => {
         uploaded_at: 900,
         thumbnail_r2_key: 'thumbs/2.jpg',
         comment_count: 0,
+        uploader_user_id: null,
         uploader_name: null,
         uploader_profile_color: null,
+      },
+      {
+        id: 'photo-3',
+        group_id: 'group-1',
+        r2_key: 'photos/3.jpg',
+        caption: 'Uploader left the group',
+        uploaded_by: 'user-left',
+        uploaded_at: 800,
+        thumbnail_r2_key: 'thumbs/3.jpg',
+        comment_count: 0,
+        // The account still exists; only the membership that resolved their
+        // name for this group is gone.
+        uploader_user_id: 'user-left',
+        uploader_name: null,
+        uploader_profile_color: 'sage',
       },
     ];
     const db = createSequentialAllMockDb([photos, []]);
@@ -1137,11 +1462,28 @@ describe('listPhotosWithCounts', () => {
     expect(result[0].uploader_profile_color).toBe('teal');
     expect(result[1].uploader_name).toBeNull();
     expect(result[1].uploader_profile_color).toBeNull();
+    // A removed member is labelled rather than nulled, so the feed still
+    // distinguishes them from a deleted account — and never names them.
+    expect(result[2].uploader_name).toBe('Former member');
 
     // The mocked rows would map through even if the query stopped asking for
-    // the uploader, so pin the projection and the join that produce them.
+    // the uploader, so pin the projection and the joins that produce them.
     expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-      expect.stringContaining('u.name as uploader_name')
+      expect.stringContaining(
+        'CASE WHEN m.user_id IS NULL THEN NULL ELSE COALESCE(m.display_name, u.name) END as uploader_name'
+      )
+    );
+    // The account-exists signal the label depends on: without it a removed
+    // member and a deleted account are indistinguishable.
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining('u.id as uploader_user_id')
+    );
+    // Scoped to the photo's own group, so an uploader's display name in some
+    // other group can never be the one shown here.
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id'
+      )
     );
     expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
       expect.stringContaining('u.profile_color as uploader_profile_color')
@@ -1256,6 +1598,52 @@ describe('listPhotosWithCounts', () => {
     expect(result[1].reactions[0]).toEqual({ emoji: '😂', count: 3 });
   });
 
+  it('keeps the reaction query under D1s bound-parameter cap for a full page', async () => {
+    // The route asks for limit + 1 rows, so the largest page it can request is
+    // 101 photos. Binding the user id plus one parameter per photo in a single
+    // statement would exceed D1's 100-parameter limit and fail the whole
+    // request, so the ids are chunked.
+    const D1_MAX_BOUND_PARAMS = 100;
+    const photos = Array.from({ length: 101 }, (_, i) => ({
+      id: `photo-${i}`,
+      group_id: 'group-1',
+      r2_key: `photos/${i}.jpg`,
+      caption: null,
+      uploaded_by: 'user-1',
+      uploaded_at: 1000 + i,
+      thumbnail_r2_key: `thumbs/${i}.jpg`,
+      comment_count: 0,
+      uploader_name: 'Alice',
+      uploader_profile_color: 'teal',
+    }));
+    // One reaction on the first photo of the page and one on the last, so the
+    // merged result has to include rows from more than one chunk.
+    const db = createSequentialAllMockDb([
+      photos,
+      [{ photo_id: 'photo-0', emoji: '❤️', count: 2, reacted_by_user: 1 }],
+      [{ photo_id: 'photo-100', emoji: '🔥', count: 1, reacted_by_user: 0 }],
+    ]);
+
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 101, 0);
+
+    expect(result).toHaveLength(101);
+    expect(result[0].reactions).toEqual([{ emoji: '❤️', count: 2 }]);
+    expect(result[0].user_reactions).toEqual(['❤️']);
+    expect(result[100].reactions).toEqual([{ emoji: '🔥', count: 1 }]);
+    expect(result[100].reaction_count).toBe(1);
+
+    // Every photo id must be covered exactly once, across statements that each
+    // stay within the cap.
+    const reactionBindCalls = db._mocks.mockBind.mock.calls.slice(1);
+    expect(reactionBindCalls.length).toBeGreaterThan(1);
+    for (const call of reactionBindCalls) {
+      expect(call.length).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS);
+      expect(call[0]).toBe('user-1');
+    }
+    const boundPhotoIds = reactionBindCalls.flatMap((call) => call.slice(1));
+    expect(boundPhotoIds).toEqual(photos.map((p) => p.id));
+  });
+
   it('passes correct parameters to queries', async () => {
     const photos = [
       {
@@ -1358,11 +1746,11 @@ describe('Profile color functions', () => {
     });
   });
 
-  describe('updateUserProfileColor', () => {
+  describe('updateUserProfile', () => {
     it('updates profile color', async () => {
       const db = createMockDb([]);
 
-      const result = await updateUserProfileColor(db, 'user-1', 'sage');
+      const result = await updateUserProfile(db, 'user-1', { profileColor: 'sage' });
 
       expect(result).toBe(true);
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
@@ -1371,6 +1759,62 @@ describe('Profile color functions', () => {
       expect(db._mocks.mockBind).toHaveBeenCalledWith('sage', 'user-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
     });
+
+    it('updates the name on its own', async () => {
+      const db = createMockDb([]);
+
+      await updateUserProfile(db, 'user-1', { name: 'Jane Smith' });
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith('UPDATE users SET name = ? WHERE id = ?');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('Jane Smith', 'user-1');
+    });
+
+    it('writes both fields in a single statement', async () => {
+      // D1 has no transaction to roll back a second statement that fails after
+      // the first landed, so a request that changes both fields must be one
+      // statement or it is not all-or-nothing at all.
+      const db = createMockDb([]);
+
+      await updateUserProfile(db, 'user-1', { name: 'Jane Smith', profileColor: 'sage' });
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledTimes(1);
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'UPDATE users SET name = ?, profile_color = ? WHERE id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('Jane Smith', 'sage', 'user-1');
+      expect(db._mocks.mockRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws rather than issuing an update with nothing to set', async () => {
+      const db = createMockDb([]);
+
+      await expect(updateUserProfile(db, 'user-1', {})).rejects.toThrow(
+        'updateUserProfile called with no fields to update'
+      );
+      expect(db._mocks.mockPrepare).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('markMagicLinkTokenUsed', () => {
+  it('only consumes a token that has not been used yet', async () => {
+    const db = createMockDb([]);
+
+    const consumed = await markMagicLinkTokenUsed(db, 'token-1');
+
+    expect(consumed).toBe(true);
+    // The used_at condition is what makes the consume atomic: concurrent
+    // redemptions of one link cannot both match the row.
+    expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+      'UPDATE magic_link_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL'
+    );
+  });
+
+  it('reports false when another request already consumed the token', async () => {
+    const db = createMockDb([]);
+    db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
+
+    await expect(markMagicLinkTokenUsed(db, 'token-1')).resolves.toBe(false);
   });
 });
 
@@ -1382,8 +1826,14 @@ describe('mutations report rows affected rather than statement success', () => {
   const cases: Array<{ name: string; run: (db: D1Database) => Promise<boolean> }> = [
     { name: 'deleteGroup', run: (db) => deleteGroup(db, 'group-1') },
     { name: 'deletePhoto', run: (db) => deletePhoto(db, 'photo-1', 'group-1') },
-    { name: 'updateUserName', run: (db) => updateUserName(db, 'user-1', 'New Name') },
-    { name: 'updateUserProfileColor', run: (db) => updateUserProfileColor(db, 'user-1', 'teal') },
+    {
+      name: 'updateUserProfile',
+      run: (db) => updateUserProfile(db, 'user-1', { name: 'New Name' }),
+    },
+    {
+      name: 'updateMemberDisplayName',
+      run: (db) => updateMemberDisplayName(db, 'user-1', 'group-1', 'Mum'),
+    },
     { name: 'deleteComment', run: (db) => deleteComment(db, 'comment-1') },
     {
       name: 'deleteMembership',
@@ -1405,5 +1855,145 @@ describe('mutations report rows affected rather than statement success', () => {
   it.each(cases)('$name reports true when a row was changed', async ({ run }) => {
     // createMockDb's default run() reports one changed row.
     await expect(run(createMockDb())).resolves.toBe(true);
+  });
+});
+
+describe('Session functions', () => {
+  const NOW = 1_700_000_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW * 1000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe('createSession', () => {
+    it('seeds previous_jti and rotated_at from the new token', async () => {
+      const db = createMockDb();
+
+      await createSession(db, 'user-1', 'family-1', 'jti-1', NOW + 100);
+
+      // previous_jti is never null, so the rotation logic has one less case to
+      // handle: a session that has never rotated points at itself.
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        'jti-1',
+        'jti-1',
+        'family-1',
+        'user-1',
+        NOW,
+        NOW,
+        NOW,
+        NOW + 100
+      );
+    });
+  });
+
+  describe('getSessionByFamily', () => {
+    it('looks the session up by family, not by token id', async () => {
+      // A replayed token names a jti the row no longer holds; only the family
+      // id can still find it.
+      const db = createMockDb([{ jti: 'jti-2', family_id: 'family-1' }]);
+
+      const session = await getSessionByFamily(db, 'family-1');
+
+      expect(session?.jti).toBe('jti-2');
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'SELECT * FROM sessions WHERE family_id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('family-1');
+    });
+
+    it('returns null when the family has been revoked', async () => {
+      const db = createMockDb([]);
+
+      await expect(getSessionByFamily(db, 'family-1')).resolves.toBeNull();
+    });
+  });
+
+  describe('rotateSession', () => {
+    it('only matches the family’s current, unexpired token', async () => {
+      const db = createMockDb();
+
+      const rotated = await rotateSession(db, 'family-1', 'jti-1', 'jti-2', NOW + 100);
+
+      expect(rotated).toBe(true);
+      const sql = db._mocks.mockPrepare.mock.calls[0][0];
+      // These three conditions are the whole of reuse detection: without the
+      // jti guard a replayed token would rotate, and without the expiry guard a
+      // dead session would come back to life.
+      expect(sql).toContain('WHERE family_id = ? AND jti = ? AND expires_at > ?');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(
+        'jti-2',
+        'jti-1',
+        NOW,
+        NOW,
+        NOW + 100,
+        'family-1',
+        'jti-1',
+        NOW
+      );
+    });
+
+    it('reports false when the presented token is not the current one', async () => {
+      const db = createMockDb();
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
+
+      await expect(rotateSession(db, 'family-1', 'old-jti', 'jti-2', NOW + 100)).resolves.toBe(
+        false
+      );
+    });
+  });
+
+  describe('deleteSessionFamily', () => {
+    it('deletes by family so every token in the lineage dies at once', async () => {
+      const db = createMockDb();
+
+      await expect(deleteSessionFamily(db, 'family-1')).resolves.toBe(true);
+
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
+        'DELETE FROM sessions WHERE family_id = ?'
+      );
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('family-1');
+    });
+
+    it('reports false when there was no session to revoke', async () => {
+      const db = createMockDb();
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
+
+      await expect(deleteSessionFamily(db, 'family-1')).resolves.toBe(false);
+    });
+  });
+
+  describe('pruneExpiredSessions', () => {
+    it('deletes only rows that have already expired, at most a batch at a time', async () => {
+      const db = createMockDb();
+      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 3 } });
+
+      const deleted = await pruneExpiredSessions(db, 50);
+
+      expect(deleted).toBe(3);
+      const sql = db._mocks.mockPrepare.mock.calls[0][0];
+      // expires_at <= now is what makes this safe to run on the hot path: a
+      // live session can never match it, whatever the batch size.
+      expect(sql).toContain('WHERE expires_at <= ?');
+      expect(sql).toContain('LIMIT ?');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(NOW, 50);
+    });
+  });
+
+  describe('touchSession', () => {
+    it('records use without changing which token is current', async () => {
+      const db = createMockDb();
+
+      await touchSession(db, 'family-1');
+
+      const sql = db._mocks.mockPrepare.mock.calls[0][0];
+      expect(sql).toBe('UPDATE sessions SET last_used_at = ? WHERE family_id = ?');
+      expect(sql).not.toContain('jti');
+      expect(db._mocks.mockBind).toHaveBeenCalledWith(NOW, 'family-1');
+    });
   });
 });

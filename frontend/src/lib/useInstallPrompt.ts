@@ -5,6 +5,7 @@ import {
   INSTALL_PROMPT_DISMISSED,
   type InstallPromptState,
 } from '@photodrop/common/storage';
+import { setLocalStorageItem } from './storage';
 
 type Platform = 'ios' | 'android' | 'macos-safari' | 'desktop' | 'firefox' | 'unknown';
 
@@ -35,7 +36,7 @@ function getStoredState(): InstallPromptState {
 
 function saveStoredState(state: InstallPromptState): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(INSTALL_PROMPT_STORAGE_KEY, JSON.stringify(state));
+  setLocalStorageItem(INSTALL_PROMPT_STORAGE_KEY, JSON.stringify(state));
 }
 
 function detectPlatform(): Platform {

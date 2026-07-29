@@ -17,6 +17,7 @@ const mockGenerateAccessToken = vi.fn();
 const mockGenerateRefreshToken = vi.fn();
 const mockGenerateGroupSelectionToken = vi.fn();
 const mockSendLoginLinkEmail = vi.fn();
+const mockReissueSession = vi.fn();
 
 vi.mock('../lib/magic-links', () => ({
   verifyMagicLink: (...args: unknown[]) => mockVerifyMagicLink(...args),
@@ -41,6 +42,15 @@ vi.mock('../lib/jwt', () => ({
   generateGroupSelectionToken: (...args: unknown[]) => mockGenerateGroupSelectionToken(...args),
   verifyJWT: vi.fn(),
   verifyGroupSelectionToken: vi.fn(),
+  REFRESH_TOKEN_TTL_SECONDS: 30 * 24 * 60 * 60,
+}));
+
+// Session storage is exercised end-to-end in auth-sessions.test.ts; these tests
+// only need the magic link flows to get a session to bind their token to.
+vi.mock('../lib/sessions', () => ({
+  reissueSession: (...args: unknown[]) => mockReissueSession(...args),
+  refreshSession: vi.fn(),
+  revokeSession: vi.fn(),
 }));
 
 vi.mock('../lib/email', () => ({
@@ -132,8 +142,8 @@ function makeLoginToken(overrides = {}) {
   };
 }
 
-async function postVerify(app: Hono, body: Record<string, unknown>) {
-  return app.request('/auth/verify-magic-link', {
+async function postVerify(app: Hono, body: Record<string, unknown>, origin = 'http://localhost') {
+  return app.request(`${origin}/auth/verify-magic-link`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -155,10 +165,11 @@ describe('verify-magic-link endpoint', () => {
     vi.clearAllMocks();
     app = createApp();
     mockMarkMagicLinkTokenPending.mockResolvedValue(true);
-    mockMarkMagicLinkTokenUsed.mockResolvedValue(undefined);
+    mockMarkMagicLinkTokenUsed.mockResolvedValue(true);
     mockGenerateAccessToken.mockResolvedValue('access-token');
     mockGenerateRefreshToken.mockResolvedValue('refresh-token');
     mockGenerateGroupSelectionToken.mockResolvedValue('selection-token');
+    mockReissueSession.mockResolvedValue({ jti: 'jti-1', familyId: 'family-1' });
   });
 
   // --- Invalid token cases ---
@@ -379,9 +390,21 @@ describe('verify-magic-link endpoint', () => {
 
   // --- Name submission flow (second request) ---
 
-  it('allows pending token for name submission', async () => {
-    const token = makeInviteToken();
-    mockVerifyMagicLink.mockResolvedValue({ valid: true, token });
+  // The pending state is only bypassed for the genuine second leg of the invite
+  // flow, which the handler recognises from the token's own state. Deriving it
+  // from the request body would let any caller opt out of the pending and
+  // single-use guards just by sending a name.
+  function pendingToken(token: Record<string, unknown>) {
+    mockVerifyMagicLink.mockImplementation(
+      (_db: unknown, _token: unknown, allowPending?: boolean) =>
+        allowPending
+          ? Promise.resolve({ valid: true, token })
+          : Promise.resolve({ valid: false, error: 'pending', token })
+    );
+  }
+
+  it('resumes a pending invite token for a name submission', async () => {
+    pendingToken(makeInviteToken());
     mockGetUserByEmail.mockResolvedValue(null);
     mockCreateUser.mockResolvedValue('new-user-id');
     mockGetUserById.mockResolvedValue({
@@ -394,15 +417,103 @@ describe('verify-magic-link endpoint', () => {
     mockCreateMembership.mockResolvedValue(undefined);
     mockGetUserMemberships.mockResolvedValue([{ ...defaultMembership, user_id: 'new-user-id' }]);
     mockGetGroup.mockResolvedValue(defaultGroup);
-    // markPending returns false (already pending), but name submission should still proceed
+    // The first request marked the token pending, so this one cannot.
     mockMarkMagicLinkTokenPending.mockResolvedValue(false);
 
     const res = await postVerify(app, { token: 'valid-token', name: 'New User' });
     expect(res.status).toBe(200);
     const json = (await res.json()) as { accessToken: string };
     expect(json.accessToken).toBe('access-token');
-    // verifyMagicLink should have been called with allowPending=true
     expect(mockVerifyMagicLink).toHaveBeenCalledWith(expect.anything(), 'valid-token', true);
+  });
+
+  it('does not let a name in the body bypass the pending guard on a login token', async () => {
+    pendingToken(makeLoginToken());
+    mockGetUserByEmail.mockResolvedValue(defaultUser);
+    mockGetUserMemberships.mockResolvedValue([defaultMembership]);
+    mockMarkMagicLinkTokenPending.mockResolvedValue(false);
+
+    const res = await postVerify(app, { token: 'valid-token', name: 'Any Name' });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('already being processed');
+    expect(mockVerifyMagicLink).not.toHaveBeenCalledWith(expect.anything(), 'valid-token', true);
+    expect(mockMarkMagicLinkTokenUsed).not.toHaveBeenCalled();
+  });
+
+  it('does not resume a pending invite whose email already has an account', async () => {
+    // An account already exists, so this token cannot be waiting on a name and
+    // the pending state must be respected.
+    pendingToken(makeInviteToken({ email: 'test@example.com' }));
+    mockGetUserByEmail.mockResolvedValue(defaultUser);
+    mockGetUserMemberships.mockResolvedValue([defaultMembership]);
+
+    const res = await postVerify(app, { token: 'valid-token', name: 'Any Name' });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('already being processed');
+    expect(mockMarkMagicLinkTokenUsed).not.toHaveBeenCalled();
+  });
+
+  // --- Single-use enforcement ---
+
+  it('returns 400 when a concurrent request consumed the login token first', async () => {
+    const token = makeLoginToken();
+    mockVerifyMagicLink.mockResolvedValue({ valid: true, token });
+    mockGetUserByEmail.mockResolvedValue(defaultUser);
+    mockGetUserMemberships.mockResolvedValue([defaultMembership]);
+    // The consume is atomic, so the loser of the race sees no rows changed.
+    mockMarkMagicLinkTokenUsed.mockResolvedValue(false);
+
+    const res = await postVerify(app, { token: 'valid-token' });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('Token has already been used');
+    expect(mockGenerateAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('does not create a user when a concurrent request consumed the invite token first', async () => {
+    const token = makeInviteToken();
+    mockVerifyMagicLink.mockResolvedValue({ valid: true, token });
+    mockGetUserByEmail.mockResolvedValue(null);
+    mockMarkMagicLinkTokenUsed.mockResolvedValue(false);
+
+    const res = await postVerify(app, { token: 'valid-token', name: 'New User' });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe('Token has already been used');
+    // Bailing out before the insert is what stops two redemptions racing into a
+    // duplicate account (a UNIQUE violation) or a second session.
+    expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(mockCreateMembership).not.toHaveBeenCalled();
+    expect(mockGenerateAccessToken).not.toHaveBeenCalled();
+  });
+
+  // --- Refresh cookie attributes ---
+
+  it('omits Secure on a plain-HTTP request so WebKit stores the refresh cookie', async () => {
+    const token = makeLoginToken();
+    mockVerifyMagicLink.mockResolvedValue({ valid: true, token });
+    mockGetUserByEmail.mockResolvedValue(defaultUser);
+    mockGetUserMemberships.mockResolvedValue([defaultMembership]);
+
+    const res = await postVerify(app, { token: 'valid-token' }, 'http://localhost:8787');
+
+    const setCookie = res.headers.get('Set-Cookie') ?? '';
+    expect(setCookie).toContain('refreshToken=refresh-token');
+    expect(setCookie).not.toContain('Secure');
+    expect(setCookie).toContain('HttpOnly');
+  });
+
+  it('sets Secure on an HTTPS request', async () => {
+    const token = makeLoginToken();
+    mockVerifyMagicLink.mockResolvedValue({ valid: true, token });
+    mockGetUserByEmail.mockResolvedValue(defaultUser);
+    mockGetUserMemberships.mockResolvedValue([defaultMembership]);
+
+    const res = await postVerify(app, { token: 'valid-token' }, 'https://api.example.com');
+
+    expect(res.headers.get('Set-Cookie') ?? '').toContain('Secure');
   });
 
   // --- Validation ---
@@ -415,6 +526,30 @@ describe('verify-magic-link endpoint', () => {
     const json = (await res.json()) as { error: string };
     expect(json.error).toMatch(/too small|at least 1/i);
     expect(mockVerifyMagicLink).not.toHaveBeenCalled();
+  });
+});
+
+describe('logout endpoint', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    app = createApp();
+  });
+
+  // A cookie is only replaced when the clear matches the attributes it was set
+  // with, so the two must derive Secure the same way.
+  it.each([
+    { origin: 'http://localhost:8787', secure: false },
+    { origin: 'https://api.example.com', secure: true },
+  ])('clears the cookie with matching attributes over $origin', async ({ origin, secure }) => {
+    const res = await app.request(`${origin}/auth/logout`, { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get('Set-Cookie') ?? '';
+    expect(setCookie).toContain('refreshToken=;');
+    expect(setCookie).toContain('Max-Age=0');
+    expect(setCookie.includes('Secure')).toBe(secure);
   });
 });
 

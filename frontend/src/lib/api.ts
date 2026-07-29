@@ -18,6 +18,7 @@ import type {
   CommentsResponse,
   CommentCreatedResponse,
   GroupsListResponse,
+  MemberDisplayNameUpdatedResponse,
   MembersResponse,
   PhotoCountResponse,
   GroupDeletedResponse,
@@ -29,6 +30,7 @@ import type {
   DeviceStatusResponse,
 } from '@photodrop/common/apiTypes';
 import type { ProfileColor } from './profileColors';
+import { setLocalStorageItem } from './storage';
 
 // Check if we're in a Capacitor native environment
 const isNative = Capacitor.isNativePlatform();
@@ -38,6 +40,16 @@ export type Group = GroupJson;
 export type { AuthResponse };
 
 export type VerifyMagicLinkResponse = AuthResponse | NeedsNameResponse;
+
+/**
+ * A change to the caller's own profile. `name` is the canonical name — the one
+ * shown outside any group and the default inside every group. The union shape
+ * is what makes "send at least one field", which the endpoint rejects requests
+ * without, a compile error rather than a 400.
+ */
+export type ProfileUpdate =
+  | { name: string; profileColor?: ProfileColor }
+  | { name?: string; profileColor: ProfileColor };
 
 function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_URL;
@@ -185,7 +197,7 @@ let refreshPromise: Promise<AuthResponse> | null = null;
 
 function refreshSession(): Promise<AuthResponse> {
   if (!refreshPromise) {
-    refreshPromise = (async () => {
+    const started: Promise<AuthResponse> = (async () => {
       // includeAuth=false so this call never recurses into refresh-on-401.
       const response = await executeRequest('/auth/refresh', { method: 'POST' }, false);
       if (!response.ok) {
@@ -198,10 +210,37 @@ function refreshSession(): Promise<AuthResponse> {
       }
       return (await response.json()) as AuthResponse;
     })().finally(() => {
-      refreshPromise = null;
+      // Only retire our own entry: bumpSessionEpoch may already have detached
+      // it, in which case a newer session's refresh is now the one on record
+      // and nulling it here would let a third caller start yet another.
+      if (refreshPromise === started) refreshPromise = null;
     });
+    refreshPromise = started;
   }
   return refreshPromise;
+}
+
+// Session generation counter. AuthContext's resetToLoggedOut bumps it so that
+// a refresh already in flight when the user signs out cannot resurrect the
+// session: refreshAccessToken and AuthContext's own refresh paths capture the
+// epoch before awaiting and discard the result — no localStorage write, no
+// event, no state application — if it changed while the request was in the air.
+let sessionEpoch = 0;
+
+export function getSessionEpoch(): number {
+  return sessionEpoch;
+}
+
+export function bumpSessionEpoch(): void {
+  sessionEpoch += 1;
+  // Detaching the in-flight refresh matters as much as the epoch itself. The
+  // epoch only guards a *result* against the caller that started it; leaving
+  // the promise in place would let a caller that starts *after* the bump — a
+  // 401 in the new session, say — join the old session's refresh, capture the
+  // new epoch, and pass the epoch check with the previous user's response.
+  // Any caller already awaiting it still holds its own reference and is still
+  // correctly gated by the epoch it captured.
+  refreshPromise = null;
 }
 
 // A refresh failure means the session is genuinely gone only when the server
@@ -220,8 +259,14 @@ export function isSessionExpired(error: unknown): boolean {
 // to retry the original request with. Exported so the authenticated-image
 // fetch (which can't use fetchWithAuth) can recover from a 401 the same way.
 export async function refreshAccessToken(): Promise<boolean> {
+  const epoch = sessionEpoch;
   try {
     const data = await refreshSession();
+    // The user signed out while this refresh was in flight: applying the
+    // result would silently sign them back in with a fresh token. Discard it.
+    if (epoch !== sessionEpoch) {
+      return false;
+    }
     if (data.accessToken) {
       localStorage.setItem('accessToken', data.accessToken);
       window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: data }));
@@ -241,6 +286,11 @@ export async function refreshAccessToken(): Promise<boolean> {
     // A 2xx response with neither a token nor a user means the session is gone;
     // fall through to the teardown below.
   } catch (error) {
+    // As above: the session this refresh belonged to is already torn down, so
+    // neither the transient-failure path nor the expiry teardown applies.
+    if (epoch !== sessionEpoch) {
+      return false;
+    }
     // Transient failure: keep the session intact and let the caller's request
     // fail. The next interval/foreground refresh can recover.
     if (!isSessionExpired(error)) {
@@ -369,10 +419,19 @@ export const api = {
         body: JSON.stringify({ role }),
       }),
 
-    updateMemberName: (groupId: string, userId: string, name: string): Promise<MessageResponse> =>
-      requestJson(`/groups/${groupId}/members/${userId}`, {
+    /**
+     * Set (or, with null, clear) a member's display name for this group. Callable
+     * by an admin of the group or by the member themselves; it never touches the
+     * member's canonical name, which only they can change via updateProfile.
+     */
+    setMemberDisplayName: (
+      groupId: string,
+      userId: string,
+      displayName: string | null
+    ): Promise<MemberDisplayNameUpdatedResponse> =>
+      requestJson(`/groups/${groupId}/members/${userId}/display-name`, {
         method: 'PATCH',
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ displayName }),
       }),
 
     removeMember: (groupId: string, userId: string): Promise<MessageResponse> =>
@@ -404,10 +463,10 @@ export const api = {
 
     getAll: (): Promise<UsersListResponse> => requestJson('/users'),
 
-    updateProfile: (profileColor: ProfileColor): Promise<ProfileUpdatedResponse> =>
+    updateProfile: (update: ProfileUpdate): Promise<ProfileUpdatedResponse> =>
       requestJson('/users/me/profile', {
         method: 'PATCH',
-        body: JSON.stringify({ profileColor }),
+        body: JSON.stringify(update),
       }),
   },
 
@@ -484,7 +543,10 @@ export const api = {
         body: JSON.stringify(subscription),
       });
       if (data.deletionToken && subscription.endpoint) {
-        localStorage.setItem(`push_deletion_token:${subscription.endpoint}`, data.deletionToken);
+        // Best-effort: the backend subscription already succeeded, so a failed
+        // write must not reject this call. unsubscribe() below falls back to
+        // the authenticated endpoint when the token is missing.
+        setLocalStorageItem(`push_deletion_token:${subscription.endpoint}`, data.deletionToken);
       }
       return data;
     },
@@ -498,18 +560,34 @@ export const api = {
     getStatus: (endpoint: string): Promise<PushStatusResponse> =>
       requestJson(`/push/status?endpoint=${encodeURIComponent(endpoint)}`),
 
+    /**
+     * Revoke the backend subscription for this endpoint. Best-effort on *both*
+     * paths: callers run it as the first half of a teardown whose second half
+     * is `PushSubscription.unsubscribe()`, and rejecting here would skip that
+     * and leave a live push endpoint on the device. A surviving backend row is
+     * the lesser leak — the next send to the now-dead endpoint gets a 410 and
+     * prunes it — so failures are logged and swallowed rather than propagated.
+     */
     unsubscribe: async (endpoint: string): Promise<void> => {
       const deletionToken = localStorage.getItem(`push_deletion_token:${endpoint}`);
-      if (!deletionToken) {
-        console.warn('No deletion token found for endpoint, skipping unsubscribe');
-        return;
+      try {
+        if (!deletionToken) {
+          // The deletion token can be lost (cleared storage, failed write). Fall
+          // back to the authenticated endpoint while the caller is still signed
+          // in — otherwise the backend subscription outlives the session and an
+          // ex-user on a shared device keeps receiving notifications.
+          await api.push.unsubscribeFromCurrentGroup(endpoint);
+          return;
+        }
+        await fetch(`${API_BASE_URL}/push/unsubscribe`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ endpoint, deletionToken }),
+        });
+        localStorage.removeItem(`push_deletion_token:${endpoint}`);
+      } catch (error) {
+        console.error('Failed to revoke the push subscription on the server:', error);
       }
-      await fetch(`${API_BASE_URL}/push/unsubscribe`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify({ endpoint, deletionToken }),
-      });
-      localStorage.removeItem(`push_deletion_token:${endpoint}`);
     },
 
     // Native push (FCM) device token methods

@@ -1,7 +1,13 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { api } from '../../lib/api';
 import type { ReactionSummary, ReactionWithUser } from './types';
-import { toggleReaction, invertReaction, type ReactionActor } from './reactions';
+import {
+  toggleReaction,
+  invertReaction,
+  applyReaction,
+  summarizeReactions,
+  type ReactionActor,
+} from './reactions';
 
 export interface ReactionKeyState {
   reactions: ReactionSummary[];
@@ -16,11 +22,26 @@ interface ToggleReactionCallbacks {
    * Called once the API call confirms the mutation, before the optional
    * details refetch. Distinct from onOptimisticUpdate because some callers
    * (the lightbox, syncing the feed's photo list) must not propagate a
-   * mutation that might still be rolled back. Skipped if a newer toggle of
-   * the same photo+emoji has since started — see the "last toggle wins"
-   * note on toggleReactionForPhoto.
+   * mutation that might still be rolled back.
+   *
+   * Receives a reconciler for the same reason onRollback does: it applies
+   * this toggle's own delta to whatever the target's LIVE state is when this
+   * fires, so a concurrent toggle of a *different* emoji that settled first
+   * survives instead of being clobbered by the snapshot this toggle captured
+   * when it began. The target is the state being synced *from* this toggle
+   * (e.g. the feed's copy of the photo) — one that has NOT already had this
+   * toggle's optimistic update applied, since re-applying it there would
+   * double-count. As with onRollback, each field of ReactionKeyState is
+   * derived independently of the others (see reactions.ts), so the reconciler
+   * can be applied per field.
+   *
+   * Unlike onRollback this fires even when a newer toggle of the same
+   * photo+emoji has since started: the newer toggle computed its own direction
+   * against state that already included this one, so its delta only composes
+   * correctly if this one is delivered too. (Suppressing it would leave the
+   * target short by exactly this toggle's confirmed change.)
    */
-  onSuccess?: (next: ReactionKeyState) => void;
+  onSuccess?: (reconcile: (live: ReactionKeyState) => ReactionKeyState) => void;
   /**
    * Called after the API call fails, undoing only this toggle's own effect.
    * Receives a reconciler rather than a value: apply it to whatever the
@@ -34,6 +55,21 @@ interface ToggleReactionCallbacks {
    * started — see the "last toggle wins" note on toggleReactionForPhoto.
    */
   onRollback: (reconcile: (live: ReactionKeyState) => ReactionKeyState) => void;
+  /**
+   * Called with the server's authoritative reaction state for the photo after
+   * a toggle failed and the refetch that failure triggers has resolved. The
+   * value is absolute, not a delta: apply it verbatim to every holder of that
+   * photo's state, replacing whatever optimistic value they hold.
+   *
+   * A failure means client and server may have diverged in a way deltas can't
+   * repair — the request may still have been applied server-side, and a
+   * concurrent same-emoji toggle will have picked its direction based on the
+   * failed toggle's optimistic result. Callers that share a photo's state with
+   * another holder (the lightbox, which syncs the feed via onSuccess) must
+   * implement this; a caller that owns the only copy of the state can omit it,
+   * in which case no refetch is issued.
+   */
+  onResync?: (authoritative: ReactionKeyState & { details: ReactionWithUser[] }) => void;
   /**
    * Called with a fresh detail list once it's fetched after a mutation that
    * had no details loaded yet. The caller decides whether it still cares
@@ -61,10 +97,13 @@ export function usePhotoReactionsEngine() {
   const pendingMutationCounts = useRef<Map<string, number>>(new Map());
   const inFlightLoads = useRef<Set<string>>(new Set());
   // One counter per photo+emoji, bumped each time a toggle of that emoji
-  // starts. Settle-time callbacks (onSuccess/onRollback) only fire for the
-  // toggle that was most recently started for its key — see
-  // toggleReactionForPhoto for why.
+  // starts. Only the toggle that was most recently started for its key may
+  // roll back — see toggleReactionForPhoto for why.
   const emojiMutationVersions = useRef<Map<string, number>>(new Map());
+  // Photos whose local state can no longer be trusted because a toggle on them
+  // failed. Cleared once a resync has delivered the server's answer — see
+  // resyncDivergedPhoto.
+  const divergedPhotos = useRef<Set<string>>(new Set());
 
   const bumpCacheVersion = useCallback((photoId: string) => {
     cacheVersions.current.set(photoId, (cacheVersions.current.get(photoId) ?? 0) + 1);
@@ -152,23 +191,68 @@ export function usePhotoReactionsEngine() {
     [fetchDetails]
   );
 
+  /**
+   * Replace a diverged photo's state with the server's, if it is marked
+   * diverged and it's safe to look. Returns whether the resync happened.
+   *
+   * Deferred while another mutation on the photo is still in flight (and
+   * abandoned if one starts mid-fetch, which fetchDetails detects): the answer
+   * would be stale the moment it arrived. The mark survives, so whichever
+   * toggle settles last retries this and the photo is left consistent.
+   */
+  const resyncDivergedPhoto = useCallback(
+    async (
+      photoId: string,
+      actor: ReactionActor,
+      onResync: ToggleReactionCallbacks['onResync']
+    ): Promise<boolean> => {
+      if (!divergedPhotos.current.has(photoId)) return false;
+      // Without somewhere to deliver it, a refetch is pure cost; leave the mark
+      // for a later toggle that does supply a handler.
+      if (onResync === undefined) return false;
+      if (hasPendingMutation(photoId)) return false;
+
+      try {
+        const details = await fetchDetails(photoId);
+        if (details === undefined) return false;
+        divergedPhotos.current.delete(photoId);
+        onResync(summarizeReactions(details, actor.id));
+        return true;
+      } catch (err) {
+        console.error('Failed to resync reactions after a failed toggle:', err);
+        return false;
+      }
+    },
+    [fetchDetails, hasPendingMutation]
+  );
+
   const toggleReactionForPhoto = useCallback(
     async (
       photoId: string,
       current: ReactionKeyState,
       emoji: string,
       actor: ReactionActor,
-      { onOptimisticUpdate, onSuccess, onRollback, onDetailsRefreshed }: ToggleReactionCallbacks
+      {
+        onOptimisticUpdate,
+        onSuccess,
+        onRollback,
+        onResync,
+        onDetailsRefreshed,
+      }: ToggleReactionCallbacks
     ) => {
       // Two toggles of the *same* emoji on the same photo can overlap (a
-      // rapid double-tap, or a retry before the first settles). Which one
-      // should win isn't reconstructible in general once both have failed or
-      // raced each other server-side, so rather than guess we pick a
+      // rapid double-tap, or a retry before the first settles). The newer one
+      // picks its direction from state that already includes the older one's
+      // optimistic result, so their *confirmed* deltas compose and both are
+      // reported through onSuccess. A *rollback* is different: it cannot be
+      // composed, because undoing the older toggle would invalidate the
+      // direction the newer one chose. So rather than guess we pick a
       // documented, deterministic rule: only the most recently *started*
-      // toggle for a given photo+emoji is allowed to report its outcome
-      // (onSuccess/onRollback). An earlier one that settles after being
-      // superseded is a no-op — the newer toggle already reflects the latest
-      // user intent and owns reconciling that emoji's state going forward.
+      // toggle for a given photo+emoji may roll back. An earlier one that
+      // fails after being superseded instead marks the photo diverged, and the
+      // last toggle to settle resyncs it from the server (see
+      // resyncDivergedPhoto) — the only reliable repair once the client's
+      // deltas no longer describe what the server did.
       // Toggles of a *different* emoji (or a different photo) are unaffected
       // and always report their own outcome.
       const emojiKey = `${photoId} ${emoji}`;
@@ -200,6 +284,7 @@ export function usePhotoReactionsEngine() {
         console.error('Failed to update reaction:', err);
         endPendingMutation(photoId);
         bumpCacheVersion(photoId);
+        divergedPhotos.current.add(photoId);
         if (isLatestForEmoji()) {
           const reconcile = (live: ReactionKeyState) =>
             invertReaction(live, emoji, actor, isRemoving);
@@ -215,14 +300,19 @@ export function usePhotoReactionsEngine() {
           }
           onRollback(reconcile);
         }
+        // The rollback above is a best-effort immediate correction; this is
+        // the one that makes the state actually match the server.
+        await resyncDivergedPhoto(photoId, actor, onResync);
         return;
       }
 
-      if (isLatestForEmoji()) {
-        onSuccess?.({ reactions, userReactions, details });
-      }
+      onSuccess?.((live) => applyReaction(live, emoji, actor, isRemoving));
 
       endPendingMutation(photoId);
+      // A resync supersedes the detail refresh below — it fetches the same
+      // data and delivers strictly more of it.
+      if (await resyncDivergedPhoto(photoId, actor, onResync)) return;
+
       if (current.details === undefined && !hasPendingMutation(photoId)) {
         try {
           const refreshed = await fetchDetails(photoId);
@@ -234,7 +324,14 @@ export function usePhotoReactionsEngine() {
         }
       }
     },
-    [bumpCacheVersion, beginPendingMutation, endPendingMutation, hasPendingMutation, fetchDetails]
+    [
+      bumpCacheVersion,
+      beginPendingMutation,
+      endPendingMutation,
+      hasPendingMutation,
+      fetchDetails,
+      resyncDivergedPhoto,
+    ]
   );
 
   // Every member is individually memoized, so memoize the container too:

@@ -1,29 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { MemberJson } from '@photodrop/common/apiTypes';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
+import { displayNameFromInput } from '../lib/displayName';
 import { useFocusRestore } from '../lib/hooks';
-import type { ProfileColor } from '../lib/profileColors';
-import { ROLE_DISPLAY_NAMES, type MembershipRole } from '../lib/roles';
+import { ROLE_DISPLAY_NAMES } from '../lib/roles';
 import { setNativeScreenshotProtection } from '../lib/privacyScreen';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { InviteForm } from './InviteForm';
-
-interface Member {
-  userId: string;
-  name: string;
-  email: string;
-  profileColor: ProfileColor;
-  role: MembershipRole;
-  joinedAt: number;
-  imageProtection: boolean;
-}
+import { NameField } from './NameField';
 
 export function MembersList() {
   const { user, currentGroup, onGroupDeleted } = useAuth();
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<MemberJson[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,10 +30,13 @@ export function MembersList() {
     memberName: string;
     newRole: 'admin' | 'member'; // Owners cannot be changed, so only admin/member allowed
   } | null>(null);
-  const [editingName, setEditingName] = useState<{
+  const [editingDisplayName, setEditingDisplayName] = useState<{
     memberId: string;
-    currentName: string;
-    newName: string;
+    /** The member's own name — what clearing the override reverts to. */
+    canonicalName: string;
+    /** The stored override, so an unchanged field can skip the request. */
+    savedDisplayName: string | null;
+    value: string;
   } | null>(null);
   const [deleteGroupModal, setDeleteGroupModal] = useState<{
     stage: 'closed' | 'loading-count' | 'confirm' | 'deleting' | 'error';
@@ -105,22 +100,20 @@ export function MembersList() {
     setError(null);
 
     // Optimistic update
-    const previousMembers = members;
     setMembers((prev) =>
       prev.map((m) => (m.userId === memberId ? { ...m, imageProtection: enabled } : m))
     );
 
     try {
       await api.groups.updateMemberImageProtection(currentGroup.id, memberId, enabled);
-      // If toggling own protection, update the privacy screen and notify AuthContext
-      if (memberId === user?.id) {
-        await setNativeScreenshotProtection(enabled);
-        window.dispatchEvent(new CustomEvent('imageProtectionChanged', { detail: { enabled } }));
-      }
-      showSuccess(`Image protection ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);
     } catch (err) {
-      // Revert optimistic update
-      setMembers(previousMembers);
+      // Undo only this member's own change against the live list, rather than
+      // restoring a whole-list snapshot taken before the request: another
+      // member's toggle can land while this one is in flight (only the toggled
+      // row is disabled), and a snapshot restore would silently discard it.
+      setMembers((prev) =>
+        prev.map((m) => (m.userId === memberId ? { ...m, imageProtection: !enabled } : m))
+      );
       console.error('Failed to update image protection:', err);
       if (err instanceof ApiError) {
         setError(err.message);
@@ -129,9 +122,22 @@ export function MembersList() {
       } else {
         setError('Failed to update image protection');
       }
+      return;
     } finally {
       setActionLoading(null);
     }
+
+    // If toggling own protection, update the privacy screen and notify AuthContext.
+    // The server has already persisted the change by this point, so the native
+    // call is best-effort — failing it must not roll the UI back to assert the
+    // opposite of what's stored (AuthContext applies it the same way).
+    if (memberId === user?.id) {
+      setNativeScreenshotProtection(enabled).catch((err) => {
+        console.error('Failed to update native screenshot protection:', err);
+      });
+      window.dispatchEvent(new CustomEvent('imageProtectionChanged', { detail: { enabled } }));
+    }
+    showSuccess(`Image protection ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);
   };
 
   const handleRoleChangeRequest = (
@@ -176,18 +182,23 @@ export function MembersList() {
     }
   };
 
-  const handleEditNameRequest = (memberId: string, currentName: string) => {
-    setEditingName({ memberId, currentName, newName: currentName });
+  const handleDisplayNameRequest = (member: MemberJson) => {
+    setEditingDisplayName({
+      memberId: member.userId,
+      canonicalName: member.canonicalName,
+      savedDisplayName: member.displayName,
+      value: member.displayName ?? '',
+    });
   };
 
-  const handleEditNameConfirm = async () => {
-    if (!currentGroup || !editingName) return;
+  const handleDisplayNameConfirm = async () => {
+    if (!currentGroup || !editingDisplayName) return;
 
-    const { memberId, currentName, newName } = editingName;
-    const trimmedName = newName.trim();
+    const { memberId, savedDisplayName, value } = editingDisplayName;
+    const nextDisplayName = displayNameFromInput(value);
 
-    if (trimmedName === currentName) {
-      setEditingName(null);
+    if (nextDisplayName === savedDisplayName) {
+      setEditingDisplayName(null);
       editNameButtonRefs.current.get(memberId)?.focus();
       return;
     }
@@ -196,28 +207,49 @@ export function MembersList() {
     setError(null);
 
     try {
-      await api.groups.updateMemberName(currentGroup.id, memberId, trimmedName);
-      setMembers((prev) =>
-        prev.map((m) => (m.userId === memberId ? { ...m, name: trimmedName } : m))
+      const updated = await api.groups.setMemberDisplayName(
+        currentGroup.id,
+        memberId,
+        nextDisplayName
       );
-      setEditingName(null);
+      // Take every name from the response rather than deriving them: it is
+      // re-read server-side after the write, so a canonical name changed by the
+      // member meanwhile lands here too. Only this member's row is touched, so
+      // a change to another row made while this request was in flight survives.
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.userId === memberId
+            ? {
+                ...m,
+                name: updated.name,
+                displayName: updated.displayName,
+                canonicalName: updated.canonicalName,
+              }
+            : m
+        )
+      );
+      setEditingDisplayName(null);
       editNameButtonRefs.current.get(memberId)?.focus();
-      showSuccess(`Name updated to ${trimmedName}`);
+      showSuccess(
+        updated.displayName === null
+          ? `${updated.name} is now shown under their own name`
+          : `Now showing as ${updated.name} in ${currentGroup.name}`
+      );
     } catch (err) {
-      console.error('Failed to update name:', err);
+      console.error('Failed to update display name:', err);
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('Failed to update name');
+        setError('Failed to update display name');
       }
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleEditNameCancel = () => {
-    const memberIdToFocus = editingName?.memberId;
-    setEditingName(null);
+  const handleDisplayNameCancel = () => {
+    const memberIdToFocus = editingDisplayName?.memberId;
+    setEditingDisplayName(null);
     if (memberIdToFocus) {
       editNameButtonRefs.current.get(memberIdToFocus)?.focus();
     }
@@ -313,6 +345,8 @@ export function MembersList() {
     );
   }
 
+  const groupName = currentGroup?.name ?? 'this group';
+
   return (
     <div className="card">
       <div className="flex items-start justify-between mb-6">
@@ -392,26 +426,49 @@ export function MembersList() {
         />
       )}
 
-      {editingName && (
+      {editingDisplayName && (
         <ConfirmModal
-          title="Edit name"
-          message={`Enter a new name for ${editingName.currentName}:`}
+          title="Display name"
+          message={
+            editingDisplayName.savedDisplayName === null ? (
+              <>
+                <span className="font-medium text-text-primary">
+                  {editingDisplayName.canonicalName}
+                </span>{' '}
+                is shown under their own name. Give them a different name just for {groupName} —
+                their name in other groups is unaffected.
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-text-primary">
+                  {editingDisplayName.canonicalName}
+                </span>{' '}
+                is shown as{' '}
+                <span className="font-medium text-text-primary">
+                  {editingDisplayName.savedDisplayName}
+                </span>{' '}
+                in {groupName}. Their own name is theirs alone to change; this one applies only to{' '}
+                {groupName}.
+              </>
+            )
+          }
           confirmLabel="Save"
-          isLoading={actionLoading === editingName.memberId}
-          confirmDisabled={editingName.newName.trim().length === 0}
-          onConfirm={handleEditNameConfirm}
-          onCancel={handleEditNameCancel}
+          isLoading={actionLoading === editingDisplayName.memberId}
+          onConfirm={handleDisplayNameConfirm}
+          onCancel={handleDisplayNameCancel}
         >
-          <input
-            type="text"
-            value={editingName.newName}
-            onChange={(e) => setEditingName({ ...editingName, newName: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && editingName.newName.trim().length > 0) {
-                handleEditNameConfirm();
-              }
-            }}
-            className="input-field w-full"
+          <NameField
+            id="member-display-name"
+            label={`Display name in ${groupName}`}
+            value={editingDisplayName.value}
+            onChange={(value) => setEditingDisplayName({ ...editingDisplayName, value })}
+            onEnter={handleDisplayNameConfirm}
+            // An empty field means "no override", which shows the member's own
+            // name — so that is what the placeholder previews.
+            placeholder={editingDisplayName.canonicalName}
+            hint={`Leave empty to ${
+              editingDisplayName.savedDisplayName === null ? 'keep' : 'go back to'
+            } showing their own name, ${editingDisplayName.canonicalName}.`}
             autoFocus
           />
         </ConfirmModal>
@@ -444,8 +501,28 @@ export function MembersList() {
                     <div className="font-medium text-text-primary truncate">
                       {member.name}
                       {isCurrentUser && <span className="ml-2 text-xs text-text-muted">(you)</span>}
+                      {member.displayName !== null && (
+                        <span
+                          className="ml-2 align-middle text-[10px] font-medium uppercase tracking-wide py-0.5 px-1.5 rounded bg-bg-tertiary text-text-muted"
+                          title={`A display name is set for ${groupName}, so this is not their own name`}
+                        >
+                          Display name
+                        </span>
+                      )}
                     </div>
-                    <div className="text-sm text-text-secondary truncate">{member.email}</div>
+                    <div className="text-sm text-text-secondary truncate">
+                      {member.displayName !== null && (
+                        <>
+                          {/* Labelled, not merely set beside the email: two bare
+                              names on one line read as two different people. */}
+                          <span>Own name: {member.canonicalName}</span>
+                          <span className="mx-1.5 text-text-muted" aria-hidden="true">
+                            ·
+                          </span>
+                        </>
+                      )}
+                      {member.email}
+                    </div>
                   </div>
                 </div>
 
@@ -458,11 +535,11 @@ export function MembersList() {
                         editNameButtonRefs.current.delete(member.userId);
                       }
                     }}
-                    onClick={() => handleEditNameRequest(member.userId, member.name)}
+                    onClick={() => handleDisplayNameRequest(member)}
                     disabled={isLoading}
                     className="p-2 text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer"
-                    title="Edit name"
-                    aria-label={`Edit ${member.name}'s name`}
+                    title={`Set display name in ${groupName}`}
+                    aria-label={`Set ${member.name}'s display name in ${groupName}`}
                   >
                     <svg
                       width="18"

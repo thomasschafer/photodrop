@@ -57,6 +57,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -67,9 +68,16 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   );
   const reactionsEngine = usePhotoReactionsEngine();
   const [uploadButtonRef, restoreUploadFocus] = useFocusRestore<HTMLButtonElement>();
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const feedListRef = useRef<HTMLDivElement>(null);
+  // How many rows the server has already served us, which is what the next
+  // page's offset must be. Deliberately not photos.length: duplicates are
+  // dropped on the way in, so the two diverge as soon as anything is uploaded
+  // mid-scroll, and paging by the kept count would re-request the same rows.
+  const nextOffsetRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
   const { photoId } = useParams<{ photoId: string }>();
@@ -92,7 +100,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       setError(null);
       const data = await api.photos.list(20, 0);
       setPhotos(data.photos);
+      nextOffsetRef.current = data.photos.length;
       setHasMore(data.hasMore ?? false);
+      setLoadMoreFailed(false);
       setFeedReactionDetails(new Map());
       reactionsEngine.resetCache();
     } catch (err) {
@@ -107,36 +117,87 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
     try {
       setLoadingMore(true);
-      const data = await api.photos.list(20, photos.length);
-      setPhotos((prev) => [...prev, ...data.photos]);
-      setHasMore(data.hasMore ?? false);
+      setLoadMoreFailed(false);
+      const data = await api.photos.list(20, nextOffsetRef.current);
+      // Count what the server served, not what we chose to keep. Offset paging
+      // over a newest-first list means an upload since the last page shifts
+      // everything down and repeats rows we already hold; advancing by the
+      // deduped count would ask for the same rows forever.
+      nextOffsetRef.current += data.photos.length;
+      // Those repeats still must not reach the list: duplicate ids collide as
+      // React keys and make the lightbox's findIndex resolve to the wrong copy.
+      setPhotos((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        return [...prev, ...data.photos.filter((p) => !seen.has(p.id))];
+      });
+      // A page of no rows at all cannot advance the offset, so honouring a
+      // hasMore that contradicts it would re-request the same empty page
+      // forever. Zero rows served is the end of the feed whatever the flag
+      // says. This is not the earlier mistake of counting deduped rows: a page
+      // of duplicates still advances the offset and paging continues.
+      setHasMore(data.photos.length > 0 && (data.hasMore ?? false));
     } catch (err) {
       console.error('Failed to load more photos:', err);
+      // Nothing was appended, so the sentinel is still on screen and every
+      // trigger below would fire again immediately. Stop until the user acts.
+      setLoadMoreFailed(true);
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, photos.length]);
+  }, [loadingMore, hasMore]);
 
   useEffect(() => {
     loadPhotos();
   }, []);
 
-  // Infinite scroll: observe sentinel element
+  // Paging used to rely solely on an IntersectionObserver over the sentinel.
+  // A notification it failed to deliver stranded the feed for good: nothing
+  // re-asked, and once the user is at the bottom there is no further scroll to
+  // trigger it again. That was reproducible on CI under WebKit, where the
+  // second page was never even requested. So the sentinel is consulted
+  // directly instead, from every event that can bring it into view.
+  const maybeLoadMore = useCallback(() => {
+    if (!hasMore || loading || loadingMore || loadMoreFailed) return;
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+
+    const { top, bottom } = sentinel.getBoundingClientRect();
+    if (top < window.innerHeight && bottom > 0) {
+      loadMorePhotos();
+    }
+  }, [hasMore, loading, loadingMore, loadMoreFailed, loadMorePhotos]);
+
+  // Re-checked after each page settles (the viewport may still not be full)
+  // and on every event that can move the sentinel relative to the viewport.
+  //
+  // The ResizeObserver is the one that matters most, and window resize would
+  // not substitute for it. Each thumbnail is a 200px placeholder until its
+  // authenticated fetch resolves, then grows to as much as 400px, so a page of
+  // twenty can add thousands of pixels after first paint. Scrolling to the
+  // bottom of the short document leaves the sentinel visible, and then the
+  // growth pushes it back below the fold with no scroll and no viewport change
+  // to announce it. That is what stranded the feed at twenty photos on CI.
+  //
+  // It watches the list rather than the document element, which is pinned to
+  // the viewport by `html, body, #root { height: 100% }` and so never reports
+  // content growth at all.
   useEffect(() => {
-    if (!loadMoreRef.current || !hasMore || loading) return;
+    maybeLoadMore();
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !loadingMore) {
-          loadMorePhotos();
-        }
-      },
-      { threshold: 0.1 }
-    );
+    window.addEventListener('scroll', maybeLoadMore, { passive: true });
+    window.addEventListener('resize', maybeLoadMore);
+    const contentObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => maybeLoadMore());
+    if (feedListRef.current) {
+      contentObserver?.observe(feedListRef.current);
+    }
 
-    observer.observe(loadMoreRef.current);
-    return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, loadMorePhotos]);
+    return () => {
+      window.removeEventListener('scroll', maybeLoadMore);
+      window.removeEventListener('resize', maybeLoadMore);
+      contentObserver?.disconnect();
+    };
+  }, [maybeLoadMore, photos.length]);
 
   useEffect(() => {
     if (!loading && photoId && photos.length > 0 && selectedPhotoIndex === -1) {
@@ -204,12 +265,24 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    };
+  }, []);
+
   const handleUploadComplete = () => {
     setShowUploadModal(false);
     restoreUploadFocus();
     loadPhotos();
     setSuccessMessage('Photo uploaded successfully');
-    setTimeout(() => setSuccessMessage(null), 3000);
+    // Restart the timer rather than stacking them, so a second upload within
+    // 3s isn't cut short by the first upload's pending timeout.
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    successTimeoutRef.current = setTimeout(() => {
+      successTimeoutRef.current = null;
+      setSuccessMessage(null);
+    }, 3000);
   };
 
   const handleUploadModalClose = () => {
@@ -297,6 +370,25 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           });
         },
         onDetailsRefreshed: (details) => setPhotoReactionDetails(photoId, details),
+        // Absolute, not a delta. When two toggles of the same emoji overlap
+        // and one fails, only the newer may roll back, so the pair can no
+        // longer be composed back to the server's answer — the engine refetches
+        // it instead. This matters more here than in the lightbox: `photos` is
+        // the copy the lightbox re-seeds from, so leaving it wrong spreads.
+        onResync: (authoritative) => {
+          setPhotos((prev) =>
+            prev.map((p) =>
+              p.id === photoId
+                ? {
+                    ...p,
+                    reactions: authoritative.reactions,
+                    userReactions: authoritative.userReactions,
+                  }
+                : p
+            )
+          );
+          setPhotoReactionDetails(photoId, authoritative.details);
+        },
       }
     );
   };
@@ -382,7 +474,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             {successMessage}
           </div>
         )}
-        <div className="flex flex-col gap-6" role="list" aria-label="Photo feed">
+        <div ref={feedListRef} className="flex flex-col gap-6" role="list" aria-label="Photo feed">
           {photos.map((photo, index) => (
             <article
               key={photo.id}
@@ -467,6 +559,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             className="h-16 flex items-center justify-center text-text-muted text-sm"
           >
             {loadingMore && 'Loading more photos...'}
+            {loadMoreFailed && !loadingMore && (
+              <span className="flex items-center gap-2">
+                <span role="alert">Couldn&apos;t load more photos.</span>
+                <Button onClick={loadMorePhotos} size="sm" variant="secondary">
+                  Try again
+                </Button>
+              </span>
+            )}
           </div>
         )}
       </PullToRefresh>
@@ -480,9 +580,13 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             navigate(`/photo/${photos[index].id}${location.search}`, { replace: true });
           }}
           isAdmin={isAdmin}
-          onPhotoUpdate={(updatedPhoto) => {
+          onPhotoUpdate={(updatedPhotoId, update) => {
             setPhotos((prev) =>
-              prev.map((p) => (p.id === updatedPhoto.id ? { ...p, ...updatedPhoto } : p))
+              prev.map((p) =>
+                p.id === updatedPhotoId
+                  ? { ...p, ...(typeof update === 'function' ? update(p) : update) }
+                  : p
+              )
             );
           }}
         />

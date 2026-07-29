@@ -110,11 +110,14 @@
           (cd backend && echo "y" | npx wrangler d1 migrations apply photodrop-db --local)
           echo ""
 
-          if [ ! -d "$HOME/.cache/ms-playwright" ]; then
-            echo "Installing Playwright browsers..."
-            npx playwright install chromium
-            echo ""
-          fi
+          # Let Playwright decide what is missing rather than guessing from a
+          # cache path. It already skips browsers it has, and it knows where
+          # they live on each OS — the cache is under ~/.cache on Linux but
+          # ~/Library/Caches on macOS, and the directory name carries a build
+          # revision that changes with the Playwright version.
+          echo "Ensuring Playwright browsers..."
+          npx playwright install chromium webkit
+          echo ""
 
           npx playwright test "$@"
         '';
@@ -128,6 +131,11 @@
 
           npm install
 
+          # The e2e suite lives outside the workspaces, so it needs its own
+          # pass or nothing formats it.
+          npm run format
+
+          echo ""
           cd backend
           npm run format
           npm run lint
@@ -152,6 +160,9 @@
 
           npm install
 
+          npm run format:fix
+
+          echo ""
           cd backend
           npm run format:fix
           npm run lint:fix

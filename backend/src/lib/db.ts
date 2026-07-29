@@ -26,6 +26,8 @@ export interface Membership {
   role: MembershipRole;
   joined_at: number;
   image_protection: number;
+  /** Per-group override of the user's canonical name; null when unset. */
+  display_name: string | null;
 }
 
 export interface MembershipWithGroup extends Membership {
@@ -34,9 +36,66 @@ export interface MembershipWithGroup extends Membership {
 }
 
 export interface MembershipWithUser extends Membership {
+  /** Group-resolved name: the display name override when set, else `users.name`. */
   user_name: string;
+  /**
+   * The user's own `users.name`, the same in every group and writable only by
+   * the user themselves. Carried alongside `user_name` so an admin surface can
+   * show whose name an override stands in for; never surface it to non-admins.
+   */
+  canonical_name: string;
   user_email: string;
   user_profile_color: ProfileColor;
+}
+
+/**
+ * SQL for the name to show for a user inside a group: their per-group display
+ * name when one is set, otherwise their canonical name. Queries embedding this
+ * must alias memberships as `m` and users as `u`, and must join the membership
+ * row for the group whose context the name is displayed in — resolving against
+ * any other group's membership would leak one group's override into another.
+ *
+ * Shared by every read path that renders a name so they cannot drift: a query
+ * that resolved `u.name` directly would show the canonical name next to
+ * overridden ones.
+ */
+const RESOLVED_MEMBER_NAME = 'COALESCE(m.display_name, u.name)';
+
+/**
+ * The same name, for queries that LEFT JOIN the membership because the row may
+ * be gone: a user's comments, reactions and photos outlive their membership.
+ *
+ * Resolving to NULL rather than falling through to `u.name` is the whole point.
+ * A member who set a display name did so to keep their canonical name from the
+ * group; removing them must not hand it over, and `COALESCE(m.display_name,
+ * u.name)` over a missing membership row does exactly that, retroactively, on
+ * every trace they left behind. Callers decide what to show instead — the
+ * group-scoped snapshot they already store, or FORMER_MEMBER_NAME.
+ */
+const RESOLVED_MEMBER_NAME_IF_MEMBER = `CASE WHEN m.user_id IS NULL THEN NULL ELSE ${RESOLVED_MEMBER_NAME} END`;
+
+/**
+ * Shown in place of a name for someone who has left the group but whose photos
+ * and reactions it still displays. Neutral by design: the group learns that the
+ * person is no longer a member, which it can see anyway, and nothing else.
+ */
+export const FORMER_MEMBER_NAME = 'Former member';
+
+/**
+ * The name to show for the author of something the group still displays after
+ * the author has gone, given the group-resolved name (null once they are not a
+ * member) and whether their account still exists.
+ *
+ * Null means the account itself is gone, which callers render differently from a
+ * former member — the two states are distinct and both are already visible from
+ * other columns, so collapsing them would only lose information.
+ */
+function pastAuthorName(resolvedName: string | null, accountExists: boolean): string | null {
+  if (resolvedName !== null) {
+    return resolvedName;
+  }
+
+  return accountExists ? FORMER_MEMBER_NAME : null;
 }
 
 export interface MagicLinkToken {
@@ -79,6 +138,15 @@ export interface PhotoReactionWithUser extends PhotoReaction {
   user_profile_color: ProfileColor;
 }
 
+/**
+ * The raw row behind a PhotoReactionWithUser: the name is unresolved until the
+ * reactor's membership is accounted for, so it is nullable here and never in the
+ * type callers see.
+ */
+interface PhotoReactionRow extends Omit<PhotoReactionWithUser, 'user_name'> {
+  user_name: string | null;
+}
+
 export interface Comment {
   id: string;
   photo_id: string;
@@ -96,7 +164,11 @@ export interface PhotoWithCounts extends Photo {
   comment_count: number;
   reactions: ReactionSummary[];
   user_reactions: string[];
-  /** Null when the uploader's account has since been deleted. */
+  /**
+   * Null when the uploader's account has since been deleted; FORMER_MEMBER_NAME
+   * when the account exists but has left this group, since the name it resolved
+   * to was the group's to see only while they were in it.
+   */
   uploader_name: string | null;
   uploader_profile_color: ProfileColor | null;
 }
@@ -123,6 +195,21 @@ export async function getGroup(db: D1Database, groupId: string): Promise<Group |
   return result;
 }
 
+/**
+ * Ownership lives on `groups.owner_id`, not on the membership row (whose role
+ * is only 'admin' | 'member'), so every "owners are exempt" rule has to ask the
+ * group. Callers that mutate a membership must check this *before* taking any
+ * other action on the member.
+ */
+export async function isGroupOwner(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<boolean> {
+  const group = await getGroup(db, groupId);
+  return group?.owner_id === userId;
+}
+
 export async function updateMemberImageProtection(
   db: D1Database,
   userId: string,
@@ -134,6 +221,69 @@ export async function updateMemberImageProtection(
     .bind(enabled ? 1 : 0, userId, groupId)
     .run();
   return result.meta.changes > 0;
+}
+
+/** Pass null to clear the override and fall back to the user's canonical name. */
+export async function updateMemberDisplayName(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  displayName: string | null
+): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE memberships SET display_name = ? WHERE user_id = ? AND group_id = ?')
+    .bind(displayName, userId, groupId)
+    .run();
+  return result.meta.changes > 0;
+}
+
+export interface MemberNames {
+  /** The name this group shows: the override when set, else the canonical name. */
+  resolvedName: string;
+  /** The user's own name, identical in every group and only theirs to change. */
+  canonicalName: string;
+}
+
+/**
+ * Both names a user has inside a group. Null when the user has no membership of
+ * that group (or no longer exists), which callers must handle rather than
+ * falling back to the canonical name — a non-member has no resolved name in the
+ * group at all.
+ */
+export async function getMemberNames(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<MemberNames | null> {
+  const result = await db
+    .prepare(
+      `SELECT ${RESOLVED_MEMBER_NAME} as resolved_name, u.name as canonical_name
+       FROM memberships m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.user_id = ? AND m.group_id = ?`
+    )
+    .bind(userId, groupId)
+    .first<{ resolved_name: string; canonical_name: string }>();
+
+  if (!result) {
+    return null;
+  }
+
+  return { resolvedName: result.resolved_name, canonicalName: result.canonical_name };
+}
+
+/**
+ * The name to show for a user inside a group, for callers that must not handle
+ * the canonical name at all (it is not theirs to render).
+ */
+export async function getResolvedMemberName(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<string | null> {
+  const names = await getMemberNames(db, userId, groupId);
+
+  return names?.resolvedName ?? null;
 }
 
 // User functions
@@ -191,7 +341,7 @@ export async function getUserMemberships(
 ): Promise<MembershipWithGroup[]> {
   const result = await db
     .prepare(
-      `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, g.name as group_name, g.owner_id as group_owner_id
+      `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, m.display_name, g.name as group_name, g.owner_id as group_owner_id
        FROM memberships m
        JOIN groups g ON m.group_id = g.id
        WHERE m.user_id = ?
@@ -210,7 +360,9 @@ export async function getGroupMembers(
   const [membersResult, group] = await Promise.all([
     db
       .prepare(
-        `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, u.name as user_name, u.email as user_email, u.profile_color as user_profile_color
+        `SELECT m.user_id, m.group_id, m.role, m.joined_at, m.image_protection, m.display_name,
+                ${RESOLVED_MEMBER_NAME} as user_name, u.name as canonical_name,
+                u.email as user_email, u.profile_color as user_profile_color
          FROM memberships m
          JOIN users u ON m.user_id = u.id
          WHERE m.group_id = ?
@@ -234,8 +386,7 @@ export async function updateMembershipRole(
   role: 'admin' | 'member'
 ): Promise<{ success: boolean; error?: 'is_owner' }> {
   // Check if the user is the group owner - owners' roles cannot be changed
-  const group = await getGroup(db, groupId);
-  if (group?.owner_id === userId) {
+  if (await isGroupOwner(db, userId, groupId)) {
     return { success: false, error: 'is_owner' };
   }
 
@@ -253,8 +404,7 @@ export async function deleteMembership(
   groupId: string
 ): Promise<{ success: boolean; error?: 'is_owner' }> {
   // Check if the user is the group owner - owners cannot be removed
-  const group = await getGroup(db, groupId);
-  if (group?.owner_id === userId) {
+  if (await isGroupOwner(db, userId, groupId)) {
     return { success: false, error: 'is_owner' };
   }
 
@@ -288,27 +438,47 @@ export async function updateUserLastSeen(db: D1Database, userId: string): Promis
   await db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now, userId).run();
 }
 
-export async function updateUserName(
-  db: D1Database,
-  userId: string,
-  name: string
-): Promise<boolean> {
-  const result = await db
-    .prepare('UPDATE users SET name = ? WHERE id = ?')
-    .bind(name, userId)
-    .run();
-
-  return result.meta.changes > 0;
+/** The parts of a user's own profile they may change. */
+export interface UserProfileUpdate {
+  name?: string;
+  profileColor?: ProfileColor;
 }
 
-export async function updateUserProfileColor(
+/**
+ * Apply a profile update as one statement.
+ *
+ * D1 has no multi-statement transaction, so writing the fields separately would
+ * leave a request that failed halfway with one of them applied and a 500
+ * reporting that nothing was. Building a single UPDATE from whichever fields
+ * were sent is what makes the route's all-or-nothing response honest.
+ */
+export async function updateUserProfile(
   db: D1Database,
   userId: string,
-  color: ProfileColor
+  update: UserProfileUpdate
 ): Promise<boolean> {
+  const assignments: string[] = [];
+  const values: (string | ProfileColor)[] = [];
+
+  if (update.name !== undefined) {
+    assignments.push('name = ?');
+    values.push(update.name);
+  }
+
+  if (update.profileColor !== undefined) {
+    assignments.push('profile_color = ?');
+    values.push(update.profileColor);
+  }
+
+  // An update with nothing to set would be a statement that cannot be written,
+  // not a no-op to swallow: callers validate the body before getting here.
+  if (assignments.length === 0) {
+    throw new Error(`updateUserProfile called with no fields to update (user ${userId})`);
+  }
+
   const result = await db
-    .prepare('UPDATE users SET profile_color = ? WHERE id = ?')
-    .bind(color, userId)
+    .prepare(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`)
+    .bind(...values, userId)
     .run();
 
   return result.meta.changes > 0;
@@ -355,13 +525,20 @@ export async function getMagicLinkToken(
   return result;
 }
 
-export async function markMagicLinkTokenUsed(db: D1Database, token: string): Promise<void> {
+/**
+ * Atomically consume a magic link token. The conditional update means exactly
+ * one of any concurrent verification attempts can win; returns false when the
+ * token was already used (or does not exist).
+ */
+export async function markMagicLinkTokenUsed(db: D1Database, token: string): Promise<boolean> {
   const now = Math.floor(Date.now() / 1000);
 
-  await db
-    .prepare('UPDATE magic_link_tokens SET used_at = ? WHERE token = ?')
+  const result = await db
+    .prepare('UPDATE magic_link_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL')
     .bind(now, token)
     .run();
+
+  return result.meta.changes > 0;
 }
 
 /**
@@ -391,6 +568,117 @@ export async function markMagicLinkTokenPending(
 
   // If no rows updated, token is already pending, used, or doesn't exist
   return result.meta.changes > 0;
+}
+
+/**
+ * A refresh token session: one device's login, revocable server-side. See
+ * migrations/0015_sessions.sql for what each column means and why the table is
+ * shaped this way. The policy that decides when to rotate, accept or revoke
+ * lives in lib/sessions.ts — everything here is just the SQL.
+ */
+export interface Session {
+  jti: string;
+  previous_jti: string;
+  family_id: string;
+  user_id: string;
+  created_at: number;
+  rotated_at: number;
+  last_used_at: number;
+  expires_at: number;
+}
+
+export async function createSession(
+  db: D1Database,
+  userId: string,
+  familyId: string,
+  jti: string,
+  expiresAt: number
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+
+  // previous_jti is seeded to jti (and rotated_at to created_at) so a session
+  // that has never rotated still satisfies "both columns are always set".
+  await db
+    .prepare(
+      `INSERT INTO sessions (jti, previous_jti, family_id, user_id, created_at, rotated_at, last_used_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(jti, jti, familyId, userId, now, now, now, expiresAt)
+    .run();
+}
+
+export async function getSessionByFamily(
+  db: D1Database,
+  familyId: string
+): Promise<Session | null> {
+  return db.prepare('SELECT * FROM sessions WHERE family_id = ?').bind(familyId).first<Session>();
+}
+
+/**
+ * Atomically consume the presented refresh token and replace it with a new one.
+ * The guard is the whole point: it succeeds only for the family's *current*,
+ * unexpired token, so concurrent refreshes presenting the same token can only
+ * have one winner, and a replayed (already rotated) token can never rotate.
+ * Returns false without touching the row in every other case, leaving the
+ * caller to work out which case it was.
+ */
+export async function rotateSession(
+  db: D1Database,
+  familyId: string,
+  presentedJti: string,
+  newJti: string,
+  expiresAt: number
+): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const result = await db
+    .prepare(
+      `UPDATE sessions
+         SET jti = ?, previous_jti = ?, rotated_at = ?, last_used_at = ?, expires_at = ?
+       WHERE family_id = ? AND jti = ? AND expires_at > ?`
+    )
+    .bind(newJti, presentedJti, now, now, expiresAt, familyId, presentedJti, now)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+export async function touchSession(db: D1Database, familyId: string): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .prepare('UPDATE sessions SET last_used_at = ? WHERE family_id = ?')
+    .bind(now, familyId)
+    .run();
+}
+
+/** Revoke a session: on logout, and on refresh token reuse. */
+export async function deleteSessionFamily(db: D1Database, familyId: string): Promise<boolean> {
+  const result = await db.prepare('DELETE FROM sessions WHERE family_id = ?').bind(familyId).run();
+
+  return result.meta.changes > 0;
+}
+
+/**
+ * Delete at most `limit` expired sessions. Called opportunistically from the
+ * refresh path instead of from a cron, so the cost has to be bounded and
+ * predictable: the subquery walks idx_sessions_expires_at from the oldest
+ * expiry and stops at `limit`, so this is a short index range scan plus at most
+ * `limit` row deletes, whatever the size of the table. (LIMIT is expressed via
+ * the subquery because DELETE ... LIMIT is not available in stock SQLite.)
+ */
+export async function pruneExpiredSessions(db: D1Database, limit: number): Promise<number> {
+  const now = Math.floor(Date.now() / 1000);
+
+  const result = await db
+    .prepare(
+      `DELETE FROM sessions
+       WHERE jti IN (SELECT jti FROM sessions WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`
+    )
+    .bind(now, limit)
+    .run();
+
+  return result.meta.changes;
 }
 
 export async function createPhoto(
@@ -557,23 +845,31 @@ export async function createPushSubscription(
   endpoint: string,
   p256dh: string,
   auth: string
-): Promise<{ deletionToken: string }> {
+): Promise<{ deletionToken: string } | { error: 'endpoint_owned_by_another_user' }> {
   const id = generateId();
   const deletionToken = generateId();
   const now = Math.floor(Date.now() / 1000);
 
-  await db
+  // The conflict update is guarded on the owner so an existing row can never
+  // be silently reassigned (and its deletion token rotated) by another group
+  // member presenting the same endpoint. A guarded-out update reports zero
+  // changes, which is how the takeover attempt is detected atomically.
+  const result = await db
     .prepare(
       `INSERT INTO push_subscriptions (id, user_id, group_id, endpoint, p256dh, auth, deletion_token, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (endpoint, group_id) DO UPDATE SET
-         user_id = excluded.user_id,
          p256dh = excluded.p256dh,
          auth = excluded.auth,
-         deletion_token = excluded.deletion_token`
+         deletion_token = excluded.deletion_token
+       WHERE push_subscriptions.user_id = excluded.user_id`
     )
     .bind(id, userId, groupId, endpoint, p256dh, auth, deletionToken, now)
     .run();
+
+  if (result.meta.changes === 0) {
+    return { error: 'endpoint_owned_by_another_user' };
+  }
 
   return { deletionToken };
 }
@@ -591,19 +887,46 @@ export async function getUserPushSubscriptionsForGroup(
   return result.results || [];
 }
 
+/**
+ * Recipients of a group's notifications. The membership join is what revokes
+ * delivery: a removed member's rows are cleaned up on removal, but relying on
+ * that cleanup alone would keep notifying anyone whose cleanup was missed or
+ * failed, so the query itself refuses to return non-members.
+ */
 export async function getGroupPushSubscriptions(
   db: D1Database,
   groupId: string,
   excludeUserId?: string
 ): Promise<PushSubscription[]> {
+  const baseQuery = `SELECT ps.* FROM push_subscriptions ps
+       JOIN memberships m ON m.user_id = ps.user_id AND m.group_id = ps.group_id
+       WHERE ps.group_id = ?`;
+
   const statement = excludeUserId
-    ? db
-        .prepare('SELECT * FROM push_subscriptions WHERE group_id = ? AND user_id != ?')
-        .bind(groupId, excludeUserId)
-    : db.prepare('SELECT * FROM push_subscriptions WHERE group_id = ?').bind(groupId);
+    ? db.prepare(`${baseQuery} AND ps.user_id != ?`).bind(groupId, excludeUserId)
+    : db.prepare(baseQuery).bind(groupId);
 
   const result = await statement.all<PushSubscription>();
   return result.results || [];
+}
+
+export async function countUserPushSubscriptionsForGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  excludeEndpoint: string
+): Promise<number> {
+  // The endpoint being (re-)subscribed is excluded so refreshing the keys of an
+  // already-registered device is never blocked by the per-group cap.
+  const result = await db
+    .prepare(
+      `SELECT COUNT(*) as count FROM push_subscriptions
+       WHERE user_id = ? AND group_id = ? AND endpoint != ?`
+    )
+    .bind(userId, groupId, excludeEndpoint)
+    .first<{ count: number }>();
+
+  return result?.count ?? 0;
 }
 
 // Best-effort cleanup of an expired/rejected endpoint; deleting zero rows is fine.
@@ -731,33 +1054,75 @@ export async function getDeviceToken(
   return result;
 }
 
+/**
+ * Recipients of a group's native notifications. As with push subscriptions, the
+ * membership join — not cleanup on removal — is what guarantees an expelled
+ * member's device stops receiving the group's photos and captions.
+ */
 export async function getGroupDeviceTokens(
   db: D1Database,
   groupId: string,
   excludeUserId?: string
 ): Promise<DeviceToken[]> {
+  const baseQuery = `SELECT dt.* FROM device_tokens dt
+       JOIN memberships m ON m.user_id = dt.user_id AND m.group_id = dt.group_id
+       WHERE dt.group_id = ?`;
+
   const statement = excludeUserId
-    ? db
-        .prepare('SELECT * FROM device_tokens WHERE group_id = ? AND user_id != ?')
-        .bind(groupId, excludeUserId)
-    : db.prepare('SELECT * FROM device_tokens WHERE group_id = ?').bind(groupId);
+    ? db.prepare(`${baseQuery} AND dt.user_id != ?`).bind(groupId, excludeUserId)
+    : db.prepare(baseQuery).bind(groupId);
 
   const result = await statement.all<DeviceToken>();
   return result.results || [];
 }
 
-export async function deleteDeviceToken(
+/**
+ * Remove a device token from every group it is registered in for this user.
+ * An FCM/APNs token identifies a device, not a group membership, so signing out
+ * of the app has to detach the whole device rather than just the current group.
+ */
+export async function deleteUserDeviceTokensForToken(
   db: D1Database,
   userId: string,
-  groupId: string,
   token: string
-): Promise<boolean> {
+): Promise<number> {
   const result = await db
-    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND group_id = ? AND token = ?')
-    .bind(userId, groupId, token)
+    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND token = ?')
+    .bind(userId, token)
     .run();
 
-  return result.meta.changes > 0;
+  return result.meta.changes;
+}
+
+/**
+ * Detach a device token from any other account. The token is a device-scoped
+ * secret, so once a different user registers it the previous owner's rows must
+ * go — otherwise the new signed-in user keeps receiving the old user's
+ * notifications for groups they were never part of.
+ */
+export async function deleteDeviceTokenForOtherUsers(
+  db: D1Database,
+  userId: string,
+  token: string
+): Promise<number> {
+  const result = await db
+    .prepare('DELETE FROM device_tokens WHERE token = ? AND user_id != ?')
+    .bind(token, userId)
+    .run();
+
+  return result.meta.changes;
+}
+
+// Bulk cleanup when a member leaves or is removed; deleting zero rows is fine.
+export async function deleteAllUserDeviceTokensForGroup(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<void> {
+  await db
+    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND group_id = ?')
+    .bind(userId, groupId)
+    .run();
 }
 
 // Best-effort cleanup of a token FCM reports as invalid; deleting zero rows is fine.
@@ -790,9 +1155,18 @@ export async function createComment(
 export async function getCommentsByPhotoId(db: D1Database, photoId: string): Promise<Comment[]> {
   const result = await db
     .prepare(
-      `SELECT c.id, c.photo_id, c.user_id, c.author_name, u.name as user_name, u.profile_color as author_profile_color, c.content, c.created_at, c.deleted_at
+      // The photo join is what scopes the name to a group: a comment is only
+      // ever read in the context of the group its photo belongs to, so that is
+      // the membership whose display name applies. Once that membership is gone
+      // user_name is null and the caller falls back to c.author_name, the
+      // group-scoped name snapshotted when the comment was written.
+      `SELECT c.id, c.photo_id, c.user_id, c.author_name,
+              ${RESOLVED_MEMBER_NAME_IF_MEMBER} as user_name, u.profile_color as author_profile_color,
+              c.content, c.created_at, c.deleted_at
        FROM comments c
+       JOIN photos p ON p.id = c.photo_id
        LEFT JOIN users u ON c.user_id = u.id
+       LEFT JOIN memberships m ON m.user_id = c.user_id AND m.group_id = p.group_id
        WHERE c.photo_id = ?
        ORDER BY c.created_at DESC`
     )
@@ -831,25 +1205,52 @@ export async function getPhotoReactionsWithUsers(
 ): Promise<PhotoReactionWithUser[]> {
   const result = await db
     .prepare(
-      `SELECT pr.photo_id, pr.user_id, pr.emoji, pr.created_at, u.name as user_name, u.profile_color as user_profile_color
+      // Reactions are shown in the group the reacted-to photo belongs to, so
+      // the photo join supplies the group whose display names apply. A reaction
+      // left by someone since removed from the group keeps its row but loses its
+      // name: there is no snapshot to fall back on here, unlike a comment.
+      `SELECT pr.photo_id, pr.user_id, pr.emoji, pr.created_at,
+              ${RESOLVED_MEMBER_NAME_IF_MEMBER} as user_name, u.profile_color as user_profile_color
        FROM photo_reactions pr
+       JOIN photos p ON p.id = pr.photo_id
        JOIN users u ON pr.user_id = u.id
+       LEFT JOIN memberships m ON m.user_id = pr.user_id AND m.group_id = p.group_id
        WHERE pr.photo_id = ?
        ORDER BY pr.created_at ASC`
     )
     .bind(photoId)
-    .all<PhotoReactionWithUser>();
+    .all<PhotoReactionRow>();
 
-  return result.results || [];
+  // The users join is an inner one, so a row here always has an account behind
+  // it: a null name can only mean the reaction outlived its author's membership.
+  return (result.results || []).map((row) => ({
+    ...row,
+    user_name: row.user_name ?? FORMER_MEMBER_NAME,
+  }));
 }
 
 // Internal type for the aggregated query result. The uploader columns come from
-// a LEFT JOIN, so they are null once that account no longer exists.
+// a LEFT JOIN, so they are null once that account no longer exists — and the
+// name is also null once the uploader has left the group, which
+// uploader_user_id is what tells the two apart.
 interface PhotoWithCountsRow extends Photo {
   comment_count: number;
+  uploader_user_id: string | null;
   uploader_name: string | null;
   uploader_profile_color: ProfileColor | null;
 }
+
+interface ReactionAggregateRow {
+  photo_id: string;
+  emoji: string;
+  count: number;
+  reacted_by_user: number;
+}
+
+// D1 allows at most 100 bound parameters per statement. The reaction query
+// binds the requesting user id plus one parameter per photo id, so keep each
+// batch comfortably under that ceiling.
+const REACTION_ID_BATCH_SIZE = 90;
 
 // List photos with reaction and comment counts (optimized: 2 queries instead of 1+3N)
 export async function listPhotosWithCounts(
@@ -871,7 +1272,8 @@ export async function listPhotosWithCounts(
         p.uploaded_at,
         p.thumbnail_r2_key,
         COALESCE(c.comment_count, 0) as comment_count,
-        u.name as uploader_name,
+        u.id as uploader_user_id,
+        ${RESOLVED_MEMBER_NAME_IF_MEMBER} as uploader_name,
         u.profile_color as uploader_profile_color
       FROM photos p
       LEFT JOIN (
@@ -881,6 +1283,7 @@ export async function listPhotosWithCounts(
         GROUP BY photo_id
       ) c ON c.photo_id = p.id
       LEFT JOIN users u ON u.id = p.uploaded_by
+      LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id
       WHERE p.group_id = ?
       ORDER BY p.uploaded_at DESC
       LIMIT ? OFFSET ?`
@@ -894,28 +1297,39 @@ export async function listPhotosWithCounts(
     return [];
   }
 
-  // Query 2: Get the per-emoji reaction breakdown for all photos in one batch,
-  // flagging which emoji the requesting user has reacted with. This yields both
-  // the public counts and the user's own reactions without a separate join.
+  // Query 2: Get the per-emoji reaction breakdown for the photos, flagging which
+  // emoji the requesting user has reacted with. This yields both the public
+  // counts and the user's own reactions without a separate join.
+  //
+  // The photo ids are chunked because D1 rejects a statement with more than 100
+  // bound parameters, and this query binds the user id plus one per photo — a
+  // single batch would fail outright for the largest page the API allows.
   const photoIds = photos.map((p) => p.id);
-  const placeholders = photoIds.map(() => '?').join(',');
+  const reactionRows: ReactionAggregateRow[] = [];
 
-  const reactionsResult = await db
-    .prepare(
-      `SELECT photo_id, emoji, COUNT(*) as count,
+  for (let i = 0; i < photoIds.length; i += REACTION_ID_BATCH_SIZE) {
+    const batch = photoIds.slice(i, i + REACTION_ID_BATCH_SIZE);
+    const placeholders = batch.map(() => '?').join(',');
+
+    const reactionsResult = await db
+      .prepare(
+        `SELECT photo_id, emoji, COUNT(*) as count,
               MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) as reacted_by_user
        FROM photo_reactions
        WHERE photo_id IN (${placeholders})
        GROUP BY photo_id, emoji
        ORDER BY count DESC, emoji ASC`
-    )
-    .bind(userId, ...photoIds)
-    .all<{ photo_id: string; emoji: string; count: number; reacted_by_user: number }>();
+      )
+      .bind(userId, ...batch)
+      .all<ReactionAggregateRow>();
+
+    reactionRows.push(...(reactionsResult.results || []));
+  }
 
   const reactionsByPhoto = new Map<string, ReactionSummary[]>();
   const userReactionsByPhoto = new Map<string, string[]>();
   const reactionCountByPhoto = new Map<string, number>();
-  for (const row of reactionsResult.results || []) {
+  for (const row of reactionRows) {
     const summaries = reactionsByPhoto.get(row.photo_id) || [];
     summaries.push({ emoji: row.emoji, count: row.count });
     reactionsByPhoto.set(row.photo_id, summaries);
@@ -945,7 +1359,7 @@ export async function listPhotosWithCounts(
     comment_count: photo.comment_count,
     reactions: reactionsByPhoto.get(photo.id) || [],
     user_reactions: userReactionsByPhoto.get(photo.id) || [],
-    uploader_name: photo.uploader_name,
+    uploader_name: pastAuthorName(photo.uploader_name, photo.uploader_user_id !== null),
     uploader_profile_color: photo.uploader_profile_color,
   }));
 }
