@@ -500,7 +500,10 @@ export async function createMagicLinkToken(
 
   const token = generateInviteToken(); // Reuse this for cryptographically random tokens
   const now = Math.floor(Date.now() / 1000);
-  const expiresAt = now + 15 * 60; // 15 minutes
+  // Login links guard an existing account, so they stay short-lived. Invites
+  // go to someone who may not read email for days; a 15-minute window made
+  // most invites dead on arrival.
+  const expiresAt = now + (type === 'invite' ? 7 * 24 * 60 * 60 : 15 * 60);
 
   const normalizedEmail = email.toLowerCase().trim();
 
@@ -1656,4 +1659,53 @@ export async function setActivitySeenAt(
     .prepare('UPDATE memberships SET activity_seen_at = ? WHERE user_id = ? AND group_id = ?')
     .bind(seenAt, userId, groupId)
     .run();
+}
+
+export interface PendingInvite {
+  email: string;
+  role: MembershipRole;
+  created_at: number;
+  expires_at: number;
+}
+
+/**
+ * Unredeemed invites for a group, one row per address (the latest, when an
+ * invite was re-sent). Addresses that have since become members are excluded
+ * — their stale tokens are redemption-dead anyway once membership exists.
+ */
+export async function listPendingInvites(
+  db: D1Database,
+  groupId: string
+): Promise<PendingInvite[]> {
+  const result = await db
+    .prepare(
+      `SELECT email, invite_role AS role, MAX(created_at) AS created_at, expires_at
+       FROM magic_link_tokens
+       WHERE group_id = ?1 AND type = 'invite' AND used_at IS NULL
+         AND email NOT IN (
+           SELECT u.email FROM users u
+           JOIN memberships m ON m.user_id = u.id AND m.group_id = ?1
+         )
+       GROUP BY email
+       ORDER BY created_at DESC`
+    )
+    .bind(groupId)
+    .all<PendingInvite>();
+  return result.results || [];
+}
+
+/** Deletes every unredeemed invite token for the address. */
+export async function revokePendingInvites(
+  db: D1Database,
+  groupId: string,
+  email: string
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `DELETE FROM magic_link_tokens
+       WHERE group_id = ? AND email = ? AND type = 'invite' AND used_at IS NULL`
+    )
+    .bind(groupId, email.toLowerCase().trim())
+    .run();
+  return result.meta.changes > 0;
 }

@@ -23,6 +23,7 @@ import type {
   GroupsListResponse,
   MemberDisplayNameUpdatedResponse,
   MembersResponse,
+  PendingInvitesResponse,
   PhotoCountResponse,
   GroupDeletedResponse,
   UsersListResponse,
@@ -411,6 +412,14 @@ export const api = {
 
     getMembers: (groupId: string): Promise<MembersResponse> =>
       requestJson(`/groups/${groupId}/members`),
+
+    getPendingInvites: (groupId: string): Promise<PendingInvitesResponse> =>
+      requestJson(`/groups/${groupId}/invites`),
+
+    revokeInvite: (groupId: string, email: string): Promise<MessageResponse> =>
+      requestJson(`/groups/${groupId}/invites?email=${encodeURIComponent(email)}`, {
+        method: 'DELETE',
+      }),
 
     updateMemberRole: (
       groupId: string,

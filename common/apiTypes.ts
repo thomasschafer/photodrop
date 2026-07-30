@@ -254,6 +254,16 @@ export interface MemberDisplayNameUpdatedResponse extends MessageResponse {
   canonicalName: string;
 }
 
+export interface PendingInvitesResponse {
+  invites: Array<{
+    email: string;
+    role: MembershipRole;
+    /** When the latest invite email for this address was sent. */
+    createdAt: number;
+    expiresAt: number;
+  }>;
+}
+
 export interface MembersResponse {
   ownerId: string | null;
   members: MemberJson[];

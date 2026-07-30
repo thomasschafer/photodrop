@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { MemberJson } from '@photodrop/common/apiTypes';
+import type { MemberJson, PendingInvitesResponse } from '@photodrop/common/apiTypes';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
+import { formatRelativeTime } from '../lib/dateFormat';
 import { displayNameFromInput } from '../lib/displayName';
 import { useFocusRestore } from '../lib/hooks';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
@@ -45,6 +46,8 @@ export function MembersList() {
     error: string | null;
   }>({ stage: 'closed', confirmText: '', photoCount: null, error: null });
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [pendingInvites, setPendingInvites] = useState<PendingInvitesResponse['invites']>([]);
+  const [inviteActionEmail, setInviteActionEmail] = useState<string | null>(null);
 
   const [inviteButtonRef, restoreInviteFocus] = useFocusRestore<HTMLButtonElement>();
   const [deleteGroupButtonRef, restoreDeleteGroupFocus] = useFocusRestore<HTMLButtonElement>();
@@ -69,9 +72,50 @@ export function MembersList() {
     }
   }, [currentGroup]);
 
+  const fetchPendingInvites = useCallback(async () => {
+    if (!currentGroup) return;
+    try {
+      const data = await api.groups.getPendingInvites(currentGroup.id);
+      setPendingInvites(data.invites);
+    } catch (err) {
+      // Non-fatal: the members list works without the pending section.
+      console.error('Failed to fetch pending invites:', err);
+    }
+  }, [currentGroup]);
+
   useEffect(() => {
     fetchMembers();
-  }, [fetchMembers]);
+    fetchPendingInvites();
+  }, [fetchMembers, fetchPendingInvites]);
+
+  const handleResendInvite = async (email: string, role: 'admin' | 'member') => {
+    setInviteActionEmail(email);
+    try {
+      await api.auth.sendInvite(email, role);
+      showSuccess(`Invite re-sent to ${email}`);
+      await fetchPendingInvites();
+    } catch (err) {
+      console.error('Failed to resend invite:', err);
+      setError(err instanceof ApiError ? err.message : 'Failed to resend invite');
+    } finally {
+      setInviteActionEmail(null);
+    }
+  };
+
+  const handleRevokeInvite = async (email: string) => {
+    if (!currentGroup) return;
+    setInviteActionEmail(email);
+    try {
+      await api.groups.revokeInvite(currentGroup.id, email);
+      showSuccess(`Invite for ${email} revoked`);
+      await fetchPendingInvites();
+    } catch (err) {
+      console.error('Failed to revoke invite:', err);
+      setError(err instanceof ApiError ? err.message : 'Failed to revoke invite');
+    } finally {
+      setInviteActionEmail(null);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -691,6 +735,53 @@ export function MembersList() {
         </div>
       )}
 
+      {pendingInvites.length > 0 && (
+        <div className="mt-8 pt-6 border-t border-border">
+          <h3 className="text-base font-medium text-text-primary mb-1">Pending invites</h3>
+          <p className="text-sm text-text-secondary mb-4">
+            Sent but not yet accepted. Re-send one if it got lost.
+          </p>
+          <ul className="space-y-3">
+            {pendingInvites.map((invite) => {
+              const expired = invite.expiresAt * 1000 < Date.now();
+              const busy = inviteActionEmail === invite.email;
+              return (
+                <li key={invite.email} className="flex items-center gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-text-primary truncate">{invite.email}</p>
+                    <p className="text-xs text-text-muted">
+                      {ROLE_DISPLAY_NAMES[invite.role]} · invited{' '}
+                      {formatRelativeTime(invite.createdAt)}
+                      {expired && (
+                        <span className="text-error font-medium"> · expired</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => handleResendInvite(invite.email, invite.role)}
+                    >
+                      Resend
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => handleRevokeInvite(invite.email)}
+                    >
+                      Revoke
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {isOwner && (
         <div className="mt-8 pt-6 border-t border-border">
           <h3 className="text-base font-medium text-red-600 dark:text-red-400 mb-2">Danger zone</h3>
@@ -809,6 +900,7 @@ export function MembersList() {
               setShowInviteModal(false);
               restoreInviteFocus();
               showSuccess(`Invite sent to ${email}`);
+              void fetchPendingInvites();
             }}
           />
         </Modal>

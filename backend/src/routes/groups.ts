@@ -14,10 +14,13 @@ import {
   updateMemberDisplayName,
   getMemberNames,
   isGroupOwner,
+  listPendingInvites,
+  revokePendingInvites,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
 import { updateMemberSchema, imageProtectionSchema, displayNameSchema } from '../lib/schemas';
 import {
+  BadRequestError,
   NotFoundError,
   ForbiddenError,
   InternalServerError,
@@ -27,6 +30,8 @@ import {
 import type {
   GroupsListResponse,
   MembersResponse,
+  MessageResponse,
+  PendingInvitesResponse,
   MemberDisplayNameUpdatedResponse,
   PhotoCountResponse,
   GroupDeletedResponse,
@@ -57,6 +62,40 @@ groups.get('/', requireAuth, async (c) => {
       joinedAt: m.joined_at,
     })),
   } satisfies GroupsListResponse);
+});
+
+// Pending (unredeemed) invites for the current group (admin only)
+groups.get('/:groupId/invites', requireAdmin, async (c) => {
+  const groupId = requireParam(c.req.param('groupId'), 'groupId');
+  requireCurrentGroup(groupId, c.get('user').groupId, 'list invites of');
+
+  const invites = await listPendingInvites(c.env.DB, groupId);
+
+  return c.json({
+    invites: invites.map((invite) => ({
+      email: invite.email,
+      role: invite.role,
+      createdAt: invite.created_at,
+      expiresAt: invite.expires_at,
+    })),
+  } satisfies PendingInvitesResponse);
+});
+
+// Revoke every unredeemed invite for an address (admin only)
+groups.delete('/:groupId/invites', requireAdmin, async (c) => {
+  const groupId = requireParam(c.req.param('groupId'), 'groupId');
+  requireCurrentGroup(groupId, c.get('user').groupId, 'revoke invites of');
+  const email = c.req.query('email');
+  if (!email) {
+    throw new BadRequestError('email query parameter is required');
+  }
+
+  const revoked = await revokePendingInvites(c.env.DB, groupId, email);
+  if (!revoked) {
+    throw new NotFoundError('No pending invite for that address');
+  }
+
+  return c.json({ message: 'Invite revoked' } satisfies MessageResponse);
 });
 
 // Get members of the current group (admin only)
