@@ -45,10 +45,10 @@ test.describe('Upload file validation', () => {
     // attempt — not with a broken preview and a generic "Upload failed".
     await expect(dialog.getByRole('alert')).toContainText(/valid image/i);
 
-    // No broken preview image and no armed Upload button for a file that can
-    // never succeed.
+    // No broken preview image, and the Upload action stays unarmed for a
+    // file that can never succeed.
     await expect(dialog.locator('img')).toHaveCount(0);
-    await expect(dialog.getByRole('button', { name: 'Upload' })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Upload' })).toBeDisabled();
 
     // The picker is still there so the user can try another file.
     await expect(dialog.locator('input[type="file"]')).toBeVisible();

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { CAPTION_MAX_LENGTH } from '@photodrop/common/limits';
 import { api } from '../lib/api';
 import {
@@ -15,235 +15,401 @@ import { Button } from './Button';
 // nag over a normal-length caption.
 const CAPTION_COUNTER_THRESHOLD = CAPTION_MAX_LENGTH - 100;
 
-interface PhotoUploadProps {
-  onUploadComplete?: () => void;
-  isModal?: boolean;
+// Parallel uploads per batch. Compression holds decoded bitmaps in memory,
+// so unbounded parallelism would sink low-memory phones on a big batch.
+const CONCURRENT_UPLOADS = 3;
+
+type QueueItemStatus =
+  | 'processing' // validating / HEIC conversion / preview generation
+  | 'invalid' // rejected at selection time; never uploadable
+  | 'ready'
+  | 'compressing'
+  | 'uploading'
+  | 'done'
+  | 'failed'; // upload failed; retryable
+
+interface QueueItem {
+  id: string;
+  sourceName: string;
+  size: number;
+  /** Processed (post-HEIC-conversion) file; null until processing succeeds. */
+  file: File | null;
+  preview: string | null;
+  caption: string;
+  status: QueueItemStatus;
+  error: string | null;
+  /** Upload progress fraction 0..1, meaningful while status is 'uploading'. */
+  progress: number;
 }
 
-export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadProps) {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [caption, setCaption] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [progress, setProgress] = useState<string>('');
+interface PhotoUploadProps {
+  onUploadComplete?: (uploadedCount: number) => void;
+  isModal?: boolean;
+  /** Files handed in from outside the picker, e.g. dropped onto the feed. */
+  initialFiles?: File[];
+}
+
+let nextItemId = 0;
+
+export function PhotoUpload({ onUploadComplete, isModal = false, initialFiles }: PhotoUploadProps) {
+  const [items, setItems] = useState<QueueItem[]>([]);
+  const [batchUploading, setBatchUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Bumped by every new selection (and by cancelling), so results arriving
-  // from a superseded one can be dropped. The picker stays on screen for the
-  // whole of a slow HEIC conversion — selectedFile isn't set until it
-  // finishes — so a second selection genuinely does run in parallel, and
-  // without this the preview and the bytes we upload can come from different
-  // files, whichever pipeline happens to finish last.
-  const fileRequestIdRef = useRef(0);
+  const itemsRef = useRef<QueueItem[]>([]);
+  itemsRef.current = items;
+  // Guards state updates from async pipelines of items that were removed.
+  const removedIdsRef = useRef(new Set<string>());
 
-  const handleFile = useCallback(async (file: File) => {
-    const validation = validateImageFile(file);
-    if (!validation.valid) {
-      setError(validation.error || 'Invalid file');
-      return;
-    }
-
-    const requestId = ++fileRequestIdRef.current;
-    const isCurrentRequest = () => fileRequestIdRef.current === requestId;
-
-    setError(null);
-    setPreviewLoading(true);
-
-    // Convert HEIC files to JPEG upfront — browsers can't display or compress HEIC natively.
-    // We store the converted file as selectedFile so compressImage doesn't re-convert.
-    let processedFile = file;
-    if (isHeicFile(file)) {
-      try {
-        processedFile = await convertHeicToJpeg(file);
-      } catch (err) {
-        if (!isCurrentRequest()) return;
-        console.error('HEIC conversion failed:', err);
-        setError('Could not process HEIC file. Please try a different image.');
-        setPreviewLoading(false);
-        return;
-      }
-    }
-
-    // Decode the bytes before accepting the file: anything that fails here
-    // can never upload, and a specific selection-time error beats a broken
-    // preview followed by a generic failure at upload time.
-    const decodes = await validateImageDecodes(processedFile);
-    if (!isCurrentRequest()) return;
-    if (!decodes) {
-      setError("This file doesn't appear to be a valid image. Please try a different file.");
-      setPreviewLoading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      return;
-    }
-
-    setSelectedFile(processedFile);
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (!isCurrentRequest()) return;
-      setPreview(e.target?.result as string);
-      setPreviewLoading(false);
-    };
-    reader.onerror = () => {
-      if (!isCurrentRequest()) return;
-      setError('Failed to generate image preview');
-      setPreviewLoading(false);
-    };
-    reader.readAsDataURL(processedFile);
+  const updateItem = useCallback((id: string, patch: Partial<QueueItem>) => {
+    if (removedIdsRef.current.has(id)) return;
+    // The mirror updates synchronously: the queue runner checks completion the
+    // moment its last upload settles, before React has committed the state.
+    itemsRef.current = itemsRef.current.map((item) =>
+      item.id === id ? { ...item, ...patch } : item
+    );
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }, []);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFile(file).catch((err) => {
-        console.error('Unexpected error handling file:', err);
-        setError('Failed to process file');
-      });
-    }
-  };
+  const addFiles = useCallback(
+    (files: Iterable<File>) => {
+      const accepted: Array<{ id: string; file: File }> = [];
+      const newItems: QueueItem[] = [];
 
-  const handleUpload = async () => {
-    if (!selectedFile) return;
-
-    setUploading(true);
-    setError(null);
-    setProgress('Compressing...');
-
-    try {
-      const { fullSize, thumbnail } = await compressImage(selectedFile);
-      setProgress('Uploading...');
-      await api.photos.upload(fullSize, thumbnail, caption || undefined);
-
-      setProgress('');
-      setSelectedFile(null);
-      setPreview(null);
-      setCaption('');
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      for (const file of files) {
+        const id = `upload-${nextItemId++}`;
+        const base: QueueItem = {
+          id,
+          sourceName: file.name,
+          size: file.size,
+          file: null,
+          preview: null,
+          caption: '',
+          status: 'processing',
+          error: null,
+          progress: 0,
+        };
+        const validation = validateImageFile(file);
+        if (!validation.valid) {
+          newItems.push({ ...base, status: 'invalid', error: validation.error ?? 'Invalid file' });
+          continue;
+        }
+        newItems.push(base);
+        accepted.push({ id, file });
       }
-      onUploadComplete?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
-      setProgress('');
-    } finally {
-      setUploading(false);
+
+      if (newItems.length > 0) {
+        itemsRef.current = [...itemsRef.current, ...newItems];
+        setItems((prev) => [...prev, ...newItems]);
+      }
+
+      for (const { id, file } of accepted) {
+        void (async () => {
+          let processedFile = file;
+          if (isHeicFile(file)) {
+            try {
+              processedFile = await convertHeicToJpeg(file);
+            } catch (err) {
+              console.error('HEIC conversion failed:', err);
+              updateItem(id, {
+                status: 'invalid',
+                error: 'Could not process HEIC file. Please try a different image.',
+              });
+              return;
+            }
+          }
+
+          // Decode the bytes before accepting the file: anything that fails
+          // here can never upload, and a specific selection-time error beats
+          // a broken preview followed by a generic failure at upload time.
+          const decodes = await validateImageDecodes(processedFile);
+          if (!decodes) {
+            updateItem(id, {
+              status: 'invalid',
+              error: "This file doesn't appear to be a valid image.",
+            });
+            return;
+          }
+
+          const preview = await new Promise<string | null>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve((e.target?.result as string) ?? null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(processedFile);
+          });
+
+          updateItem(id, { status: 'ready', file: processedFile, preview });
+        })();
+      }
+    },
+    [updateItem]
+  );
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      addFiles(e.target.files);
     }
+    // Selecting the same file again must re-fire change.
+    e.target.value = '';
   };
 
-  const handleCancel = () => {
-    // Discard anything still being processed, so it can't repopulate the
-    // preview after the user has cleared it.
-    fileRequestIdRef.current += 1;
-    setSelectedFile(null);
-    setPreview(null);
-    setCaption('');
-    setError(null);
-    setProgress('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  const removeItem = (id: string) => {
+    removedIdsRef.current.add(id);
+    itemsRef.current = itemsRef.current.filter((item) => item.id !== id);
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  // Files handed in from a feed-level drop are queued exactly once on mount.
+  const initialFilesRef = useRef(initialFiles);
+  useEffect(() => {
+    if (initialFilesRef.current && initialFilesRef.current.length > 0) {
+      addFiles(initialFilesRef.current);
+      initialFilesRef.current = undefined;
+    }
+  }, [addFiles]);
+
+  // Paste-from-clipboard while the uploader is on screen.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const files = e.clipboardData?.files;
+      if (files && files.length > 0) {
+        addFiles(files);
+      }
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [addFiles]);
+
+  const uploadOne = useCallback(
+    async (id: string) => {
+      const item = itemsRef.current.find((i) => i.id === id);
+      if (!item || !item.file) return false;
+
+      try {
+        updateItem(id, { status: 'compressing', error: null, progress: 0 });
+        const { fullSize, thumbnail } = await compressImage(item.file);
+        updateItem(id, { status: 'uploading' });
+        await api.photos.upload(fullSize, thumbnail, item.caption || undefined, (fraction) =>
+          updateItem(id, { progress: fraction })
+        );
+        updateItem(id, { status: 'done', progress: 1 });
+        return true;
+      } catch (err) {
+        updateItem(id, {
+          status: 'failed',
+          error: err instanceof Error ? err.message : 'Upload failed',
+        });
+        return false;
+      }
+    },
+    [updateItem]
+  );
+
+  const runQueue = useCallback(
+    async (ids: string[]) => {
+      setBatchUploading(true);
+      let uploaded = 0;
+      let cursor = 0;
+      const workers = Array.from({ length: Math.min(CONCURRENT_UPLOADS, ids.length) }, async () => {
+        while (cursor < ids.length) {
+          const id = ids[cursor++];
+          if (await uploadOne(id)) uploaded++;
+        }
+      });
+      await Promise.all(workers);
+      setBatchUploading(false);
+
+      const remaining = itemsRef.current.filter(
+        (i) => i.status !== 'done' && i.status !== 'invalid'
+      );
+      if (uploaded > 0 && remaining.length === 0) {
+        onUploadComplete?.(itemsRef.current.filter((i) => i.status === 'done').length);
+      }
+    },
+    [uploadOne, onUploadComplete]
+  );
+
+  const handleUploadAll = () => {
+    const ids = items.filter((i) => i.status === 'ready' || i.status === 'failed').map((i) => i.id);
+    if (ids.length > 0) void runQueue(ids);
+  };
+
+  const handleRetry = (id: string) => void runQueue([id]);
+
+  const readyCount = items.filter((i) => i.status === 'ready' || i.status === 'failed').length;
+  const processingCount = items.filter((i) => i.status === 'processing').length;
+
+  const statusLine = (item: QueueItem): string | null => {
+    switch (item.status) {
+      case 'processing':
+        return 'Preparing…';
+      case 'compressing':
+        return 'Compressing…';
+      case 'uploading':
+        return `Uploading… ${Math.round(item.progress * 100)}%`;
+      case 'done':
+        return 'Uploaded';
+      default:
+        return null;
     }
   };
 
   const uploadContent = (
-    <>
-      {!isModal && <h2 className="text-lg font-medium text-text-primary mb-4">Upload photo</h2>}
+    <div className="space-y-4">
+      {!isModal && <h2 className="text-lg font-medium text-text-primary">Upload photos</h2>}
 
-      {!selectedFile ? (
-        <div className="space-y-3">
-          <input
-            id="photo-input"
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileSelect}
-            disabled={uploading}
-            className="file-input"
-          />
-          {error && (
-            <p className="text-sm text-error" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="relative">
-            {previewLoading || !preview ? (
-              <div className="w-full rounded-lg bg-bg-secondary max-h-60 min-h-[200px] animate-pulse" />
-            ) : (
-              <img
-                src={preview}
-                alt="Preview"
-                className="w-full rounded-lg bg-bg-secondary max-h-60 object-contain"
-              />
-            )}
-            {!uploading && (
-              <button
-                onClick={handleCancel}
-                aria-label="Cancel upload"
-                className="absolute top-2 right-2 w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white cursor-pointer"
-              >
-                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            )}
-          </div>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragActive(false);
+          if (e.dataTransfer.files.length > 0) {
+            addFiles(e.dataTransfer.files);
+          }
+        }}
+        className={`rounded-lg border-2 border-dashed p-4 transition-colors ${
+          dragActive ? 'border-accent bg-accent/5' : 'border-border'
+        }`}
+      >
+        <input
+          id="photo-input"
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleFileSelect}
+          disabled={batchUploading}
+          className="file-input"
+          aria-label="Choose photos"
+        />
+        <p className="text-xs text-text-muted mt-2">
+          Select several at once, drag photos here, or paste from the clipboard.
+        </p>
+      </div>
 
-          <p className="text-sm text-text-secondary">
-            {selectedFile.name} ({formatFileSize(selectedFile.size)})
-          </p>
+      {items.length > 0 && (
+        <ul className="space-y-3" aria-label="Upload queue">
+          {items.map((item) => (
+            <li key={item.id} className="flex gap-3 items-start">
+              <div className="w-16 h-16 shrink-0 rounded-md bg-bg-secondary overflow-hidden flex items-center justify-center">
+                {item.preview ? (
+                  <img src={item.preview} alt="" className="w-full h-full object-cover" />
+                ) : item.status === 'processing' ? (
+                  <div className="w-full h-full animate-pulse bg-bg-secondary" />
+                ) : (
+                  <span aria-hidden="true" className="text-text-muted text-lg">
+                    !
+                  </span>
+                )}
+              </div>
 
-          <div>
-            <label htmlFor="caption" className="block text-sm font-medium text-text-primary mb-1.5">
-              Caption (optional)
-            </label>
-            <textarea
-              id="caption"
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              disabled={uploading}
-              rows={2}
-              maxLength={CAPTION_MAX_LENGTH}
-              className="input-field resize-none"
-              placeholder="Add a caption..."
-            />
-            {Array.from(caption).length > CAPTION_COUNTER_THRESHOLD && (
-              <p className="text-xs text-text-muted mt-1">
-                {Array.from(caption).length}/{CAPTION_MAX_LENGTH}
-              </p>
-            )}
-          </div>
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <p className="text-sm text-text-secondary truncate">
+                  {item.sourceName} ({formatFileSize(item.size)})
+                </p>
 
-          {error && (
-            <p className="text-sm text-error" role="alert">
-              {error}
-            </p>
-          )}
+                {item.status === 'invalid' || item.status === 'failed' ? (
+                  <p className="text-sm text-error" role="alert">
+                    {item.error}
+                  </p>
+                ) : (
+                  <>
+                    {(item.status === 'ready' ||
+                      item.status === 'compressing' ||
+                      item.status === 'uploading') && (
+                      <div>
+                        <input
+                          type="text"
+                          value={item.caption}
+                          onChange={(e) => updateItem(item.id, { caption: e.target.value })}
+                          disabled={item.status !== 'ready'}
+                          maxLength={CAPTION_MAX_LENGTH}
+                          placeholder="Add a caption…"
+                          aria-label={`Caption for ${item.sourceName}`}
+                          className="input-field text-sm py-1.5"
+                        />
+                        {Array.from(item.caption).length > CAPTION_COUNTER_THRESHOLD && (
+                          <p className="text-xs text-text-muted mt-1">
+                            {Array.from(item.caption).length}/{CAPTION_MAX_LENGTH}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {statusLine(item) && (
+                      <p className="text-sm text-text-secondary" aria-live="polite">
+                        {statusLine(item)}
+                      </p>
+                    )}
+                    {item.status === 'uploading' && (
+                      <div className="h-1.5 rounded-full bg-bg-secondary overflow-hidden">
+                        <div
+                          className="h-full bg-accent-solid transition-[width]"
+                          style={{ width: `${Math.round(item.progress * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
 
-          {progress && <p className="text-sm text-text-secondary">{progress}</p>}
-
-          <Button onClick={handleUpload} size="lg" disabled={uploading} className="w-full">
-            {uploading ? (
-              <span className="flex items-center gap-2">
-                <span className="spinner spinner-sm" />
-                {progress || 'Uploading...'}
-              </span>
-            ) : (
-              'Upload'
-            )}
-          </Button>
-        </div>
+              <div className="flex flex-col gap-1 items-end shrink-0">
+                {item.status === 'failed' && (
+                  <Button size="sm" variant="secondary" onClick={() => handleRetry(item.id)}>
+                    Retry
+                  </Button>
+                )}
+                {item.status !== 'uploading' && item.status !== 'compressing' && (
+                  <button
+                    onClick={() => removeItem(item.id)}
+                    aria-label={`Remove ${item.sourceName}`}
+                    className="w-8 h-8 rounded-full hover:bg-bg-secondary flex items-center justify-center text-text-secondary cursor-pointer"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
-    </>
+
+      {items.length > 0 && (
+        <Button
+          onClick={handleUploadAll}
+          size="lg"
+          disabled={batchUploading || processingCount > 0 || readyCount === 0}
+          className="w-full"
+        >
+          {batchUploading ? (
+            <span className="flex items-center gap-2">
+              <span className="spinner spinner-sm" />
+              Uploading…
+            </span>
+          ) : readyCount > 1 ? (
+            `Upload ${readyCount} photos`
+          ) : (
+            'Upload'
+          )}
+        </Button>
+      )}
+    </div>
   );
 
   if (isModal) {

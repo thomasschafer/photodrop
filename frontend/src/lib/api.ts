@@ -479,7 +479,12 @@ export const api = {
 
     feedVersion: (): Promise<FeedVersionResponse> => requestJson('/photos/feed-version'),
 
-    upload: (photo: File, thumbnail: File, caption?: string): Promise<PhotoUploadResponse> => {
+    upload: (
+      photo: File,
+      thumbnail: File,
+      caption?: string,
+      onProgress?: (fraction: number) => void
+    ): Promise<PhotoUploadResponse> => {
       const formData = new FormData();
       formData.append('photo', photo);
       formData.append('thumbnail', thumbnail);
@@ -487,9 +492,47 @@ export const api = {
         formData.append('caption', caption);
       }
 
-      return requestJson('/photos', {
-        method: 'POST',
-        body: formData,
+      if (!onProgress) {
+        return requestJson('/photos', {
+          method: 'POST',
+          body: formData,
+        });
+      }
+
+      // XMLHttpRequest is the only web API that exposes upload progress. This
+      // path skips requestJson's 401-refresh retry: uploads happen in active
+      // sessions where the token is fresh, and a failed item is individually
+      // retryable from the queue UI.
+      return new Promise<PhotoUploadResponse>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE_URL}/photos`);
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        }
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhr.withCredentials = true;
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(e.loaded / e.total);
+        };
+        xhr.onload = () => {
+          let body: unknown = null;
+          try {
+            body = JSON.parse(xhr.responseText);
+          } catch {
+            // Non-JSON body; the status alone decides below.
+          }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(body as PhotoUploadResponse);
+          } else {
+            const message =
+              (body as { error?: string } | null)?.error ?? `Upload failed (${xhr.status})`;
+            reject(new ApiError(xhr.status, xhr.statusText, message));
+          }
+        };
+        xhr.onerror = () =>
+          reject(new ApiError(0, 'Network error', 'Upload failed: network error'));
+        xhr.send(formData);
       });
     },
 

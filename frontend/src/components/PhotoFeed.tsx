@@ -68,6 +68,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [droppedFiles, setDroppedFiles] = useState<File[] | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [feedReactionDetails, setFeedReactionDetails] = useState<Map<string, ReactionWithUser[]>>(
     new Map()
@@ -387,11 +388,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     };
   }, []);
 
-  const handleUploadComplete = () => {
+  const handleUploadComplete = (uploadedCount: number = 1) => {
     setShowUploadModal(false);
+    setDroppedFiles(null);
     restoreUploadFocus();
     loadPhotos();
-    setSuccessMessage('Photo uploaded successfully');
+    setSuccessMessage(
+      uploadedCount > 1 ? `${uploadedCount} photos uploaded` : 'Photo uploaded successfully'
+    );
     // Restart the timer rather than stacking them, so a second upload within
     // 3s isn't cut short by the first upload's pending timeout.
     if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
@@ -403,7 +407,22 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
   const handleUploadModalClose = () => {
     setShowUploadModal(false);
+    setDroppedFiles(null);
     restoreUploadFocus();
+  };
+
+  // Dropping images anywhere on the feed opens the uploader pre-filled with
+  // them. Only admins can upload, so members keep default browser behaviour.
+  const handleFeedDragOver = (e: React.DragEvent) => {
+    if (isAdmin && e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+    }
+  };
+  const handleFeedDrop = (e: React.DragEvent) => {
+    if (!isAdmin || e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    setDroppedFiles([...e.dataTransfer.files]);
+    setShowUploadModal(true);
   };
 
   const handleDeleteCancel = () => {
@@ -547,8 +566,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           )}
         </div>
         {showUploadModal && (
-          <Modal title="Upload photo" onClose={handleUploadModalClose} maxWidth="md">
-            <PhotoUpload isModal onUploadComplete={handleUploadComplete} />
+          <Modal title="Upload photos" onClose={handleUploadModalClose} maxWidth="md">
+            <PhotoUpload
+              isModal
+              onUploadComplete={handleUploadComplete}
+              initialFiles={droppedFiles ?? undefined}
+            />
           </Modal>
         )}
       </>
@@ -743,8 +766,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       )}
 
       {showUploadModal && (
-        <Modal title="Upload photo" onClose={handleUploadModalClose} maxWidth="md">
-          <PhotoUpload isModal onUploadComplete={handleUploadComplete} />
+        <Modal title="Upload photos" onClose={handleUploadModalClose} maxWidth="md">
+          <PhotoUpload
+            isModal
+            onUploadComplete={handleUploadComplete}
+            initialFiles={droppedFiles ?? undefined}
+          />
         </Modal>
       )}
     </>

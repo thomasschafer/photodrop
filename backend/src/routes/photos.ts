@@ -63,9 +63,11 @@ const commentRateLimit = createRateLimitMiddleware({
   keyFn: rateLimitKeys.byUserId('comment'),
 });
 
-// Rate limit for photo uploads: 20 per user per hour
+// Rate limit for photo uploads. Sized for batch upload: a day out can
+// legitimately produce a 40-50 photo batch, so the cap is an abuse guard,
+// not a UX ceiling.
 const uploadRateLimit = createRateLimitMiddleware({
-  maxRequests: 20,
+  maxRequests: 200,
   windowSeconds: 60 * 60, // 1 hour
   keyFn: rateLimitKeys.byUserId('upload'),
 });
