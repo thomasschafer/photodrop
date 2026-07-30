@@ -703,6 +703,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                         }
                         disabled={editingCaption.saving}
                         maxLength={CAPTION_MAX_LENGTH}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setEditingCaption(null);
+                        }}
                         aria-label="Edit caption"
                         className="input-field text-sm py-1.5"
                         // eslint-disable-next-line jsx-a11y/no-autofocus
@@ -727,14 +730,57 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                       Cancel
                     </Button>
                   </form>
+                ) : photo.caption ? (
+                  <p className="text-text-primary mb-2 leading-normal">
+                    {photo.caption}
+                    {photo.captionEditedAt !== null && (
+                      <span className="text-xs text-text-muted"> (edited)</span>
+                    )}
+                    {isAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingCaption({
+                            photoId: photo.id,
+                            value: photo.caption ?? '',
+                            saving: false,
+                            error: null,
+                          });
+                        }}
+                        aria-label="Edit caption"
+                        className="align-middle ml-1.5 p-1 -my-1 rounded bg-transparent border-none cursor-pointer text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+                      >
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          aria-hidden="true"
+                        >
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                      </button>
+                    )}
+                  </p>
                 ) : (
-                  photo.caption && (
-                    <p className="text-text-primary mb-2 leading-normal">
-                      {photo.caption}
-                      {photo.captionEditedAt !== null && (
-                        <span className="text-xs text-text-muted"> (edited)</span>
-                      )}
-                    </p>
+                  isAdmin && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCaption({
+                          photoId: photo.id,
+                          value: '',
+                          saving: false,
+                          error: null,
+                        });
+                      }}
+                      className="block mb-2 p-0 bg-transparent border-none cursor-pointer text-sm text-text-muted italic hover:text-text-secondary transition-colors"
+                    >
+                      Add a caption…
+                    </button>
                   )
                 )}
                 <div className="mb-2">
@@ -758,22 +804,6 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                       </span>
                     )}
                   </div>
-                  {isAdmin && editingCaption?.photoId !== photo.id && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingCaption({
-                          photoId: photo.id,
-                          value: photo.caption ?? '',
-                          saving: false,
-                          error: null,
-                        });
-                      }}
-                      className="text-xs text-text-secondary bg-transparent border-none py-1 px-2 -my-2.5 rounded transition-colors min-h-[44px] flex items-center justify-center cursor-pointer hover:bg-bg-tertiary"
-                    >
-                      Edit caption
-                    </button>
-                  )}
                   {isAdmin && (
                     <button
                       ref={(el) => {
