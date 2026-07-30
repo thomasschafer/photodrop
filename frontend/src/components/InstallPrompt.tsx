@@ -26,7 +26,7 @@ export function InstallButton() {
       <button
         ref={buttonRef}
         onClick={() => setShowInstructions(true)}
-        className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
+        className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer flex items-center gap-1.5"
         aria-label="Install app"
         title="Install app"
       >
@@ -42,6 +42,7 @@ export function InstallButton() {
           <polyline points="8,11 12,15 16,11" />
           <path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
         </svg>
+        <span className="hidden mobile:inline text-sm">Install</span>
       </button>
       {showInstructions && (
         <Modal title="Install photodrop" onClose={handleClose} maxWidth="md">
@@ -157,7 +158,11 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
       elevation="raised"
     >
       <p className="text-sm text-text-secondary">
-        Add photodrop to your home screen for easy access and notifications.
+        {platform === 'macos-safari'
+          ? 'Add photodrop to your Dock for easy access and notifications.'
+          : platform === 'ios' || platform === 'android'
+            ? 'Add photodrop to your home screen for easy access and notifications.'
+            : 'Install photodrop for easy access and notifications.'}
       </p>
       <div className="mt-6 flex flex-col mobile:flex-row mobile:items-center mobile:justify-between gap-4">
         <Button onClick={() => handleDismiss(true)} variant="link" size="bare">

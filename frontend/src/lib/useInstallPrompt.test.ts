@@ -94,12 +94,25 @@ describe('useInstallPrompt', () => {
   });
 
   describe('shouldShowPrompt', () => {
-    it('returns true when not installed and not dismissed', () => {
+    it('returns true on a return visit when not installed and not dismissed', () => {
       vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) =>
+        key === 'installPrompt' ? JSON.stringify({ visits: 2 }) : null
+      );
 
       const { result } = renderHook(() => useInstallPrompt());
 
       expect(result.current.shouldShowPrompt).toBe(true);
+    });
+
+    it('stays quiet on the very first visit', () => {
+      // A first-time user hasn't seen a single photo yet; the proactive
+      // prompt waits for a return visit (the header button is always there).
+      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+
+      const { result } = renderHook(() => useInstallPrompt());
+
+      expect(result.current.shouldShowPrompt).toBe(false);
     });
 
     it('returns false when installed', () => {
@@ -150,8 +163,11 @@ describe('useInstallPrompt', () => {
       });
 
       expect(result.current.isDismissed).toBe(true);
-      // Should not persist to localStorage
-      expect(Storage.prototype.setItem).not.toHaveBeenCalled();
+      // The dismissal itself is not persisted (visit counting may write).
+      const dismissWrites = vi
+        .mocked(Storage.prototype.setItem)
+        .mock.calls.filter(([, value]) => value.includes('"dismissed":true'));
+      expect(dismissWrites).toHaveLength(0);
     });
 
     it('still dismisses when localStorage refuses the write', () => {

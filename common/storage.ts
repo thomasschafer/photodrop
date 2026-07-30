@@ -8,6 +8,8 @@ export const INSTALL_PROMPT_STORAGE_KEY = 'installPrompt';
 export interface InstallPromptState {
   dismissed?: boolean;
   dismissedAt?: number;
+  /** App loads seen on this browser, for return-visit gating of the prompt. */
+  visits?: number;
 }
 
 /** Value that suppresses the install prompt for good. */

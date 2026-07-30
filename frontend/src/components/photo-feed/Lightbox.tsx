@@ -224,16 +224,31 @@ export function Lightbox({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-2-safe left-4 z-10 max-w-[calc(100%-4rem)] flex items-center gap-2"
+            className="absolute top-2-safe left-4 z-10 max-w-[calc(100%-4rem)] flex flex-col gap-1.5"
           >
-            <UploaderByline
-              name={photo.uploaderName}
-              color={photo.uploaderProfileColor}
-              uploadedAt={photo.uploadedAt}
-              variant="overlay"
-            />
-            {isAdmin && <SeenBy key={photo.id} photoId={photo.id} />}
-            {!imageProtection && <DownloadPhotoButton key={`dl-${photo.id}`} photoId={photo.id} />}
+            <div className="flex items-center gap-2">
+              <UploaderByline
+                name={photo.uploaderName}
+                color={photo.uploaderProfileColor}
+                uploadedAt={photo.uploadedAt}
+                variant="overlay"
+              />
+              {isAdmin && <SeenBy key={photo.id} photoId={photo.id} />}
+              {!imageProtection && (
+                <DownloadPhotoButton key={`dl-${photo.id}`} photoId={photo.id} />
+              )}
+              <span className="text-white/60 text-xs whitespace-nowrap" aria-hidden="true">
+                {centerIndex + 1} of {photos.length}
+              </span>
+            </div>
+            {photo.caption && (
+              <p className="text-white/90 text-sm bg-black/50 rounded-lg px-2.5 py-1 max-w-prose break-words">
+                {photo.caption}
+                {photo.captionEditedAt !== null && (
+                  <span className="text-white/50 text-xs"> (edited)</span>
+                )}
+              </p>
+            )}
           </div>
 
           <button

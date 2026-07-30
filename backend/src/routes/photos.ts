@@ -268,7 +268,10 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
     const formData = await c.req.formData();
     const photo = formData.get('photo') as File | null;
     const thumbnail = formData.get('thumbnail') as File | null;
-    const caption = formData.get('caption') as string | null;
+    // Whitespace-only captions store as null, matching how comments and
+    // caption edits are normalized.
+    const rawCaption = formData.get('caption') as string | null;
+    const caption = rawCaption?.trim() ? rawCaption.trim() : null;
 
     // Validate caption length
     if (caption && Array.from(caption).length > CAPTION_MAX_LENGTH) {

@@ -20,6 +20,8 @@ interface InstallState {
   canPromptNatively: boolean;
   isDismissed: boolean;
   deferredPrompt: BeforeInstallPromptEvent | null;
+  /** App loads seen on this browser; the proactive prompt waits for a return visit. */
+  visits: number;
 }
 
 const DISMISS_EVENT = 'installPromptDismissed';
@@ -72,6 +74,26 @@ function checkIsInstalled(): boolean {
   return isStandalone || isIOSStandalone;
 }
 
+/**
+ * Bumps the stored visit counter, once per tab session, and returns the
+ * total. Feeds return-visit gating of the proactive install prompt.
+ */
+function countVisit(): number {
+  const stored = getStoredState();
+  try {
+    if (sessionStorage.getItem('photodrop:visit-counted')) {
+      return stored.visits ?? 0;
+    }
+    sessionStorage.setItem('photodrop:visit-counted', '1');
+  } catch {
+    // Private-mode storage failures just skip the gate bump.
+    return stored.visits ?? 0;
+  }
+  const visits = (stored.visits ?? 0) + 1;
+  saveStoredState({ ...stored, visits });
+  return visits;
+}
+
 export function useInstallPrompt() {
   const [state, setState] = useState<InstallState>(() => ({
     platform: detectPlatform(),
@@ -79,6 +101,7 @@ export function useInstallPrompt() {
     canPromptNatively: false,
     isDismissed: getStoredState().dismissed ?? false,
     deferredPrompt: null,
+    visits: countVisit(),
   }));
 
   // Listen for beforeinstallprompt event (Android/Desktop Chrome/Edge)
@@ -172,7 +195,11 @@ export function useInstallPrompt() {
   }, []);
 
   // Determine if we should show the install prompt
-  const shouldShowPrompt = !state.isInstalled && !state.isDismissed;
+  // The proactive modal waits for a return visit: a first-time user hasn't
+  // seen a single photo yet, and install nags before any value is shown are
+  // how prompts get dismissed forever. The header install button is always
+  // available regardless.
+  const shouldShowPrompt = !state.isInstalled && !state.isDismissed && (state.visits ?? 0) >= 2;
 
   // For Firefox, skip install - notifications work in browser
   const canSkipInstall = state.platform === 'firefox';
