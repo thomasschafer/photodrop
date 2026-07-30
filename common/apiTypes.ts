@@ -98,8 +98,14 @@ export interface PhotoSummary {
 export interface PhotoListResponse {
   photos: PhotoSummary[];
   limit: number;
+  /** Deprecated: meaningful only for legacy offset-paging requests. */
   offset: number;
   hasMore: boolean;
+  /**
+   * Opaque keyset cursor for the next page; null when this is the last page.
+   * Pass back verbatim via `?cursor=`.
+   */
+  nextCursor: string | null;
 }
 
 export interface PhotoDetailResponse {

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../lib/imageCompression', () => ({
   isHeicFile: () => true,
   validateImageFile: () => ({ valid: true }),
+  validateImageDecodes: async () => true,
   formatFileSize: () => '1 KB',
   convertHeicToJpeg: mocks.convertHeicToJpeg,
   compressImage: mocks.compressImage,

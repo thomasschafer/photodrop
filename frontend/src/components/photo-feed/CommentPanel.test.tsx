@@ -71,6 +71,32 @@ describe('CommentPanel', () => {
     expect(screen.getByText('real comment')).toBeInTheDocument();
   });
 
+  it('shows the empty state, not a lone tombstone, when every comment is deleted', () => {
+    // A tombstone exists to preserve the shape of a conversation around it.
+    // With no visible comments left there is no conversation to preserve, and
+    // a solitary "This comment has been deleted." reads as a glitch — the
+    // badge says 0 while the panel shows a row.
+    const comments = [
+      makeComment({ id: 'a', isDeleted: true, userId: null }),
+      makeComment({ id: 'b', isDeleted: true, userId: null }),
+    ];
+    renderPanel({ comments, commentCount: 0 });
+
+    expect(screen.queryByText('This comment has been deleted.')).not.toBeInTheDocument();
+    expect(screen.getByText('No comments yet')).toBeInTheDocument();
+  });
+
+  it('keeps tombstones when at least one visible comment remains', () => {
+    const comments = [
+      makeComment({ id: 'a', isDeleted: true, userId: null }),
+      makeComment({ id: 'b', content: 'still here' }),
+    ];
+    renderPanel({ comments, commentCount: 1 });
+
+    expect(screen.getByText('This comment has been deleted.')).toBeInTheDocument();
+    expect(screen.getByText('still here')).toBeInTheDocument();
+  });
+
   it('flashes the highlighted comment and scrolls it into view', () => {
     const scrollIntoView = vi.fn();
     vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(scrollIntoView);

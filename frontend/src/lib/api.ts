@@ -471,8 +471,10 @@ export const api = {
   },
 
   photos: {
-    list: (limit: number = 20, offset: number = 0): Promise<PhotoListResponse> =>
-      requestJson(`/photos?limit=${limit}&offset=${offset}`),
+    list: (limit: number = 20, cursor?: string): Promise<PhotoListResponse> =>
+      requestJson(
+        `/photos?limit=${limit}${cursor !== undefined ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
+      ),
 
     upload: (photo: File, thumbnail: File, caption?: string): Promise<PhotoUploadResponse> => {
       const formData = new FormData();

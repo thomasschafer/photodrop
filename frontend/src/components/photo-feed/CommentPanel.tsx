@@ -72,13 +72,17 @@ export function CommentPanel({
   submittingComment,
   commentError,
 }: CommentPanelProps) {
-  const sortedComments = useMemo(
-    () =>
-      [...comments].sort((a, b) =>
-        commentSortOrder === 'oldest' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt
-      ),
-    [comments, commentSortOrder]
-  );
+  const sortedComments = useMemo(() => {
+    // Tombstones exist to preserve the shape of a conversation around them.
+    // When no visible comment remains there is no conversation to preserve,
+    // and a lone "This comment has been deleted." contradicts the badge count
+    // (which excludes deleted comments) — show the empty state instead.
+    const anyVisible = comments.some((c) => !c.isDeleted);
+    const displayable = anyVisible ? comments : [];
+    return [...displayable].sort((a, b) =>
+      commentSortOrder === 'oldest' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt
+    );
+  }, [comments, commentSortOrder]);
 
   const highlightedRef = useRef<HTMLDivElement>(null);
 

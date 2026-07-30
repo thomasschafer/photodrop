@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useId } from 'react';
 import type { ReactionSummary, ReactionWithUser } from './types';
 import { EMOJI_OPTIONS, LONG_PRESS_TIMEOUT_MS } from './types';
 import { useDropdown } from '../../lib/useDropdown';
@@ -30,6 +30,10 @@ interface ReactionPillButtonProps {
   enableLongPress: boolean;
 }
 
+// Minimum room (px) needed above a pill for the names tooltip; with less than
+// this the tooltip flips below the pill instead of clipping off-screen.
+const TOOLTIP_CLEARANCE_PX = 64;
+
 function ReactionPillButton({
   emoji,
   count,
@@ -42,6 +46,16 @@ function ReactionPillButton({
   onShowTooltip,
   enableLongPress,
 }: ReactionPillButtonProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
+  const [tooltipBelow, setTooltipBelow] = useState(false);
+
+  // Measured lazily on hover/focus, not render: the pill's distance from the
+  // viewport top changes with scrolling and the lightbox rail layout.
+  const updateTooltipSide = useCallback(() => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    if (rect) setTooltipBelow(rect.top < TOOLTIP_CLEARANCE_PX);
+  }, []);
   const onLongPress = useCallback(() => {
     onLoadDetails();
     onShowTooltip();
@@ -68,7 +82,12 @@ function ReactionPillButton({
   );
 
   return (
-    <div className="relative group">
+    <div
+      className="relative group"
+      ref={wrapperRef}
+      onMouseEnter={updateTooltipSide}
+      onFocus={updateTooltipSide}
+    >
       <button
         onTouchStart={enableLongPress ? onTouchStart : undefined}
         onTouchMove={enableLongPress ? onTouchMove : undefined}
@@ -80,14 +99,21 @@ function ReactionPillButton({
         }`}
         aria-label={`${isUserReaction ? 'Remove' : 'Add'} ${emoji} reaction`}
         aria-pressed={isUserReaction}
+        aria-describedby={names && names.length > 0 ? tooltipId : undefined}
       >
         <span>{emoji}</span>
         <span className="text-text-primary font-medium">{count}</span>
       </button>
       {names && names.length > 0 && (
         <div
-          className={`absolute left-1/2 -translate-x-1/2 bottom-full mb-2.5 px-2.5 py-1.5 bg-surface border border-border rounded-lg shadow-elevated text-sm text-text-secondary whitespace-nowrap transition-opacity pointer-events-none z-[70] ${
-            showTooltip ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          id={tooltipId}
+          role="tooltip"
+          className={`absolute left-1/2 -translate-x-1/2 ${
+            tooltipBelow ? 'top-full mt-2.5' : 'bottom-full mb-2.5'
+          } px-2.5 py-1.5 bg-surface border border-border rounded-lg shadow-elevated text-sm text-text-secondary whitespace-nowrap transition-opacity pointer-events-none z-[70] ${
+            showTooltip
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
           }`}
         >
           {names.join(', ')}
@@ -243,10 +269,77 @@ export function ReactionPills({
   // optimistic update — e.g. on iOS a tap also fires mouseenter and triggers
   // the load, making the count jump +1 then snap back. Names can lag
   // harmlessly; counts cannot.
-  const displayReactions = useMemo(
+  const sortedReactions = useMemo(
     () => [...reactions].sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji)),
     [reactions]
   );
+
+  // Pills sort by count, and counts change the instant a pill is clicked — so
+  // while the user's pointer or keyboard focus is inside the row, the order
+  // they are aiming at must not shift under them (a re-sort mid-interaction
+  // makes the next click land on whatever moved into the target's place).
+  // The order is frozen on engagement and re-sorted on disengagement.
+  const [hoverEngaged, setHoverEngaged] = useState(false);
+  const [focusEngaged, setFocusEngaged] = useState(false);
+  const interacting = hoverEngaged || focusEngaged;
+  const frozenOrderRef = useRef<string[]>([]);
+
+  const displayReactions = useMemo(() => {
+    if (!interacting) return sortedReactions;
+    const rank = new Map(frozenOrderRef.current.map((emoji, i) => [emoji, i]));
+    // Emoji that arrived after the freeze (someone else's reaction landing
+    // mid-hover) go at the end, in their sorted relative order.
+    return [...sortedReactions].sort(
+      (a, b) =>
+        (rank.get(a.emoji) ?? rank.size + sortedReactions.indexOf(a)) -
+        (rank.get(b.emoji) ?? rank.size + sortedReactions.indexOf(b))
+    );
+  }, [interacting, sortedReactions]);
+
+  const engage = useCallback(
+    (setEngaged: (v: boolean) => void) => {
+      if (!interacting) {
+        frozenOrderRef.current = displayReactions.map((r) => r.emoji);
+      }
+      setEngaged(true);
+    },
+    [interacting, displayReactions]
+  );
+
+  // "Who reacted" popover: the accessible, non-hover surface for reaction
+  // attribution. The hover tooltip remains as a pointer shortcut, but it is
+  // unreachable by touch-without-long-press and by assistive tech users
+  // navigating the summary, so the full list needs a real control.
+  const [whoOpen, setWhoOpen] = useState(false);
+  const whoRef = useRef<HTMLDivElement>(null);
+  const whoTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!whoOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Capture-phase with propagation stopped: inside the lightbox, Escape
+      // must close this popover first, not the whole overlay with it.
+      e.stopPropagation();
+      setWhoOpen(false);
+      whoTriggerRef.current?.focus();
+    };
+    const onPointerDown = (e: Event) => {
+      if (!whoRef.current?.contains(e.target as Node)) {
+        setWhoOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+    };
+  }, [whoOpen]);
 
   const loadNames = useCallback(() => {
     if (showNames && !hasLoadedRef.current && onLoadReactionDetails) {
@@ -259,13 +352,30 @@ export function ReactionPills({
   // also synthesizes mouseenter, so loading here would fire a redundant fetch
   // on every tap; touch users load names via long-press instead.
   const handleMouseEnter = useCallback(() => {
+    engage(setHoverEngaged);
     if (window.matchMedia('(hover: hover)').matches) {
       loadNames();
     }
-  }, [loadNames]);
+  }, [engage, loadNames]);
+
+  const handleFocus = useCallback(() => {
+    engage(setFocusEngaged);
+  }, [engage]);
+
+  const handleWrapperBlur = useCallback((e: React.FocusEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setFocusEngaged(false);
+    }
+  }, []);
 
   return (
-    <div className="flex gap-1.5 flex-wrap items-center relative" onMouseEnter={handleMouseEnter}>
+    <div
+      className="flex gap-1.5 flex-wrap items-center relative"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={() => setHoverEngaged(false)}
+      onFocus={handleFocus}
+      onBlur={handleWrapperBlur}
+    >
       {displayReactions.map(({ emoji, count }) => {
         const isUserReaction = userReactions.includes(emoji);
         const names = showNames ? reactionsByEmoji?.[emoji] : undefined;
@@ -342,6 +452,57 @@ export function ReactionPills({
           </div>
         )}
       </div>
+
+      {showNames && sortedReactions.length > 0 && (
+        <div className="relative" ref={whoRef}>
+          <button
+            ref={whoTriggerRef}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!whoOpen) loadNames();
+              setWhoOpen((open) => !open);
+            }}
+            className={`${pillBaseClass} w-9 ${
+              whoOpen
+                ? 'bg-bg-tertiary text-text-primary'
+                : 'bg-bg-tertiary hover:bg-bg-border text-text-secondary'
+            }`}
+            aria-label="See who reacted"
+            aria-expanded={whoOpen}
+            aria-haspopup="dialog"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 00-3-3.87" />
+              <path d="M16 3.13a4 4 0 010 7.75" />
+            </svg>
+          </button>
+
+          {whoOpen && (
+            <div
+              role="dialog"
+              aria-label="Who reacted"
+              className="absolute z-[70] top-full mt-2 right-0 min-w-44 max-w-72 bg-surface border border-border rounded-lg shadow-elevated p-3 text-sm"
+            >
+              {!reactionsByEmoji ? (
+                <p className="text-text-secondary">Loading…</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {displayReactions.map(({ emoji }) => (
+                    <li key={emoji} className="flex gap-2 items-baseline">
+                      <span aria-hidden="true">{emoji}</span>
+                      <span className="text-text-secondary">
+                        {(reactionsByEmoji[emoji] ?? []).join(', ')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

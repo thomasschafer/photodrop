@@ -73,11 +73,17 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const photoRefs = useRef<(HTMLElement | null)[]>([]);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const feedListRef = useRef<HTMLDivElement>(null);
-  // How many rows the server has already served us, which is what the next
-  // page's offset must be. Deliberately not photos.length: duplicates are
-  // dropped on the way in, so the two diverge as soon as anything is uploaded
-  // mid-scroll, and paging by the kept count would re-request the same rows.
-  const nextOffsetRef = useRef(0);
+  // Opaque keyset cursor for the next page, straight from the server. Unlike
+  // offset paging, a cursor cannot skip or repeat rows when uploads land
+  // mid-scroll — and unlike a counter, there is nothing here to corrupt if
+  // two loads ever raced.
+  const nextCursorRef = useRef<string | null>(null);
+  // Single-flight guard for load-more. Deliberately a ref, not state: state
+  // commits asynchronously, so two triggers in the same tick (scroll listener
+  // and ResizeObserver both consulting the sentinel) would each read the
+  // stale "not loading" value and both fetch — which is how the feed once
+  // double-advanced its paging and silently skipped a page of photos.
+  const loadMoreInFlightRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { photoId } = useParams<{ photoId: string }>();
@@ -98,10 +104,10 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.photos.list(20, 0);
+      const data = await api.photos.list(20);
       setPhotos(data.photos);
-      nextOffsetRef.current = data.photos.length;
-      setHasMore(data.hasMore ?? false);
+      nextCursorRef.current = data.nextCursor ?? null;
+      setHasMore(nextCursorRef.current !== null);
       setLoadMoreFailed(false);
       setFeedReactionDetails(new Map());
       reactionsEngine.resetCache();
@@ -113,29 +119,24 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   };
 
   const loadMorePhotos = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
+    if (loadMoreInFlightRef.current || !hasMore) return;
+    const cursor = nextCursorRef.current;
+    if (cursor === null) return;
 
+    loadMoreInFlightRef.current = true;
     try {
       setLoadingMore(true);
       setLoadMoreFailed(false);
-      const data = await api.photos.list(20, nextOffsetRef.current);
-      // Count what the server served, not what we chose to keep. Offset paging
-      // over a newest-first list means an upload since the last page shifts
-      // everything down and repeats rows we already hold; advancing by the
-      // deduped count would ask for the same rows forever.
-      nextOffsetRef.current += data.photos.length;
-      // Those repeats still must not reach the list: duplicate ids collide as
-      // React keys and make the lightbox's findIndex resolve to the wrong copy.
+      const data = await api.photos.list(20, cursor);
+      nextCursorRef.current = data.nextCursor ?? null;
+      // The cursor guarantees no overlap between pages, but keep the dedup as
+      // a hard invariant anyway: duplicate ids collide as React keys and make
+      // the lightbox's findIndex resolve to the wrong copy.
       setPhotos((prev) => {
         const seen = new Set(prev.map((p) => p.id));
         return [...prev, ...data.photos.filter((p) => !seen.has(p.id))];
       });
-      // A page of no rows at all cannot advance the offset, so honouring a
-      // hasMore that contradicts it would re-request the same empty page
-      // forever. Zero rows served is the end of the feed whatever the flag
-      // says. This is not the earlier mistake of counting deduped rows: a page
-      // of duplicates still advances the offset and paging continues.
-      setHasMore(data.photos.length > 0 && (data.hasMore ?? false));
+      setHasMore(nextCursorRef.current !== null);
     } catch (err) {
       console.error('Failed to load more photos:', err);
       // Nothing was appended, so the sentinel is still on screen and every
@@ -143,8 +144,9 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       setLoadMoreFailed(true);
     } finally {
       setLoadingMore(false);
+      loadMoreInFlightRef.current = false;
     }
-  }, [loadingMore, hasMore]);
+  }, [hasMore]);
 
   useEffect(() => {
     loadPhotos();
@@ -553,7 +555,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             </article>
           ))}
         </div>
-        {hasMore && (
+        {hasMore ? (
           <div
             ref={loadMoreRef}
             className="h-16 flex items-center justify-center text-text-muted text-sm"
@@ -568,6 +570,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               </span>
             )}
           </div>
+        ) : (
+          photos.length > 0 && (
+            // An explicit terminal marker: without it, a feed truncated by a
+            // paging fault is indistinguishable from one that simply ended.
+            <p className="h-16 flex items-center justify-center text-text-muted text-sm">
+              You're all caught up
+            </p>
+          )
         )}
       </PullToRefresh>
 

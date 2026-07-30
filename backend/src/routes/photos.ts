@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
+import type { PhotoCursor } from '../lib/db';
 import {
   createPhoto,
   getPhoto,
@@ -171,16 +172,45 @@ async function sendPhotoUploadNotifications(
   }
 }
 
+/**
+ * Wire format for the keyset cursor: "<uploadedAt>_<photoId>", split at the
+ * first underscore (photo ids can contain underscores in principle; the
+ * timestamp cannot). Opaque to clients — they pass `nextCursor` back verbatim.
+ */
+function encodePhotoCursor(photo: { uploaded_at: number; id: string }): string {
+  return `${photo.uploaded_at}_${photo.id}`;
+}
+
+function parsePhotoCursor(raw: string): PhotoCursor {
+  const sep = raw.indexOf('_');
+  const uploadedAt = sep > 0 ? Number(raw.slice(0, sep)) : NaN;
+  const id = sep > 0 ? raw.slice(sep + 1) : '';
+  if (!Number.isInteger(uploadedAt) || id.length === 0) {
+    throw new BadRequestError('Invalid cursor');
+  }
+  return { uploadedAt, id };
+}
+
 photos.get('/', requireAuth, async (c) => {
   // Clamp limit to 1-100, offset to >= 0
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '20', 10) || 20, 1), 100);
   const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0);
+  const cursorParam = c.req.query('cursor');
+  const cursor = cursorParam !== undefined ? parsePhotoCursor(cursorParam) : null;
   const user = c.get('user');
 
   // Fetch one extra to determine if there are more photos
-  const photoList = await listPhotosWithCounts(c.env.DB, user.groupId, user.id, limit + 1, offset);
+  const photoList = await listPhotosWithCounts(
+    c.env.DB,
+    user.groupId,
+    user.id,
+    limit + 1,
+    cursor,
+    offset
+  );
   const hasMore = photoList.length > limit;
   const photosToReturn = hasMore ? photoList.slice(0, limit) : photoList;
+  const lastPhoto = photosToReturn[photosToReturn.length - 1];
 
   return c.json({
     photos: photosToReturn.map((photo) => ({
@@ -197,6 +227,7 @@ photos.get('/', requireAuth, async (c) => {
     limit,
     offset,
     hasMore,
+    nextCursor: hasMore && lastPhoto ? encodePhotoCursor(lastPhoto) : null,
   } satisfies PhotoListResponse);
 });
 

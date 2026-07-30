@@ -6,6 +6,7 @@ import {
   convertHeicToJpeg,
   isHeicFile,
   validateImageFile,
+  validateImageDecodes,
   formatFileSize,
 } from '../lib/imageCompression';
 import { Button } from './Button';
@@ -64,7 +65,20 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
       }
     }
 
+    // Decode the bytes before accepting the file: anything that fails here
+    // can never upload, and a specific selection-time error beats a broken
+    // preview followed by a generic failure at upload time.
+    const decodes = await validateImageDecodes(processedFile);
     if (!isCurrentRequest()) return;
+    if (!decodes) {
+      setError("This file doesn't appear to be a valid image. Please try a different file.");
+      setPreviewLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+
     setSelectedFile(processedFile);
 
     const reader = new FileReader();
@@ -138,7 +152,7 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
       {!isModal && <h2 className="text-lg font-medium text-text-primary mb-4">Upload photo</h2>}
 
       {!selectedFile ? (
-        <div>
+        <div className="space-y-3">
           <input
             id="photo-input"
             ref={fileInputRef}
@@ -148,6 +162,11 @@ export function PhotoUpload({ onUploadComplete, isModal = false }: PhotoUploadPr
             disabled={uploading}
             className="file-input"
           />
+          {error && (
+            <p className="text-sm text-error" role="alert">
+              {error}
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-4">

@@ -124,22 +124,26 @@ describe('PhotoFeed', () => {
     // strand the feed. The sentinel is asked directly once a page settles.
     putSentinelInView();
     mocks.list
-      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
-      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: false });
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true, nextCursor: '1_a' })
+      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: false, nextCursor: null });
 
     renderFeed();
     await act(async () => {});
 
     expect(mocks.list).toHaveBeenCalledTimes(2);
-    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 1);
+    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, '1_a');
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
   });
 
   it('loads the next page when the user scrolls the sentinel into view', async () => {
     // The sentinel starts out of view, so nothing loads until the scroll.
     mocks.list
-      .mockResolvedValueOnce({ photos: [makePhoto('a'), makePhoto('b')], hasMore: true })
-      .mockResolvedValueOnce({ photos: [makePhoto('c')], hasMore: false });
+      .mockResolvedValueOnce({
+        photos: [makePhoto('a'), makePhoto('b')],
+        hasMore: true,
+        nextCursor: '1_b',
+      })
+      .mockResolvedValueOnce({ photos: [makePhoto('c')], hasMore: false, nextCursor: null });
 
     renderFeed();
     await act(async () => {});
@@ -148,26 +152,34 @@ describe('PhotoFeed', () => {
     putSentinelInView();
     await scrollToSentinel();
 
-    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 2);
+    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, '1_b');
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
   });
 
   it('keeps paging past a page of rows it already holds', async () => {
-    // Uploads between two fetches shift a newest-first list down, so a page
-    // can be entirely rows we hold. Those must not reach the list — duplicate
-    // React keys — but they must still advance the offset, or the feed both
-    // re-requests them forever and silently truncates mid-history.
+    // Keyset cursors make duplicate pages a server-side anomaly (a cache
+    // replay, say) rather than routine — but if one does arrive, its rows
+    // must not reach the list as duplicate React keys, and paging must follow
+    // the server's cursor onwards rather than stall.
     putSentinelInView();
     mocks.list
-      .mockResolvedValueOnce({ photos: [makePhoto('a'), makePhoto('b')], hasMore: true })
-      .mockResolvedValueOnce({ photos: [makePhoto('a'), makePhoto('b')], hasMore: true })
-      .mockResolvedValueOnce({ photos: [makePhoto('c')], hasMore: false });
+      .mockResolvedValueOnce({
+        photos: [makePhoto('a'), makePhoto('b')],
+        hasMore: true,
+        nextCursor: '1_b',
+      })
+      .mockResolvedValueOnce({
+        photos: [makePhoto('a'), makePhoto('b')],
+        hasMore: true,
+        nextCursor: '1_b2',
+      })
+      .mockResolvedValueOnce({ photos: [makePhoto('c')], hasMore: false, nextCursor: null });
 
     renderFeed();
     await act(async () => {});
 
-    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 2);
-    expect(mocks.list).toHaveBeenNthCalledWith(3, 20, 4);
+    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, '1_b');
+    expect(mocks.list).toHaveBeenNthCalledWith(3, 20, '1_b2');
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
     expect(screen.getAllByText('photo a')).toHaveLength(1);
     expect(screen.getByText('photo c')).toBeInTheDocument();
@@ -179,8 +191,8 @@ describe('PhotoFeed', () => {
     // pushes it below the fold again — with no scroll and no viewport change
     // to announce it. Only content growth reports this.
     mocks.list
-      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
-      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: false });
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true, nextCursor: '1_a' })
+      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: false, nextCursor: null });
 
     renderFeed();
     await act(async () => {});
@@ -195,7 +207,7 @@ describe('PhotoFeed', () => {
       triggerContentResize?.();
     });
 
-    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 1);
+    expect(mocks.list).toHaveBeenNthCalledWith(2, 20, '1_a');
   });
 
   it('offers a retry after a failed page, and resumes paging when it is used', async () => {
@@ -210,9 +222,9 @@ describe('PhotoFeed', () => {
     // and unmount the sentinel, taking the retry control with it and making
     // the assertion below pass for the very reason this setup rules out.
     mocks.list
-      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true, nextCursor: '1_a' })
       .mockRejectedValueOnce(new Error('network'))
-      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: true })
+      .mockResolvedValueOnce({ photos: [makePhoto('b')], hasMore: true, nextCursor: '1_b' })
       .mockReturnValue(new Promise(() => {}));
 
     renderFeed();
@@ -234,7 +246,7 @@ describe('PhotoFeed', () => {
     // feed is the copy the lightbox re-seeds from, so a wrong value here
     // spreads — it takes the refetched absolute state instead.
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    mocks.list.mockResolvedValue({ photos: [makePhoto('a')], hasMore: false });
+    mocks.list.mockResolvedValue({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
     mocks.addReaction.mockRejectedValue(new Error('network'));
     mocks.getReactions.mockResolvedValue({
       reactions: [{ emoji: '❤️', userId: 'someone-else', userName: 'Ada', profileColor: 'teal' }],
@@ -260,7 +272,7 @@ describe('PhotoFeed', () => {
     putSentinelInView();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.list
-      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true })
+      .mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: true, nextCursor: '1_a' })
       .mockRejectedValue(new Error('network'));
 
     renderFeed();
@@ -276,7 +288,7 @@ describe('PhotoFeed', () => {
 
   it('lets a second upload show its message for the full duration', async () => {
     vi.useFakeTimers();
-    mocks.list.mockResolvedValue({ photos: [makePhoto('a')], hasMore: false });
+    mocks.list.mockResolvedValue({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
 
     renderFeed(true);
     await act(async () => {});
@@ -310,7 +322,7 @@ describe('PhotoFeed', () => {
 
   it('cancels a pending success-message timer when it unmounts', async () => {
     vi.useFakeTimers();
-    mocks.list.mockResolvedValue({ photos: [makePhoto('a')], hasMore: false });
+    mocks.list.mockResolvedValue({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
 

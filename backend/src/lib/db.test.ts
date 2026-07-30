@@ -1398,7 +1398,7 @@ describe('listPhotosWithCounts', () => {
     ];
     const db = createSequentialAllMockDb([photos, reactions]);
 
-    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, null);
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('photo-1');
@@ -1456,7 +1456,7 @@ describe('listPhotosWithCounts', () => {
     ];
     const db = createSequentialAllMockDb([photos, []]);
 
-    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, null);
 
     expect(result[0].uploader_name).toBe('Alice');
     expect(result[0].uploader_profile_color).toBe('teal');
@@ -1513,7 +1513,7 @@ describe('listPhotosWithCounts', () => {
     ];
     const db = createSequentialAllMockDb([photos, reactions]);
 
-    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, null);
 
     expect(result[0].user_reactions).toEqual(['❤️', '🔥']);
     expect(result[0].reaction_count).toBe(7);
@@ -1535,7 +1535,7 @@ describe('listPhotosWithCounts', () => {
     const reactions: unknown[] = [];
     const db = createSequentialAllMockDb([photos, reactions]);
 
-    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, null);
 
     expect(result).toHaveLength(1);
     expect(result[0].comment_count).toBe(0);
@@ -1547,7 +1547,7 @@ describe('listPhotosWithCounts', () => {
   it('returns empty array for group with no photos', async () => {
     const db = createSequentialAllMockDb([[], []]);
 
-    const result = await listPhotosWithCounts(db, 'group-empty', 'user-1', 20, 0);
+    const result = await listPhotosWithCounts(db, 'group-empty', 'user-1', 20, null);
 
     expect(result).toEqual([]);
   });
@@ -1582,7 +1582,7 @@ describe('listPhotosWithCounts', () => {
     ];
     const db = createSequentialAllMockDb([photos, reactions]);
 
-    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, 0);
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 20, null);
 
     expect(result).toHaveLength(2);
 
@@ -1624,7 +1624,7 @@ describe('listPhotosWithCounts', () => {
       [{ photo_id: 'photo-100', emoji: '🔥', count: 1, reacted_by_user: 0 }],
     ]);
 
-    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 101, 0);
+    const result = await listPhotosWithCounts(db, 'group-1', 'user-1', 101, null);
 
     expect(result).toHaveLength(101);
     expect(result[0].reactions).toEqual([{ emoji: '❤️', count: 2 }]);
@@ -1659,7 +1659,7 @@ describe('listPhotosWithCounts', () => {
     ];
     const db = createSequentialAllMockDb([photos, []]);
 
-    await listPhotosWithCounts(db, 'group-1', 'user-1', 10, 5);
+    await listPhotosWithCounts(db, 'group-1', 'user-1', 10, null, 5);
 
     // First call: photos query with groupId, limit, offset
     expect(db._mocks.mockBind).toHaveBeenNthCalledWith(1, 'group-1', 10, 5);

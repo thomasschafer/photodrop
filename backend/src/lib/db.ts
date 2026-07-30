@@ -1253,14 +1253,35 @@ interface ReactionAggregateRow {
 const REACTION_ID_BATCH_SIZE = 90;
 
 // List photos with reaction and comment counts (optimized: 2 queries instead of 1+3N)
+/**
+ * Keyset cursor for photo pagination: the (uploaded_at, id) of the last row
+ * of the previous page. Strictly ordered by (uploaded_at DESC, id DESC), so a
+ * page boundary cannot shift when photos are uploaded or deleted mid-scroll —
+ * the failure mode offset paging over a newest-first list is permanently
+ * exposed to.
+ */
+export interface PhotoCursor {
+  uploadedAt: number;
+  id: string;
+}
+
 export async function listPhotosWithCounts(
   db: D1Database,
   groupId: string,
   userId: string,
   limit: number = 20,
-  offset: number = 0
+  cursor: PhotoCursor | null = null,
+  // Deprecated: only exercised by frontend bundles predating cursor paging,
+  // which page by offset. Remove once no such bundle can plausibly be live.
+  legacyOffset: number = 0
 ): Promise<PhotoWithCounts[]> {
-  // Query 1: Get photos with comment counts in a single query
+  // Query 1: Get photos with comment counts in a single query. The explicit
+  // id tiebreaker matters twice over: it makes the order deterministic for
+  // same-second uploads, and keyset pagination is only correct over a total
+  // order.
+  const cursorClause = cursor
+    ? 'AND (p.uploaded_at < ?2 OR (p.uploaded_at = ?2 AND p.id < ?3))'
+    : '';
   const photosResult = await db
     .prepare(
       `SELECT
@@ -1284,11 +1305,16 @@ export async function listPhotosWithCounts(
       ) c ON c.photo_id = p.id
       LEFT JOIN users u ON u.id = p.uploaded_by
       LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id
-      WHERE p.group_id = ?
-      ORDER BY p.uploaded_at DESC
-      LIMIT ? OFFSET ?`
+      WHERE p.group_id = ?1
+      ${cursorClause}
+      ORDER BY p.uploaded_at DESC, p.id DESC
+      ${cursor ? 'LIMIT ?4' : 'LIMIT ?2 OFFSET ?3'}`
     )
-    .bind(groupId, limit, offset)
+    .bind(
+      ...(cursor
+        ? [groupId, cursor.uploadedAt, cursor.id, limit]
+        : [groupId, limit, legacyOffset])
+    )
     .all<PhotoWithCountsRow>();
 
   const photos = photosResult.results || [];

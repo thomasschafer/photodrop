@@ -95,6 +95,36 @@ export function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || isHeicFile(file);
 }
 
+/**
+ * Proves the file's bytes actually decode as an image. Extension/MIME checks
+ * pass anything renamed to .png; a file that fails to decode here can never
+ * upload successfully, so callers should reject it at selection time with a
+ * specific message rather than let it fail later as a generic upload error.
+ */
+export async function validateImageDecodes(file: File): Promise<boolean> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file);
+      bitmap.close();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  // Fallback for engines without createImageBitmap support.
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export function validateImageFile(file: File): { valid: boolean; error?: string } {
   if (!isImageFile(file)) {
     return {

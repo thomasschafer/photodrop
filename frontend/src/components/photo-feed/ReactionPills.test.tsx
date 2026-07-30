@@ -48,6 +48,153 @@ describe('ReactionPills', () => {
     expect(onReactionClick).toHaveBeenCalledWith('🔥');
   });
 
+  describe('who-reacted popover', () => {
+    const details: ReactionWithUser[] = [
+      { emoji: '❤️', userId: 'me', userName: 'Me', profileColor: 'teal' },
+      { emoji: '❤️', userId: 'bob', userName: 'Bob', profileColor: 'mauve' },
+      { emoji: '🔥', userId: 'ada', userName: 'Ada', profileColor: 'sage' },
+    ];
+
+    it('opens on click and lists reactors grouped by emoji', () => {
+      const onLoadReactionDetails = vi.fn();
+      render(
+        <ReactionPills
+          reactions={[
+            { emoji: '❤️', count: 2 },
+            { emoji: '🔥', count: 1 },
+          ]}
+          userReactions={['❤️']}
+          onReactionClick={vi.fn()}
+          reactionDetails={details}
+          onLoadReactionDetails={onLoadReactionDetails}
+          currentUserId="me"
+          showNames
+        />
+      );
+
+      fireEvent.click(screen.getByLabelText('See who reacted'));
+
+      const dialog = screen.getByRole('dialog', { name: 'Who reacted' });
+      expect(dialog).toHaveTextContent('You, Bob');
+      expect(dialog).toHaveTextContent('Ada');
+      expect(onLoadReactionDetails).toHaveBeenCalled();
+    });
+
+    it('closes on Escape and returns focus to its trigger', () => {
+      render(
+        <ReactionPills
+          reactions={[{ emoji: '❤️', count: 1 }]}
+          userReactions={[]}
+          onReactionClick={vi.fn()}
+          reactionDetails={details}
+          currentUserId="me"
+          showNames
+        />
+      );
+
+      const trigger = screen.getByLabelText('See who reacted');
+      fireEvent.click(trigger);
+      expect(screen.getByRole('dialog', { name: 'Who reacted' })).toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      expect(screen.queryByRole('dialog', { name: 'Who reacted' })).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('is absent with no reactions or outside name-showing contexts', () => {
+      const { rerender } = render(
+        <ReactionPills reactions={[]} userReactions={[]} onReactionClick={vi.fn()} showNames />
+      );
+      expect(screen.queryByLabelText('See who reacted')).not.toBeInTheDocument();
+
+      rerender(
+        <ReactionPills
+          reactions={[{ emoji: '❤️', count: 1 }]}
+          userReactions={[]}
+          onReactionClick={vi.fn()}
+        />
+      );
+      expect(screen.queryByLabelText('See who reacted')).not.toBeInTheDocument();
+    });
+  });
+
+  // Pills sort by count, and counts change the moment the user clicks one —
+  // so without a freeze, the row re-orders under the cursor mid-interaction
+  // and the next click lands on the wrong target (observed in testing: aiming
+  // at "+" toggled a pill that had shifted into its place).
+  describe('ordering stability during interaction', () => {
+    const pillOrder = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('button'))
+        .map((b) => /^(?:Add|Remove) (.+) reaction$/.exec(b.getAttribute('aria-label') ?? ''))
+        .filter((match) => match !== null)
+        .map((match) => match[1]);
+
+    it('keeps pill order frozen while the pointer is over the pills', () => {
+      const { container, rerender } = render(
+        <ReactionPills
+          reactions={[
+            { emoji: '🔥', count: 1 },
+            { emoji: '❤️', count: 2 },
+          ]}
+          userReactions={[]}
+          onReactionClick={vi.fn()}
+        />
+      );
+      expect(pillOrder(container)).toEqual(['❤️', '🔥']);
+
+      const wrapper = container.firstElementChild as HTMLElement;
+      fireEvent.mouseEnter(wrapper);
+
+      // A reaction lands while the pointer is engaged; sort order would flip.
+      rerender(
+        <ReactionPills
+          reactions={[
+            { emoji: '🔥', count: 3 },
+            { emoji: '❤️', count: 2 },
+          ]}
+          userReactions={['🔥']}
+          onReactionClick={vi.fn()}
+        />
+      );
+      expect(pillOrder(container)).toEqual(['❤️', '🔥']);
+
+      fireEvent.mouseLeave(wrapper);
+      expect(pillOrder(container)).toEqual(['🔥', '❤️']);
+    });
+
+    it('keeps pill order frozen while a pill has keyboard focus', () => {
+      const { container, rerender } = render(
+        <ReactionPills
+          reactions={[
+            { emoji: '🔥', count: 1 },
+            { emoji: '❤️', count: 2 },
+          ]}
+          userReactions={[]}
+          onReactionClick={vi.fn()}
+        />
+      );
+
+      const firePill = screen.getByLabelText('Add 🔥 reaction');
+      firePill.focus();
+
+      rerender(
+        <ReactionPills
+          reactions={[
+            { emoji: '🔥', count: 3 },
+            { emoji: '❤️', count: 2 },
+          ]}
+          userReactions={['🔥']}
+          onReactionClick={vi.fn()}
+        />
+      );
+      expect(pillOrder(container)).toEqual(['❤️', '🔥']);
+
+      fireEvent.focusOut(firePill, { relatedTarget: null });
+      expect(pillOrder(container)).toEqual(['🔥', '❤️']);
+    });
+  });
+
   it('opens the picker on a horizontal arrow without leaking the key to the lightbox', () => {
     // The lightbox navigates photos from a document-level (bubble-phase) keydown
     // listener on the same left/right keys. With focus on the trigger, opening

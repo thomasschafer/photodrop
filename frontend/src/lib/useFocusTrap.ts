@@ -27,8 +27,14 @@ export function useFocusTrap(containerRef: React.RefObject<HTMLElement | null>, 
       const focusable = getFocusableElements();
       if (focusable.length === 0) return;
 
-      const firstElement = focusable[0];
-      const lastElement = focusable[focusable.length - 1];
+      // The trap moves focus itself on *every* Tab press rather than letting
+      // the browser walk sequential focus order and only correcting at the
+      // ends. Handing the middle of the cycle to the browser assumes every
+      // engine tabs through the same elements — Safari's default keyboard
+      // behaviour never tabs onto buttons, so with boundary-only interception
+      // focus walks straight out of the dialog and button-only controls
+      // (Cancel, Save) are unreachable there.
+      e.preventDefault();
 
       // Focus can sit entirely outside the trapped container — clicking a
       // non-interactive part of the overlay (the photo itself, the padding
@@ -36,19 +42,16 @@ export function useFocusTrap(containerRef: React.RefObject<HTMLElement | null>, 
       // page *behind* the overlay, which for an aria-modal dialog is content
       // assistive tech has been told does not exist. Pull it back in, entering
       // at the end for shift-Tab so the cycle direction still reads naturally.
-      const containerHasFocus = containerRef.current?.contains(document.activeElement) ?? false;
+      const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      const delta = e.shiftKey ? -1 : 1;
+      const nextIndex =
+        currentIndex === -1
+          ? e.shiftKey
+            ? focusable.length - 1
+            : 0
+          : (currentIndex + delta + focusable.length) % focusable.length;
 
-      if (e.shiftKey) {
-        if (!containerHasFocus || document.activeElement === firstElement) {
-          e.preventDefault();
-          lastElement.focus();
-        }
-      } else {
-        if (!containerHasFocus || document.activeElement === lastElement) {
-          e.preventDefault();
-          firstElement.focus();
-        }
-      }
+      focusable[nextIndex].focus();
     };
 
     document.addEventListener('keydown', handleKeyDown);
