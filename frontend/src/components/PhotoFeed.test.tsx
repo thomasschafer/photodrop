@@ -505,6 +505,41 @@ describe('PhotoFeed', () => {
       expect(screen.getByText('(edited)')).toBeInTheDocument();
     });
 
+    it('reloads from scratch when the whole first page is new', async () => {
+      // More may have landed than one page can show; prepending would leave a
+      // silent gap below, since paging continues from the old tail.
+      mocks.list.mockResolvedValueOnce({
+        photos: [makePhoto('old1'), makePhoto('old2')],
+        hasMore: false,
+        nextCursor: null,
+      });
+
+      renderFeed();
+      await act(async () => {});
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+
+      mocks.feedVersion.mockResolvedValue({ version: 'v-flood' });
+      // The refresh sees an entirely unknown page...
+      mocks.list.mockResolvedValueOnce({
+        photos: [makePhoto('new1'), makePhoto('new2')],
+        hasMore: true,
+        nextCursor: '1_new2',
+      });
+      // ...so the feed restarts, and this is the fresh first page.
+      mocks.list.mockResolvedValueOnce({
+        photos: [makePhoto('new1'), makePhoto('new2')],
+        hasMore: true,
+        nextCursor: '1_new2',
+      });
+      await focusCheck();
+
+      // Three list calls: initial, the refresh, and the restart.
+      expect(mocks.list).toHaveBeenCalledTimes(3);
+      expect(mocks.list).toHaveBeenNthCalledWith(3, 20);
+      expect(screen.queryByText('photo old1')).not.toBeInTheDocument();
+      expect(screen.getByText('photo new1')).toBeInTheDocument();
+    });
+
     it('re-syncs bylines when notified of a profile change', async () => {
       mocks.list.mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
 

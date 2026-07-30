@@ -182,6 +182,19 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       isLastPage || pageTail === undefined || !sortsNewer(pageTail, p);
 
     const unknown = data.photos.filter((p) => !knownIds.has(p.id));
+
+    // Every row on the first page is new, so more may have landed below it
+    // than one page can show: prepending would leave a silent gap, since
+    // paging continues from the old tail. Start the feed over instead.
+    if (
+      photosStateRef.current.length > 0 &&
+      data.photos.length > 0 &&
+      unknown.length === data.photos.length
+    ) {
+      await loadPhotos();
+      return;
+    }
+
     const head = photosStateRef.current.find((p) => serverIds.has(p.id) || !inServedWindow(p));
     const newer = head ? unknown.filter((p) => sortsNewer(p, head)) : unknown;
     const newerIds = new Set(newer.map((p) => p.id));
@@ -384,8 +397,14 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
               break; // Deleted (or inaccessible): stop paging, bounce below.
             }
           }
+          const cursorBefore = nextCursorRef.current;
           await loadMorePhotos();
-          pages++;
+          // Only a page that actually advanced the cursor spends budget: a
+          // call that returned early because the scroll-driven loader held
+          // the single-flight lock did no work and must not count.
+          if (nextCursorRef.current !== cursorBefore) {
+            pages++;
+          }
         }
       } finally {
         if (!found()) {
