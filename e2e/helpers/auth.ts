@@ -9,10 +9,18 @@ export async function loginWithMagicLink(
 ): Promise<void> {
   await page.goto(magicLink);
 
-  // Wait for verification to complete - the "Verifying your link..." spinner will disappear
-  await expect(page.getByText('Verifying your link')).not.toBeVisible({ timeout: 15000 });
-
+  const userMenu = page.locator(USER_MENU_BUTTON);
+  const interstitial = page.getByText(/^You're signed in as /);
   const nameInput = page.getByPlaceholder('Jane Smith');
+
+  // Verification ends in one of three places: signed in (user menu), the
+  // name form for a new invitee, or — when another session is live — the
+  // account-switch interstitial, which tests continue through.
+  await expect(userMenu.or(interstitial).or(nameInput).first()).toBeVisible({ timeout: 30000 });
+  if (await interstitial.isVisible()) {
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(userMenu.or(nameInput).first()).toBeVisible({ timeout: 30000 });
+  }
 
   // Check if name input appeared (new user via invite link)
   if (await nameInput.isVisible()) {
@@ -64,9 +72,13 @@ export async function getUserIdFromToken(page: Page): Promise<string | null> {
 }
 
 export async function logout(page: Page): Promise<void> {
-  // Open user menu and click sign out
+  // Open user menu, click sign out, and confirm
   await page.locator(USER_MENU_BUTTON).click();
   await page.getByRole('menuitem', { name: 'Sign out' }).click();
+  await page
+    .getByRole('dialog', { name: 'Sign out?' })
+    .getByRole('button', { name: 'Sign out' })
+    .click();
 
   // Wait for redirect to landing page
   await expect(page).toHaveURL('/', { timeout: 10000 });

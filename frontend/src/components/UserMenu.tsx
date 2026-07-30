@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { isVerticalNavKey } from '../lib/keyboard';
 import { useDropdown } from '../lib/useDropdown';
 import { Avatar } from './Avatar';
+import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { PushNotificationSettings } from './NotificationBell';
 import { ProfileModals, type ProfileModalKind } from './ProfileModals';
@@ -12,6 +13,7 @@ export function UserMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const [openModal, setOpenModal] = useState<ProfileModalKind | null>(null);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const buildStamp = import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_GIT_SHA || 'dev';
 
   const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
@@ -127,7 +129,7 @@ export function UserMenu() {
                 role="menuitem"
                 onClick={() => {
                   setIsOpen(false);
-                  logout();
+                  setShowSignOutConfirm(true);
                 }}
                 onKeyDown={(e) => handleOptionKeyDown(e, 3)}
                 className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-accent bg-transparent transition-colors hover:bg-bg-tertiary rounded-b-lg"
@@ -156,6 +158,22 @@ export function UserMenu() {
           triggerRef.current?.focus();
         }}
       />
+
+      {showSignOutConfirm && (
+        <ConfirmModal
+          title="Sign out?"
+          message="Signing back in needs a fresh login link sent to your email."
+          confirmLabel="Sign out"
+          onConfirm={() => {
+            setShowSignOutConfirm(false);
+            logout();
+          }}
+          onCancel={() => {
+            setShowSignOutConfirm(false);
+            triggerRef.current?.focus();
+          }}
+        />
+      )}
 
       {showNotificationSettings && (
         <Modal

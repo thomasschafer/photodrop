@@ -5,14 +5,21 @@ import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
 import { Button, ButtonLink } from '../components/Button';
 
-type VerifyStatus = 'verifying' | 'needs_name' | 'submitting_name' | 'success' | 'error';
+type VerifyStatus =
+  | 'verifying'
+  | 'confirm_switch'
+  | 'needs_name'
+  | 'submitting_name'
+  | 'success'
+  | 'error';
 
 const NAME_FORM_WARNING_MS = 4 * 60 * 1000; // Show warning after 4 minutes
 
 export function AuthVerifyPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user: currentUser, loading: authLoading } = useAuth();
+  const [switchConfirmed, setSwitchConfirmed] = useState(false);
   const [status, setStatus] = useState<VerifyStatus>('verifying');
   const [errorMessage, setErrorMessage] = useState('');
   const [name, setName] = useState('');
@@ -92,6 +99,18 @@ export function AuthVerifyPage() {
       return;
     }
 
+    // Verifying consumes the single-use token and replaces any live session,
+    // so with someone already signed in nothing happens until they confirm
+    // the switch — silently swapping accounts under them is how a shared
+    // laptop ends up posting as the wrong person.
+    if (authLoading) {
+      return;
+    }
+    if (currentUser && !switchConfirmed) {
+      setStatus('confirm_switch');
+      return;
+    }
+
     activeToken.current = token;
 
     async function verify(tokenToVerify: string) {
@@ -109,7 +128,14 @@ export function AuthVerifyPage() {
     }
 
     verify(token);
-  }, [token, handleVerificationResult, handleVerificationError]);
+  }, [
+    token,
+    authLoading,
+    currentUser,
+    switchConfirmed,
+    handleVerificationResult,
+    handleVerificationError,
+  ]);
 
   // Show expiry warning if user is on name form for too long
   useEffect(() => {
@@ -159,6 +185,12 @@ export function AuthVerifyPage() {
             <ErrorContent message="Invalid link. No token provided." />
           ) : status === 'verifying' ? (
             <VerifyingContent />
+          ) : status === 'confirm_switch' && currentUser ? (
+            <ConfirmSwitchContent
+              currentName={currentUser.name}
+              onContinue={() => setSwitchConfirmed(true)}
+              onCancel={() => navigate('/', { replace: true })}
+            />
           ) : status === 'needs_name' || status === 'submitting_name' ? (
             <NameInputContent
               name={name}
@@ -176,6 +208,34 @@ export function AuthVerifyPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ConfirmSwitchContent({
+  currentName,
+  onContinue,
+  onCancel,
+}: {
+  currentName: string;
+  onContinue: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <>
+      <h2 className="text-lg font-medium text-text-primary mb-2">
+        You're signed in as {currentName}
+      </h2>
+      <p className="text-sm text-text-secondary mb-6">
+        Continuing signs this device in with the account the link was emailed to, replacing the
+        current session.
+      </p>
+      <div className="flex gap-3 justify-center">
+        <Button variant="secondary" onClick={onCancel}>
+          Stay signed in
+        </Button>
+        <Button onClick={onContinue}>Continue</Button>
+      </div>
+    </>
   );
 }
 

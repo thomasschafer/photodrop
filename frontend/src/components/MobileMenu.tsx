@@ -5,6 +5,7 @@ import { ROLE_DISPLAY_NAMES } from '../lib/roles';
 import { isVerticalNavKey } from '../lib/keyboard';
 import { useDropdown } from '../lib/useDropdown';
 import { Avatar } from './Avatar';
+import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
 import { PushNotificationSettings } from './NotificationBell';
 import { ProfileModals, type ProfileModalKind } from './ProfileModals';
@@ -71,6 +72,7 @@ export function MobileMenu() {
   const [isLoading, setIsLoading] = useState(false);
   const [openModal, setOpenModal] = useState<ProfileModalKind | null>(null);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const buildStamp = import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_GIT_SHA || 'dev';
   const itemCount = groups.length + themes.length + 4;
   const currentGroupIndex = groups.findIndex((g) => g.id === currentGroup?.id);
@@ -123,7 +125,7 @@ export function MobileMenu() {
 
   const handleSignOut = () => {
     setIsOpen(false);
-    logout();
+    setShowSignOutConfirm(true);
   };
 
   const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
@@ -368,6 +370,19 @@ export function MobileMenu() {
         >
           <PushNotificationSettings />
         </Modal>
+      )}
+
+      {showSignOutConfirm && (
+        <ConfirmModal
+          title="Sign out?"
+          message="Signing back in needs a fresh login link sent to your email."
+          confirmLabel="Sign out"
+          onConfirm={() => {
+            setShowSignOutConfirm(false);
+            logout();
+          }}
+          onCancel={() => setShowSignOutConfirm(false)}
+        />
       )}
 
       <ProfileModals
