@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
 import { displayNameFromInput } from '../lib/displayName';
+import { notifyFeedRefresh } from '../lib/feedRefresh';
 import { useProfileSave } from '../lib/useProfileSave';
 import { Button } from './Button';
 import { Modal } from './Modal';
@@ -105,6 +106,9 @@ export function NameSettingsModal({ onClose }: NameSettingsModalProps) {
           saved: updated.displayName,
           value: updated.displayName ?? '',
         });
+        // saveProfile notifies for canonical-name changes; a display-name-only
+        // save must re-sync feed bylines too.
+        notifyFeedRefresh();
       }
       onClose();
     } catch (err) {

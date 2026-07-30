@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getComments: vi.fn(),
   addReaction: vi.fn(),
   removeReaction: vi.fn(),
+  feedVersion: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
@@ -36,6 +37,7 @@ vi.mock('./PhotoUpload', () => ({
 }));
 
 import { PhotoFeed } from './PhotoFeed';
+import { notifyFeedRefresh } from '../lib/feedRefresh';
 import type { Photo } from './photo-feed';
 
 function makePhoto(id: string): Photo {
@@ -94,6 +96,7 @@ describe('PhotoFeed', () => {
     vi.stubGlobal('ResizeObserver', TestResizeObserver);
     mocks.getReactions.mockResolvedValue({ reactions: [] });
     mocks.getComments.mockResolvedValue({ comments: [] });
+    mocks.feedVersion.mockResolvedValue({ version: 'v-initial' });
   });
 
   afterEach(() => {
@@ -340,5 +343,116 @@ describe('PhotoFeed', () => {
     unmount();
 
     expect(clearTimeoutSpy).toHaveBeenCalledWith(timerId);
+  });
+
+  describe('feed freshness', () => {
+    async function focusCheck() {
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+    }
+
+    it('prepends photos uploaded elsewhere when the viewport is at the top', async () => {
+      mocks.list.mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
+
+      renderFeed();
+      await act(async () => {});
+      expect(screen.getAllByRole('listitem')).toHaveLength(1);
+
+      mocks.feedVersion.mockResolvedValue({ version: 'v-changed' });
+      mocks.list.mockResolvedValueOnce({
+        photos: [makePhoto('b'), makePhoto('a')],
+        hasMore: false,
+        nextCursor: null,
+      });
+      await focusCheck();
+
+      const items = screen.getAllByRole('listitem');
+      expect(items).toHaveLength(2);
+      expect(items[0]).toHaveTextContent('photo b');
+    });
+
+    it('holds new photos behind a pill while scrolled, merging on click', async () => {
+      mocks.list.mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
+
+      renderFeed();
+      await act(async () => {});
+
+      Object.defineProperty(window, 'scrollY', { value: 800, configurable: true });
+      const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+      try {
+        mocks.feedVersion.mockResolvedValue({ version: 'v-changed' });
+        mocks.list.mockResolvedValueOnce({
+          photos: [makePhoto('b'), makePhoto('a')],
+          hasMore: false,
+          nextCursor: null,
+        });
+        await focusCheck();
+
+        // Nothing shifted under the user; the arrival is announced instead.
+        expect(screen.getAllByRole('listitem')).toHaveLength(1);
+        const pill = screen.getByRole('button', { name: '1 new photo' });
+
+        await act(async () => {
+          fireEvent.click(pill);
+        });
+
+        const items = screen.getAllByRole('listitem');
+        expect(items).toHaveLength(2);
+        expect(items[0]).toHaveTextContent('photo b');
+        expect(screen.queryByRole('button', { name: '1 new photo' })).not.toBeInTheDocument();
+        expect(scrollTo).toHaveBeenCalled();
+      } finally {
+        Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+      }
+    });
+
+    it('updates comment and reaction counts of visible photos in place', async () => {
+      mocks.list.mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
+
+      renderFeed();
+      await act(async () => {});
+
+      mocks.feedVersion.mockResolvedValue({ version: 'v-changed' });
+      mocks.list.mockResolvedValueOnce({
+        photos: [{ ...makePhoto('a'), commentCount: 2 }],
+        hasMore: false,
+        nextCursor: null,
+      });
+      await focusCheck();
+
+      expect(screen.getByText('2 comments')).toBeInTheDocument();
+    });
+
+    it('does not refetch when the fingerprint is unchanged', async () => {
+      mocks.list.mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
+
+      renderFeed();
+      await act(async () => {});
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+
+      await focusCheck();
+
+      expect(mocks.list).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-syncs bylines when notified of a profile change', async () => {
+      mocks.list.mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
+
+      renderFeed();
+      await act(async () => {});
+      expect(screen.getByText('Me')).toBeInTheDocument();
+
+      mocks.list.mockResolvedValueOnce({
+        photos: [{ ...makePhoto('a'), uploaderName: 'Tom the Tester' }],
+        hasMore: false,
+        nextCursor: null,
+      });
+      await act(async () => {
+        notifyFeedRefresh();
+      });
+
+      expect(screen.getByText('Tom the Tester')).toBeInTheDocument();
+    });
   });
 });

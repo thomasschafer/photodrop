@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
+import { subscribeFeedRefresh } from '../lib/feedRefresh';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection } from '../lib/keyboard';
 import { useAuthenticatedImage } from '../lib/useAuthenticatedImage';
@@ -50,6 +51,11 @@ interface PhotoFeedProps {
   isAdmin?: boolean;
 }
 
+// How often the feed re-fingerprints the server while visible. Focus and
+// visibility changes also trigger a check, so this only bounds how stale a
+// continuously-open, untouched tab can get.
+const FEED_FRESHNESS_INTERVAL_MS = 45_000;
+
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const { user, imageProtection: imageProtectionEnabled } = useAuth();
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -78,6 +84,16 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   // mid-scroll — and unlike a counter, there is nothing here to corrupt if
   // two loads ever raced.
   const nextCursorRef = useRef<string | null>(null);
+  // Last feed fingerprint seen from the server; a differing value on a
+  // freshness check means someone changed something and we refetch.
+  const feedVersionRef = useRef<string | null>(null);
+  // Photos that arrived while the user was scrolled away from the top. They
+  // wait behind the "new photos" pill instead of shifting the list underneath
+  // the user mid-read.
+  const [pendingNewPhotos, setPendingNewPhotos] = useState<Photo[]>([]);
+  // Mirror of `photos` for event-driven callbacks that need the current list
+  // without re-subscribing on every change.
+  const photosStateRef = useRef<Photo[]>([]);
   // Single-flight guard for load-more. Deliberately a ref, not state: state
   // commits asynchronously, so two triggers in the same tick (scroll listener
   // and ResizeObserver both consulting the sentinel) would each read the
@@ -104,8 +120,15 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.photos.list(20);
+      // The version is the freshness baseline; fetched alongside the list so
+      // a change landing between the two at worst triggers one no-op refresh.
+      const [data, versionResult] = await Promise.all([
+        api.photos.list(20),
+        api.photos.feedVersion().catch(() => null),
+      ]);
       setPhotos(data.photos);
+      setPendingNewPhotos([]);
+      feedVersionRef.current = versionResult?.version ?? null;
       nextCursorRef.current = data.nextCursor ?? null;
       setHasMore(nextCursorRef.current !== null);
       setLoadMoreFailed(false);
@@ -117,6 +140,97 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       setLoading(false);
     }
   };
+
+  photosStateRef.current = photos;
+
+  /**
+   * Re-syncs the visible feed from the server's first page without touching
+   * scroll position: photos we already show update in place (counts,
+   * reactions, caption, uploader name/color); unseen photos prepend
+   * immediately when the viewport is at the top, and otherwise wait behind
+   * the "new photos" pill.
+   */
+  const refreshFromServer = useCallback(async () => {
+    const data = await api.photos.list(20);
+    const knownIds = new Set(photosStateRef.current.map((p) => p.id));
+    const fresh = data.photos.filter((p) => !knownIds.has(p.id));
+    const serverById = new Map(data.photos.map((p) => [p.id, p]));
+    const atTop = window.scrollY < 150;
+
+    setPhotos((prev) => {
+      const prevIds = new Set(prev.map((p) => p.id));
+      const updated = prev.map((p) => {
+        const server = serverById.get(p.id);
+        if (!server) return p;
+        return {
+          ...p,
+          caption: server.caption,
+          uploaderName: server.uploaderName,
+          uploaderProfileColor: server.uploaderProfileColor,
+          commentCount: server.commentCount,
+          reactions: server.reactions,
+          userReactions: server.userReactions,
+        };
+      });
+      const toPrepend = atTop ? fresh.filter((p) => !prevIds.has(p.id)) : [];
+      return toPrepend.length > 0 ? [...toPrepend, ...updated] : updated;
+    });
+
+    if (atTop) {
+      setPendingNewPhotos([]);
+    } else if (fresh.length > 0) {
+      setPendingNewPhotos((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        return [...prev, ...fresh.filter((p) => !seen.has(p.id))].sort(
+          (a, b) => b.uploadedAt - a.uploadedAt || (a.id < b.id ? 1 : -1)
+        );
+      });
+    }
+  }, []);
+
+  const checkFreshness = useCallback(async () => {
+    if (document.visibilityState === 'hidden') return;
+    try {
+      const { version } = await api.photos.feedVersion();
+      if (feedVersionRef.current === version) return;
+      const isBaseline = feedVersionRef.current === null;
+      feedVersionRef.current = version;
+      if (!isBaseline) {
+        await refreshFromServer();
+      }
+    } catch {
+      // Transient failure; the next focus/interval check simply retries.
+    }
+  }, [refreshFromServer]);
+
+  useEffect(() => {
+    const onFocus = () => void checkFreshness();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void checkFreshness();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    const interval = window.setInterval(() => void checkFreshness(), FEED_FRESHNESS_INTERVAL_MS);
+    // Profile edits (name, display name, color) re-sync immediately — the
+    // content fingerprint deliberately doesn't cover them.
+    const unsubscribe = subscribeFeedRefresh(() => void refreshFromServer());
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.clearInterval(interval);
+      unsubscribe();
+    };
+  }, [checkFreshness, refreshFromServer]);
+
+  const showPendingPhotos = useCallback(() => {
+    setPhotos((prev) => {
+      const prevIds = new Set(prev.map((p) => p.id));
+      const toAdd = pendingNewPhotos.filter((p) => !prevIds.has(p.id));
+      return toAdd.length > 0 ? [...toAdd, ...prev] : prev;
+    });
+    setPendingNewPhotos([]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [pendingNewPhotos]);
 
   const loadMorePhotos = useCallback(async () => {
     if (loadMoreInFlightRef.current || !hasMore) return;
@@ -443,6 +557,18 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
   return (
     <>
+      {pendingNewPhotos.length > 0 && (
+        <button
+          onClick={showPendingPhotos}
+          aria-live="polite"
+          className="fixed top-24 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-accent-solid text-white text-sm font-medium shadow-elevated cursor-pointer hover:bg-accent-solid-hover transition-colors"
+        >
+          {pendingNewPhotos.length === 1
+            ? '1 new photo'
+            : `${pendingNewPhotos.length} new photos`}
+        </button>
+      )}
+
       <PullToRefresh onRefresh={loadPhotos} className="max-w-[540px] mx-auto">
         {isAdmin && (
           <div className="flex justify-end mb-4">

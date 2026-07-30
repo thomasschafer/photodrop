@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, type ProfileUpdate } from './api';
+import { notifyFeedRefresh } from './feedRefresh';
 
 /**
  * Persist a change to the signed-in user's own profile and apply it to auth
@@ -15,6 +16,9 @@ export function useProfileSave(): (update: ProfileUpdate) => Promise<void> {
     async (update: ProfileUpdate) => {
       const saved = await api.users.updateProfile(update);
       updateProfile({ name: saved.name, profileColor: saved.profileColor });
+      // Bylines and avatars in a mounted feed show the old values until it
+      // re-syncs; profile edits aren't covered by the freshness fingerprint.
+      notifyFeedRefresh();
     },
     [updateProfile]
   );

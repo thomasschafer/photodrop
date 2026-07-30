@@ -22,6 +22,7 @@ vi.mock('../lib/db', () => ({
   createPhoto: (...args: unknown[]) => mockCreatePhoto(...args),
   getPhoto: (...args: unknown[]) => mockGetPhoto(...args),
   listPhotosWithCounts: vi.fn(),
+  getFeedVersion: vi.fn().mockResolvedValue('0.0.0.0.0.0'),
   deletePhoto: vi.fn(),
   recordPhotoView: vi.fn(),
   getPhotoViewers: vi.fn(),

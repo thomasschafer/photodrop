@@ -9,6 +9,7 @@ import type {
   MembershipRole,
   UserJson,
   GroupJson,
+  FeedVersionResponse,
   PhotoListResponse,
   PhotoDetailResponse,
   PhotoUploadResponse,
@@ -475,6 +476,8 @@ export const api = {
       requestJson(
         `/photos?limit=${limit}${cursor !== undefined ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
       ),
+
+    feedVersion: (): Promise<FeedVersionResponse> => requestJson('/photos/feed-version'),
 
     upload: (photo: File, thumbnail: File, caption?: string): Promise<PhotoUploadResponse> => {
       const formData = new FormData();

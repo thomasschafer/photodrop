@@ -4,6 +4,7 @@ import type { PhotoCursor } from '../lib/db';
 import {
   createPhoto,
   getPhoto,
+  getFeedVersion,
   listPhotosWithCounts,
   deletePhoto as dbDeletePhoto,
   recordPhotoView,
@@ -43,6 +44,7 @@ import {
 } from '../lib/http';
 import { CAPTION_MAX_LENGTH } from '@photodrop/common/limits';
 import type {
+  FeedVersionResponse,
   PhotoListResponse,
   PhotoUploadResponse,
   PhotoDetailResponse,
@@ -229,6 +231,14 @@ photos.get('/', requireAuth, async (c) => {
     hasMore,
     nextCursor: hasMore && lastPhoto ? encodePhotoCursor(lastPhoto) : null,
   } satisfies PhotoListResponse);
+});
+
+// Registered before '/:id' so the static segment cannot be captured as a
+// photo id.
+photos.get('/feed-version', requireAuth, async (c) => {
+  const user = c.get('user');
+  const version = await getFeedVersion(c.env.DB, user.groupId);
+  return c.json({ version } satisfies FeedVersionResponse);
 });
 
 function photoUploadedResponse(c: Context<AppEnv>, photoId: string) {

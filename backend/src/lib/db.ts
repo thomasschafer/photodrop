@@ -1253,6 +1253,54 @@ interface ReactionAggregateRow {
 const REACTION_ID_BATCH_SIZE = 90;
 
 // List photos with reaction and comment counts (optimized: 2 queries instead of 1+3N)
+interface FeedVersionRow {
+  photo_count: number;
+  latest_upload: number;
+  comment_count: number;
+  latest_comment: number;
+  reaction_count: number;
+  latest_reaction: number;
+}
+
+/**
+ * Cheap content fingerprint for a group's feed, used by clients to decide
+ * whether anything needs refetching. Counts catch additions and removals;
+ * the max timestamps catch remove-then-add sequences that leave a count
+ * unchanged. Deliberately excludes names/colors — profile edits refresh
+ * locally on the client that made them and are not worth polling for.
+ */
+export async function getFeedVersion(db: D1Database, groupId: string): Promise<string> {
+  const row = await db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM photos WHERE group_id = ?1) AS photo_count,
+        (SELECT COALESCE(MAX(uploaded_at), 0) FROM photos WHERE group_id = ?1) AS latest_upload,
+        (SELECT COUNT(*) FROM comments c JOIN photos p ON p.id = c.photo_id
+          WHERE p.group_id = ?1 AND c.deleted_at IS NULL) AS comment_count,
+        (SELECT COALESCE(MAX(c.created_at), 0) FROM comments c JOIN photos p ON p.id = c.photo_id
+          WHERE p.group_id = ?1) AS latest_comment,
+        (SELECT COUNT(*) FROM photo_reactions r JOIN photos p ON p.id = r.photo_id
+          WHERE p.group_id = ?1) AS reaction_count,
+        (SELECT COALESCE(MAX(r.created_at), 0) FROM photo_reactions r JOIN photos p ON p.id = r.photo_id
+          WHERE p.group_id = ?1) AS latest_reaction`
+    )
+    .bind(groupId)
+    .first<FeedVersionRow>();
+
+  if (!row) {
+    throw new Error(`Feed version query returned no row for group ${groupId}`);
+  }
+
+  return [
+    row.photo_count,
+    row.latest_upload,
+    row.comment_count,
+    row.latest_comment,
+    row.reaction_count,
+    row.latest_reaction,
+  ].join('.');
+}
+
 /**
  * Keyset cursor for photo pagination: the (uploaded_at, id) of the last row
  * of the previous page. Strictly ordered by (uploaded_at DESC, id DESC), so a

@@ -108,6 +108,15 @@ export interface PhotoListResponse {
   nextCursor: string | null;
 }
 
+export interface FeedVersionResponse {
+  /**
+   * Opaque fingerprint of the group's feed content (photos, visible comments,
+   * reactions). Any mutation changes it; clients compare successive values
+   * and refetch when they differ.
+   */
+  version: string;
+}
+
 export interface PhotoDetailResponse {
   id: string;
   caption: string | null;
