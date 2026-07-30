@@ -183,6 +183,37 @@ async function fetchImageBlobUrl(photoId: string, type: ImageType): Promise<stri
 }
 
 /**
+ * Fetch the raw image bytes with the same auth/refresh handling as the blob
+ * URL path, without touching the blob-URL cache. For downloads and export,
+ * where the bytes are the product rather than something to display.
+ */
+export async function fetchImageBlob(photoId: string, type: ImageType): Promise<Blob> {
+  const url = `${API_BASE_URL}/photos/${photoId}/${type}`;
+
+  let token = localStorage.getItem('accessToken');
+  if (!token) {
+    throw new Error('No auth token');
+  }
+
+  let result = await fetchBlob(url, token);
+
+  if (result.status === 401) {
+    const refreshed = await refreshAccessToken();
+    token = localStorage.getItem('accessToken');
+    if (!refreshed || !token) {
+      throw new Error('Session expired');
+    }
+    result = await fetchBlob(url, token);
+  }
+
+  if (result.status !== 200 || !result.blob) {
+    throw new Error(`HTTP ${result.status}`);
+  }
+
+  return result.blob;
+}
+
+/**
  * Resolve a cached blob URL for the image, loading (and caching) it if needed.
  * Concurrent callers for the same image share a single in-flight fetch.
  */

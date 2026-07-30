@@ -10,6 +10,7 @@ import { ConfirmModal } from '../ConfirmModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
 import { CommentPanel } from './CommentPanel';
+import { DownloadPhotoButton } from './DownloadPhotoButton';
 import { SeenBy } from './SeenBy';
 import { UploaderByline } from './UploaderByline';
 import type { OnPhotoUpdate, Photo } from './types';
@@ -69,7 +70,7 @@ export function Lightbox({
   isAdmin: boolean;
   onPhotoUpdate: OnPhotoUpdate;
 }) {
-  const { user } = useAuth();
+  const { user, imageProtection } = useAuth();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const commentsExpanded = searchParams.get('comments') === 'open';
@@ -232,6 +233,7 @@ export function Lightbox({
               variant="overlay"
             />
             {isAdmin && <SeenBy key={photo.id} photoId={photo.id} />}
+            {!imageProtection && <DownloadPhotoButton key={`dl-${photo.id}`} photoId={photo.id} />}
           </div>
 
           <button

@@ -3,6 +3,7 @@ import type { MemberJson, PendingInvitesResponse } from '@photodrop/common/apiTy
 import { useAuth } from '../contexts/AuthContext';
 import { api, ApiError } from '../lib/api';
 import { formatRelativeTime } from '../lib/dateFormat';
+import { exportGroupPhotos } from '../lib/exportGroupPhotos';
 import { displayNameFromInput } from '../lib/displayName';
 import { useFocusRestore } from '../lib/hooks';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
@@ -48,6 +49,9 @@ export function MembersList() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [pendingInvites, setPendingInvites] = useState<PendingInvitesResponse['invites']>([]);
   const [inviteActionEmail, setInviteActionEmail] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState<{ done: number; total: number } | null>(
+    null
+  );
 
   const [inviteButtonRef, restoreInviteFocus] = useFocusRestore<HTMLButtonElement>();
   const [deleteGroupButtonRef, restoreDeleteGroupFocus] = useFocusRestore<HTMLButtonElement>();
@@ -784,9 +788,45 @@ export function MembersList() {
 
       {isOwner && (
         <div className="mt-8 pt-6 border-t border-border">
+          <h3 className="text-base font-medium text-text-primary mb-1">Export</h3>
+          <p className="text-sm text-text-secondary mb-4">
+            Download every photo in this group as a zip, with captions and uploaders in a
+            manifest.
+          </p>
+          <Button
+            variant="secondary"
+            disabled={exportProgress !== null}
+            onClick={async () => {
+              if (!currentGroup) return;
+              setExportProgress({ done: 0, total: 0 });
+              try {
+                await exportGroupPhotos(currentGroup.name, (done, total) =>
+                  setExportProgress({ done, total })
+                );
+                showSuccess('Export ready — check your downloads');
+              } catch (err) {
+                console.error('Failed to export photos:', err);
+                setError('Failed to export photos');
+              } finally {
+                setExportProgress(null);
+              }
+            }}
+          >
+            {exportProgress
+              ? exportProgress.total > 0
+                ? `Exporting ${exportProgress.done} of ${exportProgress.total}…`
+                : 'Preparing…'
+              : 'Export photos'}
+          </Button>
+        </div>
+      )}
+
+      {isOwner && (
+        <div className="mt-8 pt-6 border-t border-border">
           <h3 className="text-base font-medium text-red-600 dark:text-red-400 mb-2">Danger zone</h3>
           <p className="text-sm text-text-secondary mb-4">
-            Permanently delete this group and all its photos. This action cannot be undone.
+            Permanently delete this group and all its photos. This action cannot be undone —
+            export the photos above first if you want to keep them.
           </p>
           <Button
             ref={deleteGroupButtonRef}
