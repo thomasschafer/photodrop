@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getReactions: vi.fn(),
   addReaction: vi.fn(),
   removeReaction: vi.fn(),
+  recordView: vi.fn().mockResolvedValue({ message: 'ok' }),
 }));
 
 vi.mock('../../lib/api', () => ({

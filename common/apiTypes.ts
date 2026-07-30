@@ -159,7 +159,8 @@ export interface PhotoUploadResponse extends MessageResponse {
 }
 
 export interface PhotoViewersResponse {
-  viewers: Array<{ userId: string; viewedAt: number }>;
+  /** Group-resolved names; "Former member" once the viewer has left. */
+  viewers: Array<{ userId: string; viewedAt: number; name: string }>;
 }
 
 export interface ReactionMutationResponse extends MessageResponse {

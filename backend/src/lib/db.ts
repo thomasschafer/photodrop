@@ -752,17 +752,21 @@ export async function recordPhotoView(
 
 export async function getPhotoViewers(
   db: D1Database,
-  photoId: string
-): Promise<Array<{ userId: string; viewedAt: number }>> {
+  photoId: string,
+  groupId: string
+): Promise<Array<{ userId: string; viewedAt: number; name: string | null }>> {
   const result = await db
     .prepare(
-      `SELECT user_id as userId, viewed_at as viewedAt
-       FROM photo_views
-       WHERE photo_id = ?
-       ORDER BY viewed_at DESC`
+      `SELECT v.user_id as userId, v.viewed_at as viewedAt,
+        ${RESOLVED_MEMBER_NAME_IF_MEMBER} as name
+       FROM photo_views v
+       LEFT JOIN users u ON u.id = v.user_id
+       LEFT JOIN memberships m ON m.user_id = v.user_id AND m.group_id = ?2
+       WHERE v.photo_id = ?1
+       ORDER BY v.viewed_at DESC`
     )
-    .bind(photoId)
-    .all<{ userId: string; viewedAt: number }>();
+    .bind(photoId, groupId)
+    .all<{ userId: string; viewedAt: number; name: string | null }>();
 
   return result.results || [];
 }

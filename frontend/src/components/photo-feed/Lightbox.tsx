@@ -8,11 +8,17 @@ import { useAuthenticatedImage, preloadImage } from '../../lib/useAuthenticatedI
 import { ProtectedImage } from '../ProtectedImage';
 import { ConfirmModal } from '../ConfirmModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { api } from '../../lib/api';
 import { CommentPanel } from './CommentPanel';
+import { SeenBy } from './SeenBy';
 import { UploaderByline } from './UploaderByline';
 import type { OnPhotoUpdate, Photo } from './types';
 import { useLightboxReactions } from './useLightboxReactions';
 import { useLightboxComments } from './useLightboxComments';
+
+// Views already recorded this app session — recording is once per photo per
+// session, not per lightbox mount.
+const recordedViews = new Set<string>();
 
 function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
   const { imageProtection } = useAuth();
@@ -96,6 +102,14 @@ export function Lightbox({
 
   const { userReactions, reactions, reactionDetails, loadReactionDetails, handleReactionClick } =
     useLightboxReactions({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
+
+  // Record the view that feeds the admin "Seen by" list. Best-effort: a
+  // failure forgets the id so a later open retries.
+  useEffect(() => {
+    if (!photo || recordedViews.has(photo.id)) return;
+    recordedViews.add(photo.id);
+    api.photos.recordView(photo.id).catch(() => recordedViews.delete(photo.id));
+  }, [photo]);
 
   const {
     comments,
@@ -209,7 +223,7 @@ export function Lightbox({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-2-safe left-4 z-10 max-w-[calc(100%-4rem)]"
+            className="absolute top-2-safe left-4 z-10 max-w-[calc(100%-4rem)] flex items-center gap-2"
           >
             <UploaderByline
               name={photo.uploaderName}
@@ -217,6 +231,7 @@ export function Lightbox({
               uploadedAt={photo.uploadedAt}
               variant="overlay"
             />
+            {isAdmin && <SeenBy key={photo.id} photoId={photo.id} />}
           </div>
 
           <button

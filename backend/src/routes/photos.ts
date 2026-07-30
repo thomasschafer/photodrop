@@ -5,6 +5,7 @@ import {
   createPhoto,
   getPhoto,
   getFeedVersion,
+  FORMER_MEMBER_NAME,
   listPhotosWithCounts,
   deletePhoto as dbDeletePhoto,
   recordPhotoView,
@@ -496,7 +497,12 @@ photos.post('/:id/view', requireAuth, async (c) => {
 photos.get('/:id/viewers', requireAdmin, async (c) => {
   const photo = await requirePhoto(c);
 
-  const viewers = await getPhotoViewers(c.env.DB, photo.id);
+  const rows = await getPhotoViewers(c.env.DB, photo.id, c.get('user').groupId);
+  const viewers = rows.map((v) => ({
+    userId: v.userId,
+    viewedAt: v.viewedAt,
+    name: v.name ?? FORMER_MEMBER_NAME,
+  }));
 
   return c.json({ viewers } satisfies PhotoViewersResponse);
 });
