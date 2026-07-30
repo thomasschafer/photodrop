@@ -3,18 +3,21 @@ import { useAuth } from '../contexts/AuthContext';
 import { isVerticalNavKey } from '../lib/keyboard';
 import { useDropdown } from '../lib/useDropdown';
 import { Avatar } from './Avatar';
+import { Modal } from './Modal';
+import { PushNotificationSettings } from './NotificationBell';
 import { ProfileModals, type ProfileModalKind } from './ProfileModals';
 
 export function UserMenu() {
   const { user, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [openModal, setOpenModal] = useState<ProfileModalKind | null>(null);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   const buildStamp = import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_GIT_SHA || 'dev';
 
   const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
     isOpen,
     onClose: () => setIsOpen(false),
-    itemCount: 3,
+    itemCount: 4,
     closeOnScroll: true,
   });
 
@@ -92,17 +95,41 @@ export function UserMenu() {
                 />
                 Change color
               </button>
-              <div className="px-3.5 pt-1 pb-1 text-[10px] text-text-muted">
-                Version: {buildStamp}
-              </div>
               <button
                 ref={setOptionRef(2)}
                 role="menuitem"
                 onClick={() => {
                   setIsOpen(false);
-                  logout();
+                  setShowNotificationSettings(true);
                 }}
                 onKeyDown={(e) => handleOptionKeyDown(e, 2)}
+                className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-text-secondary bg-transparent transition-colors hover:bg-bg-tertiary"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                Notification settings
+              </button>
+              <div className="px-3.5 pt-1 pb-1 text-[10px] text-text-muted">
+                Version: {buildStamp}
+              </div>
+              <button
+                ref={setOptionRef(3)}
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  logout();
+                }}
+                onKeyDown={(e) => handleOptionKeyDown(e, 3)}
                 className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-accent bg-transparent transition-colors hover:bg-bg-tertiary rounded-b-lg"
               >
                 <svg
@@ -129,6 +156,19 @@ export function UserMenu() {
           triggerRef.current?.focus();
         }}
       />
+
+      {showNotificationSettings && (
+        <Modal
+          title="Notification settings"
+          onClose={() => {
+            setShowNotificationSettings(false);
+            triggerRef.current?.focus();
+          }}
+          maxWidth="sm"
+        >
+          <PushNotificationSettings />
+        </Modal>
+      )}
     </>
   );
 }

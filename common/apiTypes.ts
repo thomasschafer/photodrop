@@ -108,6 +108,36 @@ export interface PhotoListResponse {
   nextCursor: string | null;
 }
 
+interface ActivityEventBase {
+  at: number;
+  actorId: string;
+  /** Group-resolved display name; "Former member" once the actor has left. */
+  actorName: string;
+}
+
+export type ActivityEvent =
+  | (ActivityEventBase & { type: 'photo'; photoId: string; caption: string | null })
+  | (ActivityEventBase & { type: 'reaction'; photoId: string; emoji: string })
+  | (ActivityEventBase & {
+      type: 'comment' | 'reply';
+      photoId: string;
+      commentId: string;
+      preview: string;
+    })
+  | (ActivityEventBase & { type: 'join' })
+  | (ActivityEventBase & { type: 'role'; role: MembershipRole; self: boolean });
+
+export interface ActivityResponse {
+  /** Newest first, bounded to the inbox window. */
+  events: ActivityEvent[];
+  /** When this member last opened their inbox; events after it are unread. */
+  seenAt: number;
+}
+
+export interface ActivitySeenResponse {
+  seenAt: number;
+}
+
 export interface FeedVersionResponse {
   /**
    * Opaque fingerprint of the group's feed content (photos, visible comments,

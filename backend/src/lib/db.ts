@@ -391,8 +391,10 @@ export async function updateMembershipRole(
   }
 
   const result = await db
-    .prepare('UPDATE memberships SET role = ? WHERE user_id = ? AND group_id = ?')
-    .bind(role, userId, groupId)
+    .prepare(
+      'UPDATE memberships SET role = ?, role_changed_at = ? WHERE user_id = ? AND group_id = ?'
+    )
+    .bind(role, Math.floor(Date.now() / 1000), userId, groupId)
     .run();
 
   return { success: result.meta.changes > 0 };
@@ -1436,4 +1438,218 @@ export async function listPhotosWithCounts(
     uploader_name: pastAuthorName(photo.uploader_name, photo.uploader_user_id !== null),
     uploader_profile_color: photo.uploader_profile_color,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Activity inbox
+
+export type ActivityDbEvent =
+  | {
+      type: 'photo';
+      at: number;
+      actorId: string;
+      actorName: string | null;
+      photoId: string;
+      caption: string | null;
+    }
+  | {
+      type: 'reaction';
+      at: number;
+      actorId: string;
+      actorName: string | null;
+      photoId: string;
+      emoji: string;
+    }
+  | {
+      type: 'comment' | 'reply';
+      at: number;
+      actorId: string;
+      actorName: string | null;
+      photoId: string;
+      commentId: string;
+      preview: string;
+    }
+  | { type: 'join'; at: number; actorId: string; actorName: string | null }
+  | {
+      type: 'role';
+      at: number;
+      actorId: string;
+      actorName: string | null;
+      role: 'admin' | 'member';
+    };
+
+interface ActivityActorRow {
+  at: number;
+  actor_id: string;
+  actor_name: string | null;
+}
+
+const ACTIVITY_EVENT_CAP = 100;
+
+/**
+ * Everything inbox-worthy that happened in the group since `cutoff`, newest
+ * first, from the perspective of `userId`: photos added by others, reactions
+ * and comments on their photos, replies in threads they commented in, and
+ * membership changes. The caller's own actions never appear.
+ */
+export async function getGroupActivity(
+  db: D1Database,
+  groupId: string,
+  userId: string,
+  cutoff: number
+): Promise<ActivityDbEvent[]> {
+  const events: ActivityDbEvent[] = [];
+
+  const photos = await db
+    .prepare(
+      `SELECT p.uploaded_at AS at, p.uploaded_by AS actor_id,
+        ${RESOLVED_MEMBER_NAME_IF_MEMBER} AS actor_name,
+        p.id AS photo_id, p.caption
+      FROM photos p
+      LEFT JOIN users u ON u.id = p.uploaded_by
+      LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id
+      WHERE p.group_id = ?1 AND p.uploaded_by != ?2 AND p.uploaded_at > ?3
+      ORDER BY p.uploaded_at DESC LIMIT ${ACTIVITY_EVENT_CAP}`
+    )
+    .bind(groupId, userId, cutoff)
+    .all<ActivityActorRow & { photo_id: string; caption: string | null }>();
+  for (const row of photos.results ?? []) {
+    events.push({
+      type: 'photo',
+      at: row.at,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      photoId: row.photo_id,
+      caption: row.caption,
+    });
+  }
+
+  const reactions = await db
+    .prepare(
+      `SELECT r.created_at AS at, r.user_id AS actor_id,
+        ${RESOLVED_MEMBER_NAME_IF_MEMBER} AS actor_name,
+        p.id AS photo_id, r.emoji
+      FROM photo_reactions r
+      JOIN photos p ON p.id = r.photo_id
+      LEFT JOIN users u ON u.id = r.user_id
+      LEFT JOIN memberships m ON m.user_id = r.user_id AND m.group_id = p.group_id
+      WHERE p.group_id = ?1 AND p.uploaded_by = ?2 AND r.user_id != ?2 AND r.created_at > ?3
+      ORDER BY r.created_at DESC LIMIT ${ACTIVITY_EVENT_CAP}`
+    )
+    .bind(groupId, userId, cutoff)
+    .all<ActivityActorRow & { photo_id: string; emoji: string }>();
+  for (const row of reactions.results ?? []) {
+    events.push({
+      type: 'reaction',
+      at: row.at,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      photoId: row.photo_id,
+      emoji: row.emoji,
+    });
+  }
+
+  const comments = await db
+    .prepare(
+      `SELECT c.created_at AS at, c.user_id AS actor_id,
+        ${RESOLVED_MEMBER_NAME_IF_MEMBER} AS actor_name,
+        p.id AS photo_id, c.id AS comment_id, c.content,
+        (p.uploaded_by = ?2) AS on_own_photo
+      FROM comments c
+      JOIN photos p ON p.id = c.photo_id
+      LEFT JOIN users u ON u.id = c.user_id
+      LEFT JOIN memberships m ON m.user_id = c.user_id AND m.group_id = p.group_id
+      WHERE p.group_id = ?1 AND c.user_id != ?2 AND c.deleted_at IS NULL AND c.created_at > ?3
+        AND (
+          p.uploaded_by = ?2
+          OR EXISTS (
+            SELECT 1 FROM comments mine
+            WHERE mine.photo_id = c.photo_id AND mine.user_id = ?2
+              AND mine.deleted_at IS NULL AND mine.created_at < c.created_at
+          )
+        )
+      ORDER BY c.created_at DESC LIMIT ${ACTIVITY_EVENT_CAP}`
+    )
+    .bind(groupId, userId, cutoff)
+    .all<
+      ActivityActorRow & {
+        photo_id: string;
+        comment_id: string;
+        content: string;
+        on_own_photo: number;
+      }
+    >();
+  for (const row of comments.results ?? []) {
+    events.push({
+      type: row.on_own_photo ? 'comment' : 'reply',
+      at: row.at,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      photoId: row.photo_id,
+      commentId: row.comment_id,
+      preview: row.content,
+    });
+  }
+
+  const joins = await db
+    .prepare(
+      `SELECT m.joined_at AS at, m.user_id AS actor_id,
+        ${RESOLVED_MEMBER_NAME} AS actor_name
+      FROM memberships m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = ?1 AND m.user_id != ?2 AND m.joined_at > ?3
+      ORDER BY m.joined_at DESC LIMIT ${ACTIVITY_EVENT_CAP}`
+    )
+    .bind(groupId, userId, cutoff)
+    .all<ActivityActorRow>();
+  for (const row of joins.results ?? []) {
+    events.push({ type: 'join', at: row.at, actorId: row.actor_id, actorName: row.actor_name });
+  }
+
+  const roleChanges = await db
+    .prepare(
+      `SELECT m.role_changed_at AS at, m.user_id AS actor_id,
+        ${RESOLVED_MEMBER_NAME} AS actor_name, m.role
+      FROM memberships m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = ?1 AND m.role_changed_at IS NOT NULL AND m.role_changed_at > ?2
+      ORDER BY m.role_changed_at DESC LIMIT ${ACTIVITY_EVENT_CAP}`
+    )
+    .bind(groupId, cutoff)
+    .all<ActivityActorRow & { role: 'admin' | 'member' }>();
+  for (const row of roleChanges.results ?? []) {
+    events.push({
+      type: 'role',
+      at: row.at,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      role: row.role,
+    });
+  }
+
+  return events.sort((a, b) => b.at - a.at).slice(0, ACTIVITY_EVENT_CAP);
+}
+
+export async function getActivitySeenAt(
+  db: D1Database,
+  userId: string,
+  groupId: string
+): Promise<number> {
+  const row = await db
+    .prepare('SELECT activity_seen_at FROM memberships WHERE user_id = ? AND group_id = ?')
+    .bind(userId, groupId)
+    .first<{ activity_seen_at: number }>();
+  return row?.activity_seen_at ?? 0;
+}
+
+export async function setActivitySeenAt(
+  db: D1Database,
+  userId: string,
+  groupId: string,
+  seenAt: number
+): Promise<void> {
+  await db
+    .prepare('UPDATE memberships SET activity_seen_at = ? WHERE user_id = ? AND group_id = ?')
+    .bind(seenAt, userId, groupId)
+    .run();
 }

@@ -9,6 +9,8 @@ import type {
   MembershipRole,
   UserJson,
   GroupJson,
+  ActivityResponse,
+  ActivitySeenResponse,
   FeedVersionResponse,
   PhotoListResponse,
   PhotoDetailResponse,
@@ -579,6 +581,12 @@ export const api = {
       requestJson(`/photos/${photoId}/comments/${commentId}`, {
         method: 'DELETE',
       }),
+  },
+
+  activity: {
+    list: (): Promise<ActivityResponse> => requestJson('/activity'),
+
+    markSeen: (): Promise<ActivitySeenResponse> => requestJson('/activity/seen', { method: 'POST' }),
   },
 
   push: {

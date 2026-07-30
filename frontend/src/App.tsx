@@ -8,7 +8,7 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { GroupSwitcher } from './components/GroupSwitcher';
 import { InstallPrompt, InstallButton } from './components/InstallPrompt';
 import { MobileMenu } from './components/MobileMenu';
-import { NotificationBell } from './components/NotificationBell';
+import { ActivityBell } from './components/ActivityBell';
 import { UserMenu } from './components/UserMenu';
 import { NotificationPrompt } from './components/NotificationPrompt';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -103,14 +103,14 @@ function MainApp() {
             <div className="flex items-center gap-4">
               <div className="hidden mobile:flex items-center gap-4">
                 <InstallButton />
-                <NotificationBell />
+                <ActivityBell />
                 <ThemeToggle />
                 <UserMenu />
               </div>
 
               <div className="mobile:hidden flex items-center gap-2">
                 <InstallButton />
-                <NotificationBell />
+                <ActivityBell />
                 <MobileMenu />
               </div>
             </div>

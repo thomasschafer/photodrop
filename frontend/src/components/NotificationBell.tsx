@@ -38,7 +38,13 @@ interface DebugInfo {
   groupId: string | null;
 }
 
-export function NotificationBell() {
+/**
+ * Push-notification settings row: enable/disable push for this group, with
+ * the blocked/unsupported help and debug flows. Lives in the user menu's
+ * "Notification settings" modal — the header bell is the activity inbox
+ * (ActivityBell), not a settings toggle.
+ */
+export function PushNotificationSettings() {
   const { currentGroup } = useAuth();
   const isNative = isNativePlatform();
   const [state, setState] = useState<NotificationState>('loading');
@@ -356,6 +362,18 @@ export function NotificationBell() {
   const isDisabled = isDenied || isUnsupported;
   const showSpinner = isLoading || isProcessing;
 
+  const statusText = isLoading
+    ? 'Checking…'
+    : isError
+      ? 'Error — tap for details'
+      : isUnsupported
+        ? 'Not supported in this browser'
+        : isDenied
+          ? 'Blocked in browser settings'
+          : isSubscribed
+            ? 'On — new photos notify this device'
+            : 'Off';
+
   return (
     <>
       <button
@@ -392,16 +410,12 @@ export function NotificationBell() {
                     ? 'Notifications enabled for this group'
                     : 'Enable notifications for this group'
         }
-        className={`flex items-center justify-center w-9 h-9 rounded-lg border cursor-pointer transition-colors ${
+        className={`flex items-center gap-3 w-full p-3 rounded-lg border cursor-pointer transition-colors text-left ${
           isError
             ? 'border-red-500 bg-red-500/10 text-red-500'
-            : isLoading
-              ? 'border-border bg-surface text-text-muted'
-              : isDisabled
-                ? 'border-border bg-surface text-text-muted hover:border-border-strong hover:text-text-secondary'
-                : isSubscribed
-                  ? 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
-                  : 'border-border bg-surface text-text-secondary hover:border-border-strong'
+            : isSubscribed
+              ? 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
+              : 'border-border bg-surface text-text-secondary hover:border-border-strong'
         }`}
       >
         {showSpinner ? (
@@ -432,6 +446,10 @@ export function NotificationBell() {
             {isDisabled && <path d="M1 1l22 22" strokeWidth="2" />}
           </svg>
         )}
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-text-primary">Push notifications</span>
+          <span className="block text-xs text-text-muted mt-0.5">{statusText}</span>
+        </span>
       </button>
 
       {showConfirm && (

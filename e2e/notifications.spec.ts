@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   createTestGroup,
   cleanupTestGroup,
@@ -198,6 +198,17 @@ function cleanupPushSubscriptions(groupId: string): void {
   );
 }
 
+
+/**
+ * The push toggle lives in the user menu's "Notification settings" modal —
+ * the header bell is the activity inbox. Opens the settings modal.
+ */
+async function openNotificationSettings(page: Page) {
+  await page.locator('button[aria-haspopup="menu"][aria-label$=" menu"]').click();
+  await page.getByRole('menuitem', { name: 'Notification settings' }).click();
+  await expect(page.getByRole('dialog', { name: 'Notification settings' })).toBeVisible();
+}
+
 test.describe('Push Notifications', () => {
   let testGroup: TestGroup;
 
@@ -216,7 +227,8 @@ test.describe('Push Notifications', () => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
-    // Bell should be visible in the header (matches "Enable notifications" or "Disable notifications")
+    // The toggle lives in the user menu's settings modal
+    await openNotificationSettings(page);
     const bell = page.getByRole('button', { name: /^(enable|disable) notifications$/i });
     await expect(bell).toBeVisible();
   });
@@ -229,16 +241,16 @@ test.describe('Push Notifications', () => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
-    // Bell should be visible with unsupported state
+    // Toggle should be visible with unsupported state
+    await openNotificationSettings(page);
     const bell = page.getByRole('button', { name: /notifications not supported/i });
     await expect(bell).toBeVisible();
     await expect(bell).toBeEnabled();
 
-    // Clicking the bell should show a help modal
+    // Clicking the toggle should show a help modal
     await bell.click();
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog', { name: 'Notifications not supported' });
     await expect(dialog).toBeVisible();
-    await expect(page.getByText('Notifications not supported')).toBeVisible();
     await expect(page.getByText(/try using Chrome, Firefox, or Edge/i)).toBeVisible();
 
     // Close the modal
@@ -255,16 +267,16 @@ test.describe('Push Notifications', () => {
     const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
     await loginWithMagicLink(page, magicLink);
 
-    // Bell should show blocked state when permission is denied
+    // Toggle should show blocked state when permission is denied
+    await openNotificationSettings(page);
     const blockedBell = page.getByRole('button', { name: /notifications blocked/i });
     await expect(blockedBell).toBeVisible();
     await expect(blockedBell).toBeEnabled();
 
-    // Clicking the blocked bell should show a help modal
+    // Clicking the blocked toggle should show a help modal
     await blockedBell.click();
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog', { name: 'Notifications blocked' });
     await expect(dialog).toBeVisible();
-    await expect(page.getByText('Notifications blocked')).toBeVisible();
     await expect(page.getByText(/change your browser settings/i)).toBeVisible();
 
     // Close the modal
@@ -299,7 +311,8 @@ test.describe('Push Notifications', () => {
       });
     });
 
-    // Click the bell
+    // Click the toggle
+    await openNotificationSettings(page);
     const bell = page.getByRole('button', { name: /enable notifications/i });
     await bell.click();
 
@@ -327,15 +340,15 @@ test.describe('Push Notifications', () => {
       });
     });
 
-    // Wait for bell to show subscribed state and click it
+    // Wait for the toggle to show subscribed state and click it
+    await openNotificationSettings(page);
     const bell = page.getByRole('button', { name: /disable notifications/i });
     await expect(bell).toBeVisible({ timeout: 5000 });
     await bell.click();
 
     // Confirmation modal should appear
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog', { name: 'Disable notifications?' });
     await expect(dialog).toBeVisible();
-    await expect(page.getByText('Disable notifications?')).toBeVisible();
   });
 
   test('confirming unsubscribe calls unsubscribe API', async ({ page }) => {
@@ -370,13 +383,14 @@ test.describe('Push Notifications', () => {
       }
     });
 
-    // Click bell to show modal
+    // Open settings and click the toggle to show the confirm modal
+    await openNotificationSettings(page);
     const bell = page.getByRole('button', { name: /disable notifications/i });
     await expect(bell).toBeVisible({ timeout: 5000 });
     await bell.click();
 
-    // Confirm unsubscribe - use the dialog's Disable button (not the bell)
-    const dialog = page.getByRole('dialog');
+    // Confirm unsubscribe - use the dialog's Disable button (not the toggle)
+    const dialog = page.getByRole('dialog', { name: 'Disable notifications?' });
     const confirmButton = dialog.getByRole('button', { name: 'Disable' });
     await confirmButton.click();
 
@@ -418,8 +432,10 @@ test.describe('Push Notifications', () => {
       });
 
       // First group should show as subscribed
+      await openNotificationSettings(page);
       const bellSubscribed = page.getByRole('button', { name: /disable notifications/i });
       await expect(bellSubscribed).toBeVisible({ timeout: 5000 });
+      await page.keyboard.press('Escape');
 
       // Reload to get updated group list
       await page.reload();
@@ -445,7 +461,8 @@ test.describe('Push Notifications', () => {
       // Wait for switch to complete
       await expect(page.getByRole('button', { name: /Second Notifications Group/i })).toBeVisible();
 
-      // Bell should now show unsubscribed state (enable button)
+      // The toggle should now show unsubscribed state (enable button)
+      await openNotificationSettings(page);
       const bellUnsubscribed = page.getByRole('button', { name: /enable notifications/i });
       await expect(bellUnsubscribed).toBeVisible({ timeout: 5000 });
     } finally {

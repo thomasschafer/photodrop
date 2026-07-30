@@ -6,6 +6,7 @@ import users from './routes/users';
 import photos from './routes/photos';
 import groups from './routes/groups';
 import push from './routes/push';
+import activity from './routes/activity';
 import type { AppEnv } from './types';
 
 const app = new Hono<AppEnv>();
@@ -80,6 +81,7 @@ app.route('/users', users);
 app.route('/photos', photos);
 app.route('/groups', groups);
 app.route('/push', push);
+app.route('/activity', activity);
 
 // Global error handler (shared with route tests via lib/errorHandler)
 app.onError(errorHandler);
