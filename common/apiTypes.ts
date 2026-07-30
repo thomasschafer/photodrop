@@ -32,6 +32,12 @@ export interface AuthResponse {
   selectionToken?: string | null;
   user: UserJson;
   currentGroup?: GroupJson | null;
+  /**
+   * The caller's display-name override in `currentGroup`, or null when unset
+   * (or no current group). Lets the client render the user's own identity
+   * group-resolved, like it renders everyone else's.
+   */
+  currentGroupDisplayName?: string | null;
   groups: GroupJson[];
   needsGroupSelection?: boolean;
 }

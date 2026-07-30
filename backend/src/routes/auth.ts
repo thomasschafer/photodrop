@@ -199,6 +199,7 @@ async function issueSessionForGroup(
     accessToken,
     user: userJson(user),
     currentGroup: membershipGroupJson(membership),
+    currentGroupDisplayName: membership.display_name,
     groups: groupsJson(memberships),
     ...extra,
   } satisfies AuthResponse);

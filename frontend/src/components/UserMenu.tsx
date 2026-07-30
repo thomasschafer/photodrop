@@ -9,7 +9,7 @@ import { PushNotificationSettings } from './NotificationBell';
 import { ProfileModals, type ProfileModalKind } from './ProfileModals';
 
 export function UserMenu() {
-  const { user, logout } = useAuth();
+  const { user, displayName, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [openModal, setOpenModal] = useState<ProfileModalKind | null>(null);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
@@ -37,6 +37,11 @@ export function UserMenu() {
 
   if (!user) return null;
 
+  // Inside a group everyone else is shown group-resolved; the user's own
+  // avatar follows the same rule, so one person never wears two identities on
+  // the same screen. "Signed in as" keeps the canonical account name.
+  const shownName = displayName ?? user.name;
+
   return (
     <>
       <div ref={containerRef} className="relative" onBlur={handleBlur}>
@@ -44,12 +49,12 @@ export function UserMenu() {
           ref={triggerRef}
           onClick={() => setIsOpen(!isOpen)}
           onKeyDown={handleTriggerKeyDown}
-          aria-label={`${user.name} menu`}
+          aria-label={`${shownName} menu`}
           aria-expanded={isOpen}
           aria-haspopup="menu"
           className="flex items-center gap-2 rounded-lg p-1 cursor-pointer transition-colors hover:bg-bg-secondary border-none bg-transparent"
         >
-          <Avatar name={user.name} color={user.profileColor} size="md" />
+          <Avatar name={shownName} color={user.profileColor} size="md" />
         </button>
 
         {isOpen && (

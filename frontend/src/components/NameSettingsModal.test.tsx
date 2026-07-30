@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     user: { id: 'me', name: 'Tom Schafer', email: 'tom@example.com', profileColor: 'teal' },
     currentGroup: { id: 'g1', name: 'Family', role: 'member', ownerId: 'me' },
     updateProfile: vi.fn(),
+    setDisplayNameOverride: vi.fn(),
   },
 }));
 

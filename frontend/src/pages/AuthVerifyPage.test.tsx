@@ -27,7 +27,7 @@ vi.mock('@capacitor/core', () => ({
 }));
 
 vi.mock('../contexts/AuthContext', () => ({
-  useAuth: () => ({ login: mockLogin }),
+  useAuth: () => ({ login: mockLogin, user: null, loading: false }),
 }));
 
 const user = { id: 'u1', name: 'Tom', email: 'tom@example.com', profileColor: 'teal' as const };
@@ -127,7 +127,7 @@ describe('AuthVerifyPage', () => {
     // The instance is reused, so a boolean guard would have left the stale
     // error screen up and never re-verified.
     expect(mockVerifyMagicLink).toHaveBeenNthCalledWith(2, 'second-token');
-    expect(mockLogin).toHaveBeenCalledWith('token-b', user, group, [group], false, null);
+    expect(mockLogin).toHaveBeenCalledWith('token-b', user, group, [group], false, null, null);
     await screen.findByText("You're signed in");
   });
 
@@ -162,7 +162,7 @@ describe('AuthVerifyPage', () => {
     });
 
     expect(mockLogin).toHaveBeenCalledTimes(1);
-    expect(mockLogin).toHaveBeenCalledWith('token-b', user, group, [group], false, null);
+    expect(mockLogin).toHaveBeenCalledWith('token-b', user, group, [group], false, null, null);
   });
 
   it('ignores a failure from a link that has been superseded', async () => {

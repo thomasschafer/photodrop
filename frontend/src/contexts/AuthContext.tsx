@@ -33,6 +33,8 @@ interface AuthState {
   groups: Group[];
   needsGroupSelection: boolean;
   selectionToken: string | null;
+  /** The user's display-name override in currentGroup; null when unset. */
+  displayName: string | null;
 }
 
 const LOGGED_OUT_STATE: AuthState = {
@@ -41,6 +43,7 @@ const LOGGED_OUT_STATE: AuthState = {
   groups: [],
   needsGroupSelection: false,
   selectionToken: null,
+  displayName: null,
 };
 
 // Maps a /auth/refresh response (whether returned directly or delivered via the
@@ -54,6 +57,7 @@ function refreshedAuthState(data: AuthResponse): AuthState {
     needsGroupSelection:
       (data.needsGroupSelection ?? false) || (!data.currentGroup && data.groups.length > 0),
     selectionToken: data.selectionToken ?? null,
+    displayName: data.currentGroupDisplayName ?? null,
   };
 }
 
@@ -72,7 +76,8 @@ interface AuthContextType {
     currentGroup: Group | null,
     groups: Group[],
     needsGroupSelection: boolean,
-    selectionToken?: string | null
+    selectionToken?: string | null,
+    currentGroupDisplayName?: string | null
   ) => Promise<void>;
   logout: () => Promise<void>;
   // Resolves true when it settled auth state (synced from the server, or tore
@@ -84,6 +89,10 @@ interface AuthContextType {
   onGroupDeleted: () => Promise<void>;
   /** Apply an already-persisted change to the signed-in user's own profile. */
   updateProfile: (update: ProfileUpdate) => void;
+  /** The user's display-name override in the current group; null when unset. */
+  displayName: string | null;
+  /** Apply an already-persisted change to that override. */
+  setDisplayNameOverride: (displayName: string | null) => void;
 }
 
 type ProfileUpdate = Partial<Pick<User, 'name' | 'profileColor'>>;
@@ -114,7 +123,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       currentGroup: Group | null,
       groups: Group[],
       needsGroupSelection: boolean,
-      selectionToken?: string | null
+      selectionToken?: string | null,
+      currentGroupDisplayName?: string | null
     ) => {
       // Any /auth/refresh still in flight belongs to the session we just
       // replaced; invalidate it so it can't write its token over the new one.
@@ -140,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         groups,
         needsGroupSelection,
         selectionToken: selectionToken ?? null,
+        displayName: currentGroupDisplayName ?? null,
       });
     },
     []
@@ -260,6 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         groups: data.groups,
         needsGroupSelection: false,
         selectionToken: null,
+        displayName: data.currentGroupDisplayName ?? null,
       });
 
       // Re-register native push for new group
@@ -294,6 +306,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           groups: data.groups,
           needsGroupSelection: false,
           selectionToken: null,
+          displayName: data.currentGroupDisplayName ?? null,
         });
       } catch (error) {
         console.error('Select group error:', error);
@@ -311,6 +324,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [authState.selectionToken, refreshAuth]
   );
+
+  const setDisplayNameOverride = useCallback((displayName: string | null) => {
+    setAuthState((prev) => ({ ...prev, displayName }));
+  }, []);
 
   const updateProfile = useCallback((update: ProfileUpdate) => {
     setAuthState((prev) => (prev.user ? { ...prev, user: { ...prev.user, ...update } } : prev));
@@ -551,6 +568,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         selectGroup,
         onGroupDeleted,
         updateProfile,
+        displayName: authState.displayName,
+        setDisplayNameOverride,
       }}
     >
       {children}

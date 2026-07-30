@@ -25,7 +25,7 @@ interface NameSettingsModalProps {
 }
 
 export function NameSettingsModal({ onClose }: NameSettingsModalProps) {
-  const { user, currentGroup } = useAuth();
+  const { user, currentGroup, setDisplayNameOverride } = useAuth();
   const saveProfile = useProfileSave();
   const [name, setName] = useState(user?.name ?? '');
   const [displayName, setDisplayName] = useState<DisplayNameState>({ status: 'loading' });
@@ -106,6 +106,7 @@ export function NameSettingsModal({ onClose }: NameSettingsModalProps) {
           saved: updated.displayName,
           value: updated.displayName ?? '',
         });
+        setDisplayNameOverride(updated.displayName);
         // saveProfile notifies for canonical-name changes; a display-name-only
         // save must re-sync feed bylines too.
         notifyFeedRefresh();

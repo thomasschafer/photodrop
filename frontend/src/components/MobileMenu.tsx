@@ -66,7 +66,7 @@ const themes: { value: Theme; label: string; icon: JSX.Element }[] = [
 ];
 
 export function MobileMenu() {
-  const { user, currentGroup, groups, switchGroup, logout } = useAuth();
+  const { user, displayName, currentGroup, groups, switchGroup, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -271,7 +271,7 @@ export function MobileMenu() {
             {/* User section */}
             <div className="py-1">
               <div className="px-3.5 py-2 flex items-center gap-2 text-xs text-text-muted">
-                <Avatar name={user.name} color={user.profileColor} size="sm" />
+                <Avatar name={displayName ?? user.name} color={user.profileColor} size="sm" />
                 <span>
                   Signed in as <span className="font-medium text-text-secondary">{user.name}</span>
                 </span>

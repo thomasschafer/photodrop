@@ -58,7 +58,8 @@ export function AuthVerifyPage() {
         data.currentGroup ?? null,
         data.groups ?? [],
         data.needsGroupSelection ?? false,
-        data.selectionToken ?? null
+        data.selectionToken ?? null,
+        data.currentGroupDisplayName ?? null
       );
 
       setStatus('success');
