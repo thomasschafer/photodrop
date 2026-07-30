@@ -75,4 +75,26 @@ test.describe('Activity inbox', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'Activity', exact: true })).toBeVisible();
   });
+
+  test('a member is never told who joined the group', async ({ page, request }) => {
+    // Membership is private between members: someone must be able to join and
+    // simply read, without their presence being announced to everyone else.
+    const lurkerInvite = createTestMember(testGroup.groupId, 'Invisible Lurker');
+    await verifyToken(request, lurkerInvite.magicLink, 'Invisible Lurker');
+
+    const memberInvite = createTestMember(testGroup.groupId, 'Watching Member');
+    await verifyToken(request, memberInvite.magicLink, 'Watching Member');
+
+    const magicLink = createFreshMagicLink(testGroup.groupId, memberInvite.email);
+    await loginWithMagicLink(page, magicLink);
+
+    await page.getByRole('button', { name: /^Activity/ }).click();
+    const panel = page.getByRole('dialog', { name: 'Activity' });
+    await expect(panel).toBeVisible();
+
+    // The owner's photo is legitimate activity; the joins are not theirs to see.
+    await expect(panel.getByText(/added a photo/)).toBeVisible();
+    await expect(panel.getByText(/joined the group/)).toHaveCount(0);
+    await expect(panel.getByText('Invisible Lurker')).toHaveCount(0);
+  });
 });

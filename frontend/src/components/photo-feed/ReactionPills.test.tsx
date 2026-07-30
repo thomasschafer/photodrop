@@ -48,75 +48,43 @@ describe('ReactionPills', () => {
     expect(onReactionClick).toHaveBeenCalledWith('🔥');
   });
 
-  describe('who-reacted popover', () => {
+  it('loads and shows the reactor names when a pill takes keyboard focus', () => {
+    // Hover is not available to keyboard or assistive-tech users, so focus is
+    // their path to the same names — it must load the details, not just
+    // reveal an empty tooltip.
+    const onLoadReactionDetails = vi.fn();
     const details: ReactionWithUser[] = [
       { emoji: '❤️', userId: 'me', userName: 'Me', profileColor: 'teal' },
       { emoji: '❤️', userId: 'bob', userName: 'Bob', profileColor: 'mauve' },
-      { emoji: '🔥', userId: 'ada', userName: 'Ada', profileColor: 'sage' },
     ];
 
-    it('opens on click and lists reactors grouped by emoji', () => {
-      const onLoadReactionDetails = vi.fn();
-      render(
-        <ReactionPills
-          reactions={[
-            { emoji: '❤️', count: 2 },
-            { emoji: '🔥', count: 1 },
-          ]}
-          userReactions={['❤️']}
-          onReactionClick={vi.fn()}
-          reactionDetails={details}
-          onLoadReactionDetails={onLoadReactionDetails}
-          currentUserId="me"
-          showNames
-        />
-      );
+    const { container, rerender } = render(
+      <ReactionPills
+        reactions={[{ emoji: '❤️', count: 2 }]}
+        userReactions={['❤️']}
+        onReactionClick={vi.fn()}
+        onLoadReactionDetails={onLoadReactionDetails}
+        currentUserId="me"
+        showNames
+      />
+    );
 
-      fireEvent.click(screen.getByLabelText('See who reacted'));
+    fireEvent.focus(container.firstElementChild as HTMLElement);
+    expect(onLoadReactionDetails).toHaveBeenCalled();
 
-      const dialog = screen.getByRole('dialog', { name: 'Who reacted' });
-      expect(dialog).toHaveTextContent('You, Bob');
-      expect(dialog).toHaveTextContent('Ada');
-      expect(onLoadReactionDetails).toHaveBeenCalled();
-    });
+    rerender(
+      <ReactionPills
+        reactions={[{ emoji: '❤️', count: 2 }]}
+        userReactions={['❤️']}
+        onReactionClick={vi.fn()}
+        reactionDetails={details}
+        onLoadReactionDetails={onLoadReactionDetails}
+        currentUserId="me"
+        showNames
+      />
+    );
 
-    it('closes on Escape and returns focus to its trigger', () => {
-      render(
-        <ReactionPills
-          reactions={[{ emoji: '❤️', count: 1 }]}
-          userReactions={[]}
-          onReactionClick={vi.fn()}
-          reactionDetails={details}
-          currentUserId="me"
-          showNames
-        />
-      );
-
-      const trigger = screen.getByLabelText('See who reacted');
-      fireEvent.click(trigger);
-      expect(screen.getByRole('dialog', { name: 'Who reacted' })).toBeInTheDocument();
-
-      fireEvent.keyDown(document, { key: 'Escape' });
-
-      expect(screen.queryByRole('dialog', { name: 'Who reacted' })).not.toBeInTheDocument();
-      expect(document.activeElement).toBe(trigger);
-    });
-
-    it('is absent with no reactions or outside name-showing contexts', () => {
-      const { rerender } = render(
-        <ReactionPills reactions={[]} userReactions={[]} onReactionClick={vi.fn()} showNames />
-      );
-      expect(screen.queryByLabelText('See who reacted')).not.toBeInTheDocument();
-
-      rerender(
-        <ReactionPills
-          reactions={[{ emoji: '❤️', count: 1 }]}
-          userReactions={[]}
-          onReactionClick={vi.fn()}
-        />
-      );
-      expect(screen.queryByLabelText('See who reacted')).not.toBeInTheDocument();
-    });
+    expect(screen.getByRole('tooltip')).toHaveTextContent('You, Bob');
   });
 
   // Pills sort by count, and counts change the moment the user clicks one —

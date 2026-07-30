@@ -44,6 +44,7 @@ import {
   touchSession,
   deleteSessionFamily,
   pruneExpiredSessions,
+  getGroupActivity,
 } from './db';
 import {
   getRandomProfileColor,
@@ -2068,5 +2069,39 @@ describe('Session functions', () => {
       expect(sql).not.toContain('jti');
       expect(db._mocks.mockBind).toHaveBeenCalledWith(NOW, 'family-1');
     });
+  });
+});
+
+describe('getGroupActivity', () => {
+  // Query order inside getGroupActivity: photos, reactions, comments, then
+  // (admins only) joins and role changes.
+  const photoRow = {
+    at: 500,
+    actor_id: 'ravi',
+    actor_name: 'Ravi',
+    photo_id: 'photo-1',
+    caption: null,
+  };
+  const joinRow = { at: 400, actor_id: 'quiet', actor_name: 'Quiet Member' };
+  const roleRow = { at: 300, actor_id: 'jo', actor_name: 'Jo', role: 'admin' };
+
+  it('never tells a member who joined or whose role changed', async () => {
+    // A member must be able to sit in a group unnoticed: nothing here may
+    // reveal another member's presence unless they chose to act.
+    const db = createSequentialAllMockDb([[photoRow], [], [], [joinRow], [roleRow]]);
+
+    const events = await getGroupActivity(db, 'group-1', 'me', 0, false);
+
+    expect(events.map((e) => e.type)).toEqual(['photo']);
+    // The membership queries are not merely filtered out — they never run.
+    expect(db._mocks.mockAll).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives admins the membership events', async () => {
+    const db = createSequentialAllMockDb([[photoRow], [], [], [joinRow], [roleRow]]);
+
+    const events = await getGroupActivity(db, 'group-1', 'me', 0, true);
+
+    expect(events.map((e) => e.type)).toEqual(['photo', 'join', 'role']);
   });
 });

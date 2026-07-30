@@ -2,8 +2,9 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { useFocusTrap } from '../lib/useFocusTrap';
 
 /**
- * `raised` lifts the modal further off the page — a stronger shadow and a
- * dimmer, blurred backdrop — for modals the user did not open themselves.
+ * Every modal blurs the page behind it; `raised` lifts one further off the
+ * page — a stronger shadow and a dimmer backdrop — for modals the user did
+ * not open themselves.
  */
 export type ModalElevation = 'default' | 'raised';
 
@@ -16,8 +17,8 @@ interface ModalProps {
 }
 
 const backdropClasses: Record<ModalElevation, string> = {
-  default: 'bg-black/50',
-  raised: 'bg-black/60 backdrop-blur-[2px]',
+  default: 'bg-black/50 backdrop-blur-[2px]',
+  raised: 'bg-black/60 backdrop-blur-[3px]',
 };
 
 const panelShadowClasses: Record<ModalElevation, string> = {

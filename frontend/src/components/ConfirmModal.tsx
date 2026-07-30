@@ -62,7 +62,8 @@ export function ConfirmModal({
       className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+      {/* Matches Modal's default backdrop: every dialog blurs the page behind it. */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onCancel} />
       <div
         ref={modalRef}
         role="dialog"

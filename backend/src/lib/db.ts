@@ -1514,14 +1514,21 @@ const ACTIVITY_EVENT_CAP = 100;
 /**
  * Everything inbox-worthy that happened in the group since `cutoff`, newest
  * first, from the perspective of `userId`: photos added by others, reactions
- * and comments on their photos, replies in threads they commented in, and
- * membership changes. The caller's own actions never appear.
+ * and comments on their photos, replies in threads they commented in, and —
+ * for admins only — membership changes. The caller's own actions never
+ * appear.
+ *
+ * Membership events are admin-only by design, not by oversight: a member must
+ * be able to join a group and simply read it, without their presence being
+ * announced to the other members. Nothing here may reveal who is in the group
+ * beyond the people who have chosen to act in it.
  */
 export async function getGroupActivity(
   db: D1Database,
   groupId: string,
   userId: string,
-  cutoff: number
+  cutoff: number,
+  isAdmin: boolean
 ): Promise<ActivityDbEvent[]> {
   const events: ActivityDbEvent[] = [];
 
@@ -1619,6 +1626,27 @@ export async function getGroupActivity(
     });
   }
 
+  if (isAdmin) {
+    await appendMembershipEvents(db, groupId, userId, cutoff, events);
+  }
+
+  return events.sort((a, b) => b.at - a.at).slice(0, ACTIVITY_EVENT_CAP);
+}
+
+/**
+ * Joins and role changes. Admin-only: see getGroupActivity — a member's
+ * presence in the group is not something the other members get told about.
+ * Role changes about the caller themselves are theirs to know, but they are
+ * only reachable here, so a member learns of their own promotion the way they
+ * always did — by gaining the Group tab.
+ */
+async function appendMembershipEvents(
+  db: D1Database,
+  groupId: string,
+  userId: string,
+  cutoff: number,
+  events: ActivityDbEvent[]
+): Promise<void> {
   const joins = await db
     .prepare(
       `SELECT m.joined_at AS at, m.user_id AS actor_id,
@@ -1654,8 +1682,6 @@ export async function getGroupActivity(
       role: row.role,
     });
   }
-
-  return events.sort((a, b) => b.at - a.at).slice(0, ACTIVITY_EVENT_CAP);
 }
 
 export async function getActivitySeenAt(

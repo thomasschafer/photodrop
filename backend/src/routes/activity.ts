@@ -32,7 +32,7 @@ activity.get('/', requireAuth, async (c) => {
   const cutoff = Math.floor(Date.now() / 1000) - ACTIVITY_WINDOW_SECONDS;
 
   const [dbEvents, seenAt] = await Promise.all([
-    getGroupActivity(c.env.DB, user.groupId, user.id, cutoff),
+    getGroupActivity(c.env.DB, user.groupId, user.id, cutoff, user.role === 'admin'),
     getActivitySeenAt(c.env.DB, user.id, user.groupId),
   ]);
 

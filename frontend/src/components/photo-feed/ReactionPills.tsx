@@ -306,41 +306,6 @@ export function ReactionPills({
     [interacting, displayReactions]
   );
 
-  // "Who reacted" popover: the accessible, non-hover surface for reaction
-  // attribution. The hover tooltip remains as a pointer shortcut, but it is
-  // unreachable by touch-without-long-press and by assistive tech users
-  // navigating the summary, so the full list needs a real control.
-  const [whoOpen, setWhoOpen] = useState(false);
-  const whoRef = useRef<HTMLDivElement>(null);
-  const whoTriggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!whoOpen) return;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // Capture-phase with propagation stopped: inside the lightbox, Escape
-      // must close this popover first, not the whole overlay with it.
-      e.stopPropagation();
-      setWhoOpen(false);
-      whoTriggerRef.current?.focus();
-    };
-    const onPointerDown = (e: Event) => {
-      if (!whoRef.current?.contains(e.target as Node)) {
-        setWhoOpen(false);
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown, true);
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('touchstart', onPointerDown);
-    return () => {
-      document.removeEventListener('keydown', onKeyDown, true);
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('touchstart', onPointerDown);
-    };
-  }, [whoOpen]);
-
   const loadNames = useCallback(() => {
     if (showNames && !hasLoadedRef.current && onLoadReactionDetails) {
       hasLoadedRef.current = true;
@@ -360,7 +325,10 @@ export function ReactionPills({
 
   const handleFocus = useCallback(() => {
     engage(setFocusEngaged);
-  }, [engage]);
+    // Keyboard users reach the names the same way pointer users do: the
+    // tooltip shows on focus-within, so the names must load on focus too.
+    loadNames();
+  }, [engage, loadNames]);
 
   const handleWrapperBlur = useCallback((e: React.FocusEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
@@ -453,56 +421,6 @@ export function ReactionPills({
         )}
       </div>
 
-      {showNames && sortedReactions.length > 0 && (
-        <div className="relative" ref={whoRef}>
-          <button
-            ref={whoTriggerRef}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!whoOpen) loadNames();
-              setWhoOpen((open) => !open);
-            }}
-            className={`${pillBaseClass} w-9 ${
-              whoOpen
-                ? 'bg-bg-tertiary text-text-primary'
-                : 'bg-bg-tertiary hover:bg-bg-border text-text-secondary'
-            }`}
-            aria-label="See who reacted"
-            aria-expanded={whoOpen}
-            aria-haspopup="dialog"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 00-3-3.87" />
-              <path d="M16 3.13a4 4 0 010 7.75" />
-            </svg>
-          </button>
-
-          {whoOpen && (
-            <div
-              role="dialog"
-              aria-label="Who reacted"
-              className="absolute z-[70] top-full mt-2 right-0 min-w-44 max-w-72 bg-surface border border-border rounded-lg shadow-elevated p-3 text-sm"
-            >
-              {!reactionsByEmoji ? (
-                <p className="text-text-secondary">Loading…</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {displayReactions.map(({ emoji }) => (
-                    <li key={emoji} className="flex gap-2 items-baseline">
-                      <span aria-hidden="true">{emoji}</span>
-                      <span className="text-text-secondary">
-                        {(reactionsByEmoji[emoji] ?? []).join(', ')}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
