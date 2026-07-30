@@ -85,6 +85,8 @@ export interface ReactionSummary {
 export interface PhotoSummary {
   id: string;
   caption: string | null;
+  /** Set when the caption was edited after upload. */
+  captionEditedAt: number | null;
   uploadedBy: string;
   /** Null when the uploader's account has since been deleted. */
   uploaderName: string | null;
@@ -156,6 +158,12 @@ export interface PhotoDetailResponse {
 
 export interface PhotoUploadResponse extends MessageResponse {
   id: string;
+}
+
+export interface PhotoCaptionUpdatedResponse extends MessageResponse {
+  id: string;
+  caption: string | null;
+  captionEditedAt: number;
 }
 
 export interface PhotoViewersResponse {

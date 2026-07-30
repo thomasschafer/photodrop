@@ -15,6 +15,7 @@ import type {
   PhotoListResponse,
   PhotoDetailResponse,
   PhotoUploadResponse,
+  PhotoCaptionUpdatedResponse,
   PhotoViewersResponse,
   ReactionMutationResponse,
   ReactionsResponse,
@@ -548,6 +549,12 @@ export const api = {
     },
 
     get: (photoId: string): Promise<PhotoDetailResponse> => requestJson(`/photos/${photoId}`),
+
+    updateCaption: (photoId: string, caption: string | null): Promise<PhotoCaptionUpdatedResponse> =>
+      requestJson(`/photos/${photoId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ caption }),
+      }),
 
     delete: (photoId: string): Promise<MessageResponse> =>
       requestJson(`/photos/${photoId}`, {

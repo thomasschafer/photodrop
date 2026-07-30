@@ -10,6 +10,7 @@ import {
   deletePhoto as dbDeletePhoto,
   recordPhotoView,
   getPhotoViewers,
+  updatePhotoCaption,
   addPhotoReaction,
   removePhotoReaction,
   getPhotoReactionsWithUsers,
@@ -34,7 +35,7 @@ import {
   ALLOWED_MIME_TYPES,
 } from '../lib/fileValidation';
 import { createRateLimitMiddleware, rateLimitKeys } from '../middleware/rateLimit';
-import { addReactionSchema, addCommentSchema } from '../lib/schemas';
+import { addReactionSchema, addCommentSchema, updateCaptionSchema } from '../lib/schemas';
 import {
   BadRequestError,
   NotFoundError,
@@ -48,6 +49,7 @@ import type {
   FeedVersionResponse,
   PhotoListResponse,
   PhotoUploadResponse,
+  PhotoCaptionUpdatedResponse,
   PhotoDetailResponse,
   PhotoViewersResponse,
   ReactionMutationResponse,
@@ -221,6 +223,7 @@ photos.get('/', requireAuth, async (c) => {
     photos: photosToReturn.map((photo) => ({
       id: photo.id,
       caption: photo.caption,
+      captionEditedAt: photo.caption_edited_at,
       uploadedBy: photo.uploaded_by,
       uploaderName: photo.uploader_name,
       uploaderProfileColor: photo.uploader_profile_color,
@@ -464,6 +467,23 @@ photos.get('/:id/thumbnail', requireAuth, async (c) => {
       Vary: 'Authorization',
     },
   });
+});
+
+// Edit a photo's caption (admin only; uploads are admin-only, so every
+// uploader is covered)
+photos.patch('/:id', requireAdmin, async (c) => {
+  const photo = await requirePhoto(c);
+  const { caption } = await parseJsonBody(c, updateCaptionSchema);
+
+  const normalized = caption?.trim() ? caption.trim() : null;
+  const captionEditedAt = await updatePhotoCaption(c.env.DB, photo.id, normalized);
+
+  return c.json({
+    message: 'Caption updated',
+    id: photo.id,
+    caption: normalized,
+    captionEditedAt,
+  } satisfies PhotoCaptionUpdatedResponse);
 });
 
 photos.delete('/:id', requireAdmin, async (c) => {

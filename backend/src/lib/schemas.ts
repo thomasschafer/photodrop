@@ -2,7 +2,7 @@
  * Zod request validation schemas
  */
 import { z } from 'zod';
-import { COMMENT_MAX_LENGTH, NAME_MAX_LENGTH } from '@photodrop/common/limits';
+import { CAPTION_MAX_LENGTH, COMMENT_MAX_LENGTH, NAME_MAX_LENGTH } from '@photodrop/common/limits';
 import { ALLOWED_EMOJIS, canonicalizeEmoji } from '@photodrop/common/reactions';
 import { PROFILE_COLORS } from '@photodrop/common/profileColors';
 
@@ -60,6 +60,13 @@ export const addCommentSchema = z.object({
     .trim()
     .min(1, 'Comment cannot be empty')
     .max(COMMENT_MAX_LENGTH, `Comment must be ${COMMENT_MAX_LENGTH} characters or less`),
+});
+
+export const updateCaptionSchema = z.object({
+  caption: z
+    .string()
+    .max(CAPTION_MAX_LENGTH, `Caption must be ${CAPTION_MAX_LENGTH} characters or less`)
+    .nullable(),
 });
 
 // Push schemas

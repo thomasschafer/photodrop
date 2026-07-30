@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { CAPTION_MAX_LENGTH } from '@photodrop/common/limits';
 import { api } from '../lib/api';
 import { subscribeFeedRefresh } from '../lib/feedRefresh';
 import { useFocusRestore } from '../lib/hooks';
@@ -69,6 +70,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState<File[] | null>(null);
+  const [editingCaption, setEditingCaption] = useState<{
+    photoId: string;
+    value: string;
+    saving: boolean;
+    error: string | null;
+  } | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [feedReactionDetails, setFeedReactionDetails] = useState<Map<string, ReactionWithUser[]>>(
     new Map()
@@ -425,6 +432,29 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     setShowUploadModal(true);
   };
 
+  const saveCaption = async () => {
+    if (!editingCaption || editingCaption.saving) return;
+    setEditingCaption({ ...editingCaption, saving: true, error: null });
+    try {
+      const updated = await api.photos.updateCaption(
+        editingCaption.photoId,
+        editingCaption.value.trim() || null
+      );
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === updated.id
+            ? { ...p, caption: updated.caption, captionEditedAt: updated.captionEditedAt }
+            : p
+        )
+      );
+      setEditingCaption(null);
+    } catch (err) {
+      setEditingCaption((prev) =>
+        prev && { ...prev, saving: false, error: err instanceof Error ? err.message : 'Save failed' }
+      );
+    }
+  };
+
   const handleDeleteCancel = () => {
     const photoIdToFocus = confirmDelete;
     setConfirmDelete(null);
@@ -655,8 +685,57 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                     uploadedAt={photo.uploadedAt}
                   />
                 </div>
-                {photo.caption && (
-                  <p className="text-text-primary mb-2 leading-normal">{photo.caption}</p>
+                {editingCaption?.photoId === photo.id ? (
+                  <form
+                    className="mb-2 flex gap-2 items-start"
+                    onClick={(e) => e.stopPropagation()}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void saveCaption();
+                    }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={editingCaption.value}
+                        onChange={(e) =>
+                          setEditingCaption({ ...editingCaption, value: e.target.value })
+                        }
+                        disabled={editingCaption.saving}
+                        maxLength={CAPTION_MAX_LENGTH}
+                        aria-label="Edit caption"
+                        className="input-field text-sm py-1.5"
+                        // eslint-disable-next-line jsx-a11y/no-autofocus
+                        autoFocus
+                      />
+                      {editingCaption.error && (
+                        <p className="text-xs text-error mt-1" role="alert">
+                          {editingCaption.error}
+                        </p>
+                      )}
+                    </div>
+                    <Button size="sm" type="submit" disabled={editingCaption.saving}>
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      type="button"
+                      disabled={editingCaption.saving}
+                      onClick={() => setEditingCaption(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </form>
+                ) : (
+                  photo.caption && (
+                    <p className="text-text-primary mb-2 leading-normal">
+                      {photo.caption}
+                      {photo.captionEditedAt !== null && (
+                        <span className="text-xs text-text-muted"> (edited)</span>
+                      )}
+                    </p>
+                  )
                 )}
                 <div className="mb-2">
                   <ReactionPills
@@ -679,6 +758,22 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
                       </span>
                     )}
                   </div>
+                  {isAdmin && editingCaption?.photoId !== photo.id && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCaption({
+                          photoId: photo.id,
+                          value: photo.caption ?? '',
+                          saving: false,
+                          error: null,
+                        });
+                      }}
+                      className="text-xs text-text-secondary bg-transparent border-none py-1 px-2 -my-2.5 rounded transition-colors min-h-[44px] flex items-center justify-center cursor-pointer hover:bg-bg-tertiary"
+                    >
+                      Edit caption
+                    </button>
+                  )}
                   {isAdmin && (
                     <button
                       ref={(el) => {

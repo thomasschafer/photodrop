@@ -115,6 +115,8 @@ export interface Photo {
   group_id: string;
   r2_key: string;
   caption: string | null;
+  /** Set when the caption was edited after upload; null for never-edited. */
+  caption_edited_at: number | null;
   uploaded_by: string;
   uploaded_at: number;
   thumbnail_r2_key: string | null;
@@ -1346,6 +1348,7 @@ export async function listPhotosWithCounts(
         p.group_id,
         p.r2_key,
         p.caption,
+        p.caption_edited_at,
         p.uploaded_by,
         p.uploaded_at,
         p.thumbnail_r2_key,
@@ -1435,6 +1438,7 @@ export async function listPhotosWithCounts(
     group_id: photo.group_id,
     r2_key: photo.r2_key,
     caption: photo.caption,
+    caption_edited_at: photo.caption_edited_at,
     uploaded_by: photo.uploaded_by,
     uploaded_at: photo.uploaded_at,
     thumbnail_r2_key: photo.thumbnail_r2_key,
@@ -1708,4 +1712,18 @@ export async function revokePendingInvites(
     .bind(groupId, email.toLowerCase().trim())
     .run();
   return result.meta.changes > 0;
+}
+
+/** Uploader/admin caption edit; stamps caption_edited_at. */
+export async function updatePhotoCaption(
+  db: D1Database,
+  photoId: string,
+  caption: string | null
+): Promise<number> {
+  const editedAt = Math.floor(Date.now() / 1000);
+  await db
+    .prepare('UPDATE photos SET caption = ?, caption_edited_at = ? WHERE id = ?')
+    .bind(caption, editedAt, photoId)
+    .run();
+  return editedAt;
 }
