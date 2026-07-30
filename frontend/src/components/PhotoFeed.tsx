@@ -57,6 +57,10 @@ interface PhotoFeedProps {
 // continuously-open, untouched tab can get.
 const FEED_FRESHNESS_INTERVAL_MS = 45_000;
 
+// Bounds for resolving a deep link that points past the loaded pages.
+const DEEP_LINK_MAX_PAGES = 30;
+const DEEP_LINK_EXISTENCE_CHECK_PAGES = 5;
+
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const { user, imageProtection: imageProtectionEnabled } = useAuth();
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -151,28 +155,49 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
   photosStateRef.current = photos;
 
+  /** Newest-first keyset order: is `a` strictly newer than `b`? */
+  const sortsNewer = (a: Photo, b: Photo) =>
+    a.uploadedAt > b.uploadedAt || (a.uploadedAt === b.uploadedAt && a.id > b.id);
+
   /**
    * Re-syncs the visible feed from the server's first page without touching
    * scroll position: photos we already show update in place (counts,
-   * reactions, caption, uploader name/color); unseen photos prepend
-   * immediately when the viewport is at the top, and otherwise wait behind
-   * the "new photos" pill.
+   * reactions, caption, uploader identity); photos deleted elsewhere are
+   * removed; photos newer than the current head prepend at the top of an
+   * unscrolled feed or wait behind the "new photos" pill; older unknown
+   * photos (risers after a deletion) slot into place silently.
    */
   const refreshFromServer = useCallback(async () => {
     const data = await api.photos.list(20);
     const knownIds = new Set(photosStateRef.current.map((p) => p.id));
-    const fresh = data.photos.filter((p) => !knownIds.has(p.id));
+    const serverIds = new Set(data.photos.map((p) => p.id));
     const serverById = new Map(data.photos.map((p) => [p.id, p]));
     const atTop = window.scrollY < 150;
+    // The served window is everything the page covers: down to its last row,
+    // or the whole feed when this is the final page — without that case a
+    // one-page group would never see deletions of its older photos.
+    const isLastPage = (data.nextCursor ?? null) === null;
+    const pageTail = data.photos[data.photos.length - 1];
+    const inServedWindow = (p: Photo) =>
+      isLastPage || pageTail === undefined || !sortsNewer(pageTail, p);
+
+    const unknown = data.photos.filter((p) => !knownIds.has(p.id));
+    const head = photosStateRef.current.find((p) => serverIds.has(p.id) || !inServedWindow(p));
+    const newer = head ? unknown.filter((p) => sortsNewer(p, head)) : unknown;
+    const newerIds = new Set(newer.map((p) => p.id));
+    const risers = unknown.filter((p) => !newerIds.has(p.id));
 
     setPhotos((prev) => {
-      const prevIds = new Set(prev.map((p) => p.id));
-      const updated = prev.map((p) => {
+      // A held photo that sorts inside the served window but is absent from
+      // it can only have been deleted.
+      let next = prev.filter((p) => serverIds.has(p.id) || !inServedWindow(p));
+      next = next.map((p) => {
         const server = serverById.get(p.id);
         if (!server) return p;
         return {
           ...p,
           caption: server.caption,
+          captionEditedAt: server.captionEditedAt,
           uploaderName: server.uploaderName,
           uploaderProfileColor: server.uploaderProfileColor,
           commentCount: server.commentCount,
@@ -180,16 +205,21 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
           userReactions: server.userReactions,
         };
       });
-      const toPrepend = atTop ? fresh.filter((p) => !prevIds.has(p.id)) : [];
-      return toPrepend.length > 0 ? [...toPrepend, ...updated] : updated;
+      const prevIds = new Set(prev.map((p) => p.id));
+      const risersToAdd = risers.filter((p) => !prevIds.has(p.id));
+      if (risersToAdd.length > 0) {
+        next = [...next, ...risersToAdd].sort((a, b) => (sortsNewer(a, b) ? -1 : 1));
+      }
+      const toPrepend = atTop ? newer.filter((p) => !prevIds.has(p.id)) : [];
+      return toPrepend.length > 0 ? [...toPrepend, ...next] : next;
     });
 
     if (atTop) {
       setPendingNewPhotos([]);
-    } else if (fresh.length > 0) {
+    } else if (newer.length > 0) {
       setPendingNewPhotos((prev) => {
         const seen = new Set(prev.map((p) => p.id));
-        return [...prev, ...fresh.filter((p) => !seen.has(p.id))].sort(
+        return [...prev, ...newer.filter((p) => !seen.has(p.id))].sort(
           (a, b) => b.uploadedAt - a.uploadedAt || (a.id < b.id ? 1 : -1)
         );
       });
@@ -201,13 +231,15 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     try {
       const { version } = await api.photos.feedVersion();
       if (feedVersionRef.current === version) return;
-      const isBaseline = feedVersionRef.current === null;
+      // The version commits only after the re-sync succeeds — committing
+      // first would swallow this change forever if the refresh failed, since
+      // every later check would compare equal. A null baseline (the initial
+      // fetch failed at load) goes through the same path: whatever changed in
+      // the gap is picked up rather than silently adopted.
+      await refreshFromServer();
       feedVersionRef.current = version;
-      if (!isBaseline) {
-        await refreshFromServer();
-      }
     } catch {
-      // Transient failure; the next focus/interval check simply retries.
+      // Transient failure; the next focus/interval check retries the refresh.
     }
   }, [refreshFromServer]);
 
@@ -221,7 +253,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     const interval = window.setInterval(() => void checkFreshness(), FEED_FRESHNESS_INTERVAL_MS);
     // Profile edits (name, display name, color) re-sync immediately — the
     // content fingerprint deliberately doesn't cover them.
-    const unsubscribe = subscribeFeedRefresh(() => void refreshFromServer());
+    const unsubscribe = subscribeFeedRefresh(() => {
+      refreshFromServer().catch((err) => {
+        // The next freshness poll retries; the byline is stale until then.
+        console.error('Feed re-sync after a profile change failed:', err);
+      });
+    });
     return () => {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -323,11 +360,41 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     };
   }, [maybeLoadMore, photos.length]);
 
+  // Deep links (activity inbox, shared URLs) can point past the loaded pages
+  // — up to 30 days back. Page until the photo is found rather than bouncing;
+  // an occasional existence check tells a merely-deep photo apart from a
+  // deleted one so a dead id can't drag the whole history down.
+  const deepLinkSearchRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!loading && photoId && photos.length > 0 && selectedPhotoIndex === -1) {
-      navigate('/', { replace: true });
-    }
-  }, [loading, photoId, photos.length, selectedPhotoIndex, navigate]);
+    if (loading || !photoId || photos.length === 0 || selectedPhotoIndex !== -1) return;
+    if (deepLinkSearchRef.current === photoId) return;
+    deepLinkSearchRef.current = photoId;
+
+    const found = () => photosStateRef.current.some((p) => p.id === photoId);
+    void (async () => {
+      try {
+        let pages = 0;
+        // Driven off nextCursorRef, not hasMore state — the state snapshot in
+        // this closure goes stale as pages land.
+        while (!found() && nextCursorRef.current !== null && pages < DEEP_LINK_MAX_PAGES) {
+          if (pages > 0 && pages % DEEP_LINK_EXISTENCE_CHECK_PAGES === 0) {
+            try {
+              await api.photos.get(photoId);
+            } catch {
+              break; // Deleted (or inaccessible): stop paging, bounce below.
+            }
+          }
+          await loadMorePhotos();
+          pages++;
+        }
+      } finally {
+        if (!found()) {
+          navigate('/', { replace: true });
+        }
+        deepLinkSearchRef.current = null;
+      }
+    })();
+  }, [loading, photoId, photos.length, selectedPhotoIndex, loadMorePhotos, navigate]);
 
   const focusPhoto = useCallback(
     (index: number) => {
@@ -622,7 +689,12 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
         </button>
       )}
 
-      <PullToRefresh onRefresh={loadPhotos} className="max-w-[540px] mx-auto">
+      <PullToRefresh
+        onRefresh={loadPhotos}
+        className="max-w-[540px] mx-auto"
+        onDragOver={handleFeedDragOver}
+        onDrop={handleFeedDrop}
+      >
         {isAdmin && (
           <div className="flex justify-end mb-4">
             <Button
@@ -858,6 +930,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       {selectedPhoto && selectedPhotoIndex !== null && selectedPhotoIndex >= 0 && (
         <Lightbox
           photos={photos}
+          hasMorePhotos={hasMore}
           initialIndex={selectedPhotoIndex}
           onClose={handleLightboxClose}
           onIndexChange={(index) => {

@@ -511,40 +511,49 @@ export const api = {
         });
       }
 
-      // XMLHttpRequest is the only web API that exposes upload progress. This
-      // path skips requestJson's 401-refresh retry: uploads happen in active
-      // sessions where the token is fresh, and a failed item is individually
-      // retryable from the queue UI.
-      return new Promise<PhotoUploadResponse>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${API_BASE_URL}/photos`);
-        const token = localStorage.getItem('accessToken');
-        if (token) {
-          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      // XMLHttpRequest is the only web API that exposes upload progress. It
+      // can't share requestJson's plumbing, so it mirrors the 401 handling
+      // itself: an access token lives 15 minutes, which a batch spent
+      // captioning can easily outlast — without the refresh-and-retry, every
+      // item (and every per-item Retry) would fail on the same stale token.
+      const attempt = () =>
+        new Promise<PhotoUploadResponse>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', `${API_BASE_URL}/photos`);
+          const token = localStorage.getItem('accessToken');
+          if (token) {
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          }
+          xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+          xhr.withCredentials = true;
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) onProgress(e.loaded / e.total);
+          };
+          xhr.onload = () => {
+            let body: unknown = null;
+            try {
+              body = JSON.parse(xhr.responseText);
+            } catch {
+              // Non-JSON body; the status alone decides below.
+            }
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(body as PhotoUploadResponse);
+            } else {
+              const message =
+                (body as { error?: string } | null)?.error ?? `Upload failed (${xhr.status})`;
+              reject(new ApiError(xhr.status, xhr.statusText, message));
+            }
+          };
+          xhr.onerror = () =>
+            reject(new ApiError(0, 'Network error', 'Upload failed: network error'));
+          xhr.send(formData);
+        });
+
+      return attempt().catch(async (error: unknown) => {
+        if (error instanceof ApiError && error.status === 401 && (await refreshAccessToken())) {
+          return attempt();
         }
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        xhr.withCredentials = true;
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) onProgress(e.loaded / e.total);
-        };
-        xhr.onload = () => {
-          let body: unknown = null;
-          try {
-            body = JSON.parse(xhr.responseText);
-          } catch {
-            // Non-JSON body; the status alone decides below.
-          }
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(body as PhotoUploadResponse);
-          } else {
-            const message =
-              (body as { error?: string } | null)?.error ?? `Upload failed (${xhr.status})`;
-            reject(new ApiError(xhr.status, xhr.statusText, message));
-          }
-        };
-        xhr.onerror = () =>
-          reject(new ApiError(0, 'Network error', 'Upload failed: network error'));
-        xhr.send(formData);
+        throw error;
       });
     },
 

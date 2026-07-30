@@ -4,6 +4,7 @@ import { getNavDirection } from '../../lib/keyboard';
 import { useIsPortrait } from '../../lib/useIsPortrait';
 import { useVirtualCarousel } from '../../lib/useVirtualCarousel';
 import { useFocusTrap } from '../../lib/useFocusTrap';
+import { CAPTION_MAX_LENGTH } from '@photodrop/common/limits';
 import { useAuthenticatedImage, preloadImage } from '../../lib/useAuthenticatedImage';
 import { ProtectedImage } from '../ProtectedImage';
 import { ConfirmModal } from '../ConfirmModal';
@@ -17,8 +18,8 @@ import type { OnPhotoUpdate, Photo } from './types';
 import { useLightboxReactions } from './useLightboxReactions';
 import { useLightboxComments } from './useLightboxComments';
 
-// Views already recorded this app session — recording is once per photo per
-// session, not per lightbox mount.
+// Views already recorded this app session, keyed by user so an account
+// switch on the same tab records the new viewer's views too.
 const recordedViews = new Set<string>();
 
 function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
@@ -57,6 +58,7 @@ function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
 
 export function Lightbox({
   photos,
+  hasMorePhotos = false,
   initialIndex,
   onClose,
   onIndexChange,
@@ -64,6 +66,8 @@ export function Lightbox({
   onPhotoUpdate,
 }: {
   photos: Photo[];
+  /** More pages exist beyond `photos`, so totals render as "N+". */
+  hasMorePhotos?: boolean;
   initialIndex: number;
   onClose: () => void;
   onIndexChange: (index: number) => void;
@@ -107,10 +111,12 @@ export function Lightbox({
   // Record the view that feeds the admin "Seen by" list. Best-effort: a
   // failure forgets the id so a later open retries.
   useEffect(() => {
-    if (!photo || recordedViews.has(photo.id)) return;
-    recordedViews.add(photo.id);
-    api.photos.recordView(photo.id).catch(() => recordedViews.delete(photo.id));
-  }, [photo]);
+    if (!photo || !user) return;
+    const viewKey = `${user.id}:${photo.id}`;
+    if (recordedViews.has(viewKey)) return;
+    recordedViews.add(viewKey);
+    api.photos.recordView(photo.id).catch(() => recordedViews.delete(viewKey));
+  }, [photo, user]);
 
   const {
     comments,
@@ -132,6 +138,38 @@ export function Lightbox({
   } = useLightboxComments({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
 
   const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('oldest');
+
+  // Inline caption editing (admins), mirroring the feed card's affordance.
+  const [editingCaption, setEditingCaption] = useState<{
+    value: string;
+    saving: boolean;
+    error: string | null;
+  } | null>(null);
+  const captionInputRef = useRef<HTMLInputElement>(null);
+
+  const photoIdForCaption = photo?.id;
+  useEffect(() => {
+    // Whatever was being edited belongs to the photo we navigated away from.
+    setEditingCaption(null);
+  }, [photoIdForCaption]);
+
+  const saveCaption = async () => {
+    if (!photo || !editingCaption || editingCaption.saving) return;
+    setEditingCaption({ ...editingCaption, saving: true, error: null });
+    try {
+      const updated = await api.photos.updateCaption(photo.id, editingCaption.value.trim() || null);
+      onPhotoUpdate(photo.id, {
+        caption: updated.caption,
+        captionEditedAt: updated.captionEditedAt,
+      });
+      setEditingCaption(null);
+    } catch (err) {
+      setEditingCaption(
+        (prev) =>
+          prev && { ...prev, saving: false, error: err instanceof Error ? err.message : 'Save failed' }
+      );
+    }
+  };
 
   // The confirm dialog renders inside this one and brings its own trap, so
   // ours stands down while it's open rather than fighting it for the Tab key.
@@ -185,6 +223,13 @@ export function Lightbox({
         return;
       }
 
+      if (document.activeElement === captionInputRef.current) {
+        if (e.key === 'Escape') {
+          setEditingCaption(null);
+        }
+        return;
+      }
+
       // Let an open in-panel menu/picker (reaction picker, sort dropdown) handle
       // its own arrow/escape keys instead of navigating photos.
       if ((document.activeElement as Element | null)?.closest('[role="listbox"]')) return;
@@ -213,7 +258,7 @@ export function Lightbox({
       className="fixed inset-0 z-50 bg-black"
       role="dialog"
       aria-modal="true"
-      aria-label={`Photo ${centerIndex + 1} of ${photos.length}`}
+      aria-label={`Photo ${centerIndex + 1} of ${photos.length}${hasMorePhotos ? ' or more' : ''}`}
     >
       <div className="h-full w-full flex flex-col landscape:flex-row">
         <div
@@ -239,15 +284,90 @@ export function Lightbox({
               )}
               <span className="text-white/60 text-xs whitespace-nowrap" aria-hidden="true">
                 {centerIndex + 1} of {photos.length}
+                {hasMorePhotos ? '+' : ''}
               </span>
             </div>
-            {photo.caption && (
+            {editingCaption ? (
+              <form
+                className="flex gap-2 items-start"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void saveCaption();
+                }}
+              >
+                <div className="min-w-0 w-64 max-w-[60vw]">
+                  <input
+                    ref={captionInputRef}
+                    type="text"
+                    value={editingCaption.value}
+                    onChange={(e) => setEditingCaption({ ...editingCaption, value: e.target.value })}
+                    disabled={editingCaption.saving}
+                    maxLength={CAPTION_MAX_LENGTH}
+                    aria-label="Edit caption"
+                    className="input-field text-sm py-1.5"
+                    // eslint-disable-next-line jsx-a11y/no-autofocus
+                    autoFocus
+                  />
+                  {editingCaption.error && (
+                    <p className="text-xs text-red-400 mt-1" role="alert">
+                      {editingCaption.error}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={editingCaption.saving}
+                  className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 border-none text-white text-sm cursor-pointer transition-colors"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  disabled={editingCaption.saving}
+                  onClick={() => setEditingCaption(null)}
+                  className="px-3 py-1.5 rounded-lg bg-transparent hover:bg-white/10 border-none text-white/70 text-sm cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : photo.caption ? (
               <p className="text-white/90 text-sm bg-black/50 rounded-lg px-2.5 py-1 max-w-prose break-words">
                 {photo.caption}
                 {photo.captionEditedAt !== null && (
                   <span className="text-white/50 text-xs"> (edited)</span>
                 )}
+                {isAdmin && (
+                  <button
+                    onClick={() =>
+                      setEditingCaption({ value: photo.caption ?? '', saving: false, error: null })
+                    }
+                    aria-label="Edit caption"
+                    className="align-middle ml-1.5 p-1 -my-1 rounded bg-transparent border-none cursor-pointer text-white/60 hover:text-white transition-colors"
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                  </button>
+                )}
               </p>
+            ) : (
+              isAdmin && (
+                <button
+                  onClick={() => setEditingCaption({ value: '', saving: false, error: null })}
+                  className="self-start p-0 bg-transparent border-none cursor-pointer text-sm text-white/60 italic hover:text-white/90 transition-colors"
+                >
+                  Add a caption…
+                </button>
+              )
             )}
           </div>
 

@@ -25,7 +25,10 @@ export function ActivityBell() {
 
   const refetch = useCallback(async () => {
     try {
-      setData(await api.activity.list());
+      const fresh = await api.activity.list();
+      // A GET that read seenAt before a concurrent markSeen landed must not
+      // roll the marker back and resurrect the badge.
+      setData((prev) => ({ ...fresh, seenAt: Math.max(fresh.seenAt, prev?.seenAt ?? 0) }));
     } catch {
       // Transient; the next poll or open retries.
     }

@@ -39,4 +39,26 @@ test.describe('Caption editing', () => {
     await expect(page.getByText('Corrected caption')).toBeVisible();
     await expect(page.getByText('(edited)')).toBeVisible();
   });
+
+  test('an admin can also edit the caption from inside the lightbox', async ({ page }) => {
+    const magicLink = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail);
+    await loginWithMagicLink(page, magicLink);
+
+    await page.locator('article img').first().click();
+    const lightbox = page.getByRole('dialog', { name: /^Photo 1 of/ });
+    await expect(lightbox).toBeVisible();
+
+    await lightbox.getByRole('button', { name: 'Edit caption' }).click();
+    await lightbox.getByLabel('Edit caption').fill('Edited in the lightbox');
+    await lightbox.getByRole('button', { name: 'Save' }).click();
+
+    await expect(lightbox.getByText('Edited in the lightbox')).toBeVisible();
+
+    // Closing back to the feed shows the same value — the feed row was
+    // updated through onPhotoUpdate, not left stale.
+    await page.keyboard.press('Escape');
+    await expect(
+      page.getByLabel('Photo feed').getByText('Edited in the lightbox')
+    ).toBeVisible();
+  });
 });

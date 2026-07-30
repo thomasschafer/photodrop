@@ -42,10 +42,18 @@ function writeUint32(view: DataView, offset: number, value: number) {
 const DOS_TIME = 0;
 const DOS_DATE = 0x21; // 1980-01-01
 
+// Classic (non-Zip64) format limits. Exceeding them would silently write a
+// corrupt archive, so they fail loudly instead.
+const MAX_ENTRIES = 0xffff;
+const MAX_UINT32 = 0xffffffff;
+
 export function createZip(entries: ZipEntry[]): Blob {
+  if (entries.length > MAX_ENTRIES) {
+    throw new Error(`Zip supports at most ${MAX_ENTRIES} entries, got ${entries.length}`);
+  }
   const encoder = new TextEncoder();
-  const localParts: BlobPart[] = [];
-  const centralParts: BlobPart[] = [];
+  const localParts: Array<ArrayBuffer | Uint8Array> = [];
+  const centralParts: Array<ArrayBuffer | Uint8Array> = [];
   let offset = 0;
 
   const centralRecords: Array<{
@@ -76,6 +84,9 @@ export function createZip(entries: ZipEntry[]): Blob {
     centralRecords.push({ nameBytes, crc, size: entry.data.length, localOffset: offset });
     localParts.push(header, nameBytes, entry.data);
     offset += 30 + nameBytes.length + entry.data.length;
+    if (entry.data.length > MAX_UINT32 || offset > MAX_UINT32) {
+      throw new Error('Archive exceeds the 4 GiB zip limit');
+    }
   }
 
   let centralSize = 0;
@@ -108,5 +119,9 @@ export function createZip(entries: ZipEntry[]): Blob {
   writeUint32(endView, 12, centralSize);
   writeUint32(endView, 16, offset);
 
-  return new Blob([...localParts, ...centralParts, end], { type: 'application/zip' });
+  // TS 5.9's generic Uint8Array<ArrayBufferLike> isn't assignable to BlobPart;
+  // every view here is freshly allocated over a plain ArrayBuffer.
+  return new Blob([...localParts, ...centralParts, end] as BlobPart[], {
+    type: 'application/zip',
+  });
 }

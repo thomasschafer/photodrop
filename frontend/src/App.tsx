@@ -100,17 +100,14 @@ function MainApp() {
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 mobile:gap-4">
+              <InstallButton />
+              <ActivityBell />
               <div className="hidden mobile:flex items-center gap-4">
-                <InstallButton />
-                <ActivityBell />
                 <ThemeToggle />
                 <UserMenu />
               </div>
-
               <div className="mobile:hidden flex items-center gap-2">
-                <InstallButton />
-                <ActivityBell />
                 <MobileMenu />
               </div>
             </div>

@@ -9,9 +9,18 @@ interface PullToRefreshProps {
   onRefresh: () => Promise<void>;
   children: ReactNode;
   className?: string;
+  /** Forwarded to the wrapper so the feed can accept dropped files. */
+  onDragOver?: React.DragEventHandler<HTMLDivElement>;
+  onDrop?: React.DragEventHandler<HTMLDivElement>;
 }
 
-export function PullToRefresh({ onRefresh, children, className }: PullToRefreshProps) {
+export function PullToRefresh({
+  onRefresh,
+  children,
+  className,
+  onDragOver,
+  onDrop,
+}: PullToRefreshProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const startY = useRef(0);
@@ -117,14 +126,18 @@ export function PullToRefresh({ onRefresh, children, className }: PullToRefreshP
 
   // Don't add any wrapper behavior on web
   if (!isNative) {
-    return <div className={className}>{children}</div>;
+    return (
+      <div className={className} onDragOver={onDragOver} onDrop={onDrop}>
+        {children}
+      </div>
+    );
   }
 
   const progress = Math.min(pullDistance / PULL_THRESHOLD, 1);
   const rotation = progress * 180;
 
   return (
-    <div className={`relative ${className || ''}`}>
+    <div className={`relative ${className || ''}`} onDragOver={onDragOver} onDrop={onDrop}>
       {/* Pull indicator - positioned relative to this container (already below header) */}
       <div
         className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center pointer-events-none z-10 transition-opacity duration-150"

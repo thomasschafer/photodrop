@@ -138,6 +138,31 @@ describe('PhotoUpload', () => {
     await waitFor(() => expect(onUploadComplete).toHaveBeenCalledWith(2));
   });
 
+  it('completes the batch when the one failed item is removed', async () => {
+    const onUploadComplete = vi.fn();
+    mocks.upload
+      .mockRejectedValueOnce(new Error('too big'))
+      .mockResolvedValue({ id: 'photo-ok', message: 'ok' });
+
+    render(<PhotoUpload onUploadComplete={onUploadComplete} />);
+    selectFiles('bad.jpg', 'good.jpg');
+    await awaitReady('bad.jpg', 'good.jpg');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Upload 2 photos' }));
+    });
+    await screen.findByText('too big');
+    expect(onUploadComplete).not.toHaveBeenCalled();
+
+    // Removing the failed row is the user saying "forget it" — the uploaded
+    // photo must still complete the batch rather than stranding the modal.
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Remove bad.jpg'));
+    });
+
+    expect(onUploadComplete).toHaveBeenCalledWith(1);
+  });
+
   it('excludes removed items from the upload', async () => {
     render(<PhotoUpload />);
     selectFiles('keep.jpg', 'drop.jpg');

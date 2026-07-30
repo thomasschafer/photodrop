@@ -354,12 +354,46 @@ describe('Membership functions', () => {
         owner_id: 'other-user',
         created_at: 1000,
       };
-      const db = createSequentialMockDb([group]);
+      // getGroup (ownership check), then getMembership (current role).
+      const membership = { user_id: 'user-1', group_id: 'group-1', role: 'member' };
+      const db = createSequentialMockDb([group, membership]);
 
       const result = await updateMembershipRole(db, 'user-1', 'group-1', 'admin');
 
       expect(result.success).toBe(true);
       expect(result.error).toBeUndefined();
+    });
+
+    it('leaves role_changed_at alone when the role is unchanged', async () => {
+      // Re-saving the same role must not stamp a change, which would emit a
+      // spurious "X is now an admin" activity event to the whole group.
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'other-user',
+        created_at: 1000,
+      };
+      const membership = { user_id: 'user-1', group_id: 'group-1', role: 'admin' };
+      const db = createSequentialMockDb([group, membership]);
+
+      const result = await updateMembershipRole(db, 'user-1', 'group-1', 'admin');
+
+      expect(result.success).toBe(true);
+      expect(db._mocks.mockRun).not.toHaveBeenCalled();
+    });
+
+    it('reports failure when the user is not a member', async () => {
+      const group = {
+        id: 'group-1',
+        name: 'Test Group',
+        owner_id: 'other-user',
+        created_at: 1000,
+      };
+      const db = createSequentialMockDb([group, null]);
+
+      const result = await updateMembershipRole(db, 'ghost', 'group-1', 'admin');
+
+      expect(result.success).toBe(false);
     });
 
     it('updates role from admin to member', async () => {
@@ -369,7 +403,8 @@ describe('Membership functions', () => {
         owner_id: 'owner-user',
         created_at: 1000,
       };
-      const db = createSequentialMockDb([group]);
+      const membership = { user_id: 'admin-1', group_id: 'group-1', role: 'admin' };
+      const db = createSequentialMockDb([group, membership]);
 
       const result = await updateMembershipRole(db, 'admin-1', 'group-1', 'member');
 
@@ -1666,6 +1701,35 @@ describe('listPhotosWithCounts', () => {
     // Second call: reactions query with userId then photo IDs
     expect(db._mocks.mockBind).toHaveBeenNthCalledWith(2, 'user-1', 'photo-1');
   });
+
+  it('binds keyset cursor parameters in clause order', async () => {
+    const photos = [
+      {
+        id: 'photo-1',
+        group_id: 'group-1',
+        r2_key: 'photos/1.jpg',
+        caption: 'Test',
+        uploaded_by: 'user-1',
+        uploaded_at: 1000,
+        thumbnail_r2_key: 'thumbs/1.jpg',
+        comment_count: 0,
+      },
+    ];
+    const db = createSequentialAllMockDb([photos, []]);
+
+    await listPhotosWithCounts(db, 'group-1', 'user-1', 10, {
+      uploadedAt: 1234,
+      id: 'photo-cursor',
+    });
+
+    // Cursor path: groupId, cursor uploadedAt, cursor id, limit — matching
+    // the ?1..?4 placeholders; no OFFSET.
+    expect(db._mocks.mockBind).toHaveBeenNthCalledWith(1, 'group-1', 1234, 'photo-cursor', 10);
+    const sql = db._mocks.mockPrepare.mock.calls[0][0] as string;
+    expect(sql).toContain('p.uploaded_at < ?2 OR (p.uploaded_at = ?2 AND p.id < ?3)');
+    expect(sql).toContain('ORDER BY p.uploaded_at DESC, p.id DESC');
+    expect(sql).not.toContain('OFFSET');
+  });
 });
 
 describe('Profile color functions', () => {
@@ -1823,7 +1887,12 @@ describe('mutations report rows affected rather than statement success', () => {
   // these helpers key off meta.changes instead. Routes surface the false path
   // as a 404/500, so a helper that reported success for a missing row would
   // silently turn "nothing to do" into "done".
-  const cases: Array<{ name: string; run: (db: D1Database) => Promise<boolean> }> = [
+  const cases: Array<{
+    name: string;
+    run: (db: D1Database) => Promise<boolean>;
+    /** Row served to every first() call, for helpers that read before writing. */
+    firstRow?: unknown;
+  }> = [
     { name: 'deleteGroup', run: (db) => deleteGroup(db, 'group-1') },
     { name: 'deletePhoto', run: (db) => deletePhoto(db, 'photo-1', 'group-1') },
     {
@@ -1841,20 +1910,24 @@ describe('mutations report rows affected rather than statement success', () => {
     },
     {
       name: 'updateMembershipRole',
+      // createMockDb serves the same row to both reads, so this row stands in
+      // for the group (not owned by user-1) and the membership (role differs
+      // from the requested one, so the update actually runs).
       run: async (db) => (await updateMembershipRole(db, 'user-1', 'group-1', 'admin')).success,
+      firstRow: { id: 'group-1', owner_id: 'someone-else', role: 'member' },
     },
   ];
 
-  it.each(cases)('$name reports false when no row matched', async ({ run }) => {
-    const db = createMockDb();
+  it.each(cases)('$name reports false when no row matched', async ({ run, firstRow }) => {
+    const db = createMockDb(firstRow ? [firstRow] : []);
     db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 0 } });
 
     await expect(run(db)).resolves.toBe(false);
   });
 
-  it.each(cases)('$name reports true when a row was changed', async ({ run }) => {
+  it.each(cases)('$name reports true when a row was changed', async ({ run, firstRow }) => {
     // createMockDb's default run() reports one changed row.
-    await expect(run(createMockDb())).resolves.toBe(true);
+    await expect(run(createMockDb(firstRow ? [firstRow] : []))).resolves.toBe(true);
   });
 });
 

@@ -63,10 +63,14 @@ export const addCommentSchema = z.object({
 });
 
 export const updateCaptionSchema = z.object({
+  // Counted in code points to match the upload path — an emoji-heavy caption
+  // that uploaded fine must not fail to edit.
   caption: z
     .string()
-    .max(CAPTION_MAX_LENGTH, `Caption must be ${CAPTION_MAX_LENGTH} characters or less`)
-    .nullable(),
+    .nullable()
+    .refine((value) => value === null || Array.from(value).length <= CAPTION_MAX_LENGTH, {
+      message: `Caption must be ${CAPTION_MAX_LENGTH} characters or less`,
+    }),
 });
 
 // Push schemas

@@ -37,6 +37,7 @@ function makePhoto(over: Partial<Photo> = {}): Photo {
   return {
     id: 'p1',
     caption: null,
+    captionEditedAt: null,
     uploadedBy: 'me',
     uploaderName: 'Me',
     uploaderProfileColor: 'teal',

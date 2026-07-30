@@ -15,7 +15,13 @@ const FOCUSABLE_SELECTOR =
 export function useFocusTrap(containerRef: React.RefObject<HTMLElement | null>, enabled = true) {
   const getFocusableElements = useCallback(() => {
     if (!containerRef.current) return [];
-    return Array.from(containerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    // Skip invisible candidates: focus() on a display:none element no-ops,
+    // which under per-press interception would make Tab appear dead. Guarded
+    // on checkVisibility existing (absent in the jsdom test harness, where
+    // nothing has layout), so this filter is browser-only.
+    return Array.from(containerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+      (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : true)
+    );
   }, [containerRef]);
 
   useEffect(() => {

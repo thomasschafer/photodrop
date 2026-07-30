@@ -44,6 +44,7 @@ function makePhoto(id: string): Photo {
   return {
     id,
     caption: `photo ${id}`,
+    captionEditedAt: null,
     uploadedBy: 'me',
     uploaderName: 'Me',
     uploaderProfileColor: 'teal',
@@ -434,6 +435,74 @@ describe('PhotoFeed', () => {
       await focusCheck();
 
       expect(mocks.list).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops photos deleted elsewhere, even on a single-page feed', async () => {
+      mocks.list.mockResolvedValueOnce({
+        photos: [makePhoto('a'), makePhoto('b')],
+        hasMore: false,
+        nextCursor: null,
+      });
+
+      renderFeed();
+      await act(async () => {});
+      expect(screen.getAllByRole('listitem')).toHaveLength(2);
+
+      // Photo b is deleted in another session; the final page serves only a.
+      mocks.feedVersion.mockResolvedValue({ version: 'v-deleted' });
+      mocks.list.mockResolvedValueOnce({
+        photos: [makePhoto('a')],
+        hasMore: false,
+        nextCursor: null,
+      });
+      await focusCheck();
+
+      expect(screen.getAllByRole('listitem')).toHaveLength(1);
+      expect(screen.queryByText('photo b')).not.toBeInTheDocument();
+    });
+
+    it('retries the refresh on the next check when the re-sync fetch fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mocks.list.mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
+
+      renderFeed();
+      await act(async () => {});
+
+      // The fingerprint changes but the list fetch dies (flaky network).
+      mocks.feedVersion.mockResolvedValue({ version: 'v-changed' });
+      mocks.list.mockRejectedValueOnce(new Error('network'));
+      await focusCheck();
+      expect(screen.getAllByRole('listitem')).toHaveLength(1);
+
+      // Same fingerprint on the next check: the version must not have been
+      // committed by the failed attempt, so this check refreshes again.
+      mocks.list.mockResolvedValueOnce({
+        photos: [makePhoto('b'), makePhoto('a')],
+        hasMore: false,
+        nextCursor: null,
+      });
+      await focusCheck();
+
+      expect(screen.getAllByRole('listitem')).toHaveLength(2);
+      expect(screen.getByText('photo b')).toBeInTheDocument();
+    });
+
+    it('propagates caption edits made elsewhere, with the edited marker', async () => {
+      mocks.list.mockResolvedValueOnce({ photos: [makePhoto('a')], hasMore: false, nextCursor: null });
+
+      renderFeed();
+      await act(async () => {});
+
+      mocks.feedVersion.mockResolvedValue({ version: 'v-caption' });
+      mocks.list.mockResolvedValueOnce({
+        photos: [{ ...makePhoto('a'), caption: 'fixed typo', captionEditedAt: 99 }],
+        hasMore: false,
+        nextCursor: null,
+      });
+      await focusCheck();
+
+      expect(screen.getByText(/fixed typo/)).toBeInTheDocument();
+      expect(screen.getByText('(edited)')).toBeInTheDocument();
     });
 
     it('re-syncs bylines when notified of a profile change', async () => {

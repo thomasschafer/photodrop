@@ -56,8 +56,11 @@ export function PhotoUpload({ onUploadComplete, isModal = false, initialFiles }:
   const [batchUploading, setBatchUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Mirror of `items`, written ONLY by the mutation helpers below (never in
+  // render): the queue runner and completion checks read it synchronously
+  // between mutations, before React commits — a render-phase writer whose
+  // `items` snapshot predated a mutation would roll the mirror back.
   const itemsRef = useRef<QueueItem[]>([]);
-  itemsRef.current = items;
   // Guards state updates from async pipelines of items that were removed.
   const removedIdsRef = useRef(new Set<string>());
 
@@ -157,6 +160,7 @@ export function PhotoUpload({ onUploadComplete, isModal = false, initialFiles }:
     removedIdsRef.current.add(id);
     itemsRef.current = itemsRef.current.filter((item) => item.id !== id);
     setItems((prev) => prev.filter((item) => item.id !== id));
+    maybeComplete();
   };
 
   // Files handed in from a feed-level drop are queued exactly once on mount.
@@ -205,28 +209,37 @@ export function PhotoUpload({ onUploadComplete, isModal = false, initialFiles }:
     [updateItem]
   );
 
+  /**
+   * Fires the batch-complete callback when nothing actionable remains and at
+   * least one photo landed. Consulted when a run drains and when an item is
+   * removed — deleting the one failed row must not leave the modal in limbo
+   * with uploaded photos the feed doesn't know about.
+   */
+  const maybeComplete = useCallback(() => {
+    const doneCount = itemsRef.current.filter((i) => i.status === 'done').length;
+    const remaining = itemsRef.current.filter(
+      (i) => i.status !== 'done' && i.status !== 'invalid'
+    );
+    if (doneCount > 0 && remaining.length === 0) {
+      onUploadComplete?.(doneCount);
+    }
+  }, [onUploadComplete]);
+
   const runQueue = useCallback(
     async (ids: string[]) => {
       setBatchUploading(true);
-      let uploaded = 0;
       let cursor = 0;
       const workers = Array.from({ length: Math.min(CONCURRENT_UPLOADS, ids.length) }, async () => {
         while (cursor < ids.length) {
           const id = ids[cursor++];
-          if (await uploadOne(id)) uploaded++;
+          await uploadOne(id);
         }
       });
       await Promise.all(workers);
       setBatchUploading(false);
-
-      const remaining = itemsRef.current.filter(
-        (i) => i.status !== 'done' && i.status !== 'invalid'
-      );
-      if (uploaded > 0 && remaining.length === 0) {
-        onUploadComplete?.(itemsRef.current.filter((i) => i.status === 'done').length);
-      }
+      maybeComplete();
     },
-    [uploadOne, onUploadComplete]
+    [uploadOne, maybeComplete]
   );
 
   const handleUploadAll = () => {

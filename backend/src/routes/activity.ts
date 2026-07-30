@@ -16,6 +16,15 @@ const ACTIVITY_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 // Longest comment excerpt the inbox shows.
 const PREVIEW_MAX_LENGTH = 120;
 
+// Code-point-aware so an emoji straddling the boundary is dropped whole
+// rather than split into a broken surrogate half.
+function truncatePreview(text: string): string {
+  const points = Array.from(text);
+  return points.length > PREVIEW_MAX_LENGTH
+    ? `${points.slice(0, PREVIEW_MAX_LENGTH).join('')}…`
+    : text;
+}
+
 const activity = new Hono<AppEnv>();
 
 activity.get('/', requireAuth, async (c) => {
@@ -45,10 +54,7 @@ activity.get('/', requireAuth, async (c) => {
           type: event.type,
           photoId: event.photoId,
           commentId: event.commentId,
-          preview:
-            event.preview.length > PREVIEW_MAX_LENGTH
-              ? `${event.preview.slice(0, PREVIEW_MAX_LENGTH)}…`
-              : event.preview,
+          preview: truncatePreview(event.preview),
         };
       case 'join':
         return { ...base, type: 'join' };

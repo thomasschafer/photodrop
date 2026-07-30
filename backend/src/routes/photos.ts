@@ -189,13 +189,11 @@ function encodePhotoCursor(photo: { uploaded_at: number; id: string }): string {
 }
 
 function parsePhotoCursor(raw: string): PhotoCursor {
-  const sep = raw.indexOf('_');
-  const uploadedAt = sep > 0 ? Number(raw.slice(0, sep)) : NaN;
-  const id = sep > 0 ? raw.slice(sep + 1) : '';
-  if (!Number.isInteger(uploadedAt) || id.length === 0) {
+  const match = /^(\d+)_(.+)$/.exec(raw);
+  if (!match) {
     throw new BadRequestError('Invalid cursor');
   }
-  return { uploadedAt, id };
+  return { uploadedAt: Number(match[1]), id: match[2] };
 }
 
 photos.get('/', requireAuth, async (c) => {

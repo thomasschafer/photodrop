@@ -377,6 +377,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             groups: userData.groups,
             needsGroupSelection: !userData.currentGroup,
             selectionToken: null,
+            displayName: userData.currentGroupDisplayName,
           });
           return true;
         } catch (error) {

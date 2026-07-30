@@ -392,6 +392,17 @@ export async function updateMembershipRole(
     return { success: false, error: 'is_owner' };
   }
 
+  // Compare first: re-saving an unchanged role must not stamp
+  // role_changed_at, which would emit a spurious "X is now an admin"
+  // activity event to the whole group.
+  const membership = await getMembership(db, userId, groupId);
+  if (!membership) {
+    return { success: false };
+  }
+  if (membership.role === role) {
+    return { success: true };
+  }
+
   const result = await db
     .prepare(
       'UPDATE memberships SET role = ?, role_changed_at = ? WHERE user_id = ? AND group_id = ?'
@@ -1267,6 +1278,7 @@ const REACTION_ID_BATCH_SIZE = 90;
 interface FeedVersionRow {
   photo_count: number;
   latest_upload: number;
+  latest_caption_edit: number;
   comment_count: number;
   latest_comment: number;
   reaction_count: number;
@@ -1286,6 +1298,7 @@ export async function getFeedVersion(db: D1Database, groupId: string): Promise<s
       `SELECT
         (SELECT COUNT(*) FROM photos WHERE group_id = ?1) AS photo_count,
         (SELECT COALESCE(MAX(uploaded_at), 0) FROM photos WHERE group_id = ?1) AS latest_upload,
+        (SELECT COALESCE(MAX(caption_edited_at), 0) FROM photos WHERE group_id = ?1) AS latest_caption_edit,
         (SELECT COUNT(*) FROM comments c JOIN photos p ON p.id = c.photo_id
           WHERE p.group_id = ?1 AND c.deleted_at IS NULL) AS comment_count,
         (SELECT COALESCE(MAX(c.created_at), 0) FROM comments c JOIN photos p ON p.id = c.photo_id
@@ -1305,6 +1318,7 @@ export async function getFeedVersion(db: D1Database, groupId: string): Promise<s
   return [
     row.photo_count,
     row.latest_upload,
+    row.latest_caption_edit,
     row.comment_count,
     row.latest_comment,
     row.reaction_count,
@@ -1574,6 +1588,9 @@ export async function getGroupActivity(
         AND (
           p.uploaded_by = ?2
           OR EXISTS (
+            -- Strictly earlier: a reply landing in the same second as your
+            -- own comment is missed, deliberately — same-second ordering is
+            -- unknowable and a false "replied" row is worse than a miss.
             SELECT 1 FROM comments mine
             WHERE mine.photo_id = c.photo_id AND mine.user_id = ?2
               AND mine.deleted_at IS NULL AND mine.created_at < c.created_at

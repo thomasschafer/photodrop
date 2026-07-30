@@ -57,17 +57,17 @@ export function coalesceActivity(events: ActivityEvent[], seenAt: number): Activ
   };
 
   for (const event of events) {
-    if (event.type !== 'photo') {
-      // A non-photo event does not break a photo burst — bursts are about
-      // upload cadence, and someone else reacting mid-batch is unrelated.
-      if (event.type === 'reaction') {
+    // A non-photo event does not break a photo burst — bursts are about
+    // upload cadence, and someone else reacting mid-batch is unrelated.
+    switch (event.type) {
+      case 'reaction': {
         const list = reactionsByPhoto.get(event.photoId) ?? [];
         list.push(event);
         reactionsByPhoto.set(event.photoId, list);
         continue;
       }
-
-      if (event.type === 'comment' || event.type === 'reply') {
+      case 'comment':
+      case 'reply':
         rows.push({
           key: `comment:${event.commentId}`,
           at: event.at,
@@ -80,9 +80,7 @@ export function coalesceActivity(events: ActivityEvent[], seenAt: number): Activ
           openComments: true,
         });
         continue;
-      }
-
-      if (event.type === 'join') {
+      case 'join':
         rows.push({
           key: `join:${event.actorId}:${event.at}`,
           at: event.at,
@@ -90,17 +88,18 @@ export function coalesceActivity(events: ActivityEvent[], seenAt: number): Activ
           label: `${event.actorName} joined the group`,
         });
         continue;
-      }
-
-      rows.push({
-        key: `role:${event.actorId}:${event.at}`,
-        at: event.at,
-        unread: event.at > seenAt,
-        label: event.self
-          ? `You're now ${roleLabel(event.role)}`
-          : `${event.actorName} is now ${roleLabel(event.role)}`,
-      });
-      continue;
+      case 'role':
+        rows.push({
+          key: `role:${event.actorId}:${event.at}`,
+          at: event.at,
+          unread: event.at > seenAt,
+          label: event.self
+            ? `You're now ${roleLabel(event.role)}`
+            : `${event.actorName} is now ${roleLabel(event.role)}`,
+        });
+        continue;
+      case 'photo':
+        break;
     }
 
     if (
