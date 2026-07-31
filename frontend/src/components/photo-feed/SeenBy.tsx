@@ -79,28 +79,33 @@ export function SeenBy({ photoId }: { photoId: string }) {
         <div
           role="dialog"
           aria-label="Seen by"
-          className="absolute top-full mt-2 left-0 min-w-48 max-w-72 max-h-[50vh] overflow-y-auto bg-surface border border-border rounded-lg shadow-elevated p-3 text-sm z-[70]"
+          // Background on the wrapper rather than the scroller — see the note
+          // in ActivityBell: a scrolling element's background bounces with its
+          // contents, leaving the overscroll region see-through.
+          className="absolute top-full mt-2 left-0 min-w-48 max-w-72 overflow-hidden bg-surface border border-border rounded-lg shadow-elevated text-sm z-[70]"
         >
-          {loadFailed ? (
-            <p className="text-error" role="alert">
-              Couldn't load views
-            </p>
-          ) : viewers === null ? (
-            <p className="text-text-secondary">Loading…</p>
-          ) : viewers.length === 0 ? (
-            <p className="text-text-secondary">No views yet</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {viewers.map((viewer) => (
-                <li key={viewer.userId} className="flex justify-between gap-3">
-                  <span className="text-text-primary truncate">{viewer.name}</span>
-                  <span className="text-text-muted shrink-0">
-                    {formatRelativeTime(viewer.viewedAt)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div className="max-h-[50vh] overflow-y-auto overscroll-contain p-3">
+            {loadFailed ? (
+              <p className="text-error" role="alert">
+                Couldn't load views
+              </p>
+            ) : viewers === null ? (
+              <p className="text-text-secondary">Loading…</p>
+            ) : viewers.length === 0 ? (
+              <p className="text-text-secondary">No views yet</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {viewers.map((viewer) => (
+                  <li key={viewer.userId} className="flex justify-between gap-3">
+                    <span className="text-text-primary truncate">{viewer.name}</span>
+                    <span className="text-text-muted shrink-0">
+                      {formatRelativeTime(viewer.viewedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
     </div>

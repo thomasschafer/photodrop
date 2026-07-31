@@ -130,42 +130,48 @@ export function ActivityBell() {
         <div
           role="dialog"
           aria-label="Activity"
-          className="absolute top-[calc(100%+0.5rem)] right-0 w-[320px] max-w-[85vw] max-h-[60vh] overflow-y-auto bg-surface border border-border rounded-lg shadow-elevated z-50"
+          // The surface is on this wrapper, not on the scrolling element
+          // inside it: a scroller paints its own background with its
+          // contents, so a rubber-band overscroll would drag the background
+          // away from the bounce region and show the page through it.
+          className="absolute top-[calc(100%+0.5rem)] right-0 w-[320px] max-w-[85vw] overflow-hidden bg-surface border border-border rounded-lg shadow-elevated z-50"
         >
-          {panelRows.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-text-muted text-center">
-              Nothing new — you're all caught up
-            </p>
-          ) : (
-            <ul className="py-1">
-              {panelRows.map((row) => (
-                <li key={row.key}>
-                  <button
-                    onClick={() => openRow(row.photoId, row.openComments)}
-                    disabled={!row.photoId}
-                    className={`w-full text-left px-4 py-2.5 border-none bg-transparent transition-colors text-sm ${
-                      row.photoId ? 'cursor-pointer hover:bg-bg-tertiary' : 'cursor-default'
-                    } ${row.unread ? 'text-text-primary' : 'text-text-secondary'}`}
-                  >
-                    <span className="flex items-start gap-2">
-                      {row.unread && (
-                        <span
-                          className="mt-1.5 w-2 h-2 shrink-0 rounded-full bg-accent-solid"
-                          aria-label="Unread"
-                        />
-                      )}
-                      <span className="min-w-0">
-                        <span className="block break-words">{row.label}</span>
-                        <span className="block text-xs text-text-muted mt-0.5">
-                          {formatRelativeTime(row.at)}
+          <div className="max-h-[60vh] overflow-y-auto overscroll-contain">
+            {panelRows.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-text-muted text-center">
+                Nothing new — you're all caught up
+              </p>
+            ) : (
+              <ul className="py-1">
+                {panelRows.map((row) => (
+                  <li key={row.key}>
+                    <button
+                      onClick={() => openRow(row.photoId, row.openComments)}
+                      disabled={!row.photoId}
+                      className={`w-full text-left px-4 py-2.5 border-none bg-transparent transition-colors text-sm ${
+                        row.photoId ? 'cursor-pointer hover:bg-bg-tertiary' : 'cursor-default'
+                      } ${row.unread ? 'text-text-primary' : 'text-text-secondary'}`}
+                    >
+                      <span className="flex items-start gap-2">
+                        {row.unread && (
+                          <span
+                            className="mt-1.5 w-2 h-2 shrink-0 rounded-full bg-accent-solid"
+                            aria-label="Unread"
+                          />
+                        )}
+                        <span className="min-w-0">
+                          <span className="block break-words">{row.label}</span>
+                          <span className="block text-xs text-text-muted mt-0.5">
+                            {formatRelativeTime(row.at)}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
     </div>
