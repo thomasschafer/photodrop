@@ -11,6 +11,28 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
 }));
 
+const authMock = vi.hoisted(() => ({
+  user: { id: 'me', name: 'Me', email: 'me@example.com', profileColor: 'teal' },
+  imageProtection: false,
+  currentGroup: {
+    id: 'g1',
+    name: 'Family',
+    role: 'member' as const,
+    ownerId: 'owner',
+    imageProtection: false,
+    displayName: null,
+  },
+  groups: [] as Array<{
+    id: string;
+    name: string;
+    role: 'member';
+    ownerId: string;
+    imageProtection: boolean;
+    displayName: null;
+  }>,
+  switchGroup: vi.fn(),
+}));
+
 vi.mock('../lib/api', () => ({
   ApiError: class ApiError extends Error {},
   api: { photos: mocks },
@@ -22,23 +44,7 @@ vi.mock('../lib/useAuthenticatedImage', () => ({
 }));
 
 vi.mock('../contexts/AuthContext', () => ({
-  useAuth: (() => {
-    const auth = {
-      user: { id: 'me', name: 'Me', email: 'me@example.com', profileColor: 'teal' },
-      imageProtection: false,
-      currentGroup: {
-        id: 'g1',
-        name: 'Family',
-        role: 'member',
-        ownerId: 'owner',
-        imageProtection: false,
-        displayName: null,
-      },
-      groups: [],
-      switchGroup: vi.fn(),
-    };
-    return () => auth;
-  })(),
+  useAuth: () => authMock,
 }));
 
 // The feed's own upload flow is not under test here; stand in for the picker
@@ -52,14 +58,14 @@ vi.mock('./PhotoUpload', () => ({
 import { PhotoFeed } from './PhotoFeed';
 import type { Photo } from './photo-feed';
 
-function makePhoto(id: string): Photo {
+function makePhoto(id: string, uploadedAt = 1): Photo {
   return {
     id,
     caption: `photo ${id}`,
     uploadedBy: 'me',
     uploaderName: 'Me',
     uploaderProfileColor: 'teal',
-    uploadedAt: 1,
+    uploadedAt,
     commentCount: 0,
     reactions: [],
     userReactions: [],
@@ -111,6 +117,7 @@ describe('PhotoFeed', () => {
     vi.stubGlobal('ResizeObserver', TestResizeObserver);
     mocks.getReactions.mockResolvedValue({ reactions: [] });
     mocks.getComments.mockResolvedValue({ comments: [] });
+    authMock.groups = [];
   });
 
   afterEach(() => {
@@ -161,6 +168,47 @@ describe('PhotoFeed', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(mocks.get).toHaveBeenCalledWith('older');
     expect(screen.getAllByText('photo older').length).toBeGreaterThan(0);
+  });
+
+  it('does not reset page one when auth refresh returns a fresh equal groups array', async () => {
+    mocks.list.mockResolvedValue({ photos: [makePhoto('newest')], hasMore: false });
+    const view = renderFeed();
+    await act(async () => {});
+    expect(mocks.list).toHaveBeenCalledOnce();
+
+    authMock.groups = [...authMock.groups];
+    view.rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<PhotoFeed />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await act(async () => {});
+
+    expect(mocks.list).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a deep-linked photo ordered and deduped when its page later loads', async () => {
+    mocks.list
+      .mockResolvedValueOnce({ photos: [makePhoto('newest', 100)], hasMore: true })
+      .mockResolvedValueOnce({
+        photos: [makePhoto('middle', 75), makePhoto('older', 50)],
+        hasMore: false,
+      });
+    mocks.get.mockResolvedValue(makePhoto('older', 50));
+
+    renderFeed(false, '/photo/older');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    putSentinelInView();
+    await scrollToSentinel();
+
+    expect(screen.getAllByRole('listitem').map((item) => item.getAttribute('aria-label'))).toEqual([
+      'photo newest',
+      'photo middle',
+      'photo older',
+    ]);
   });
 
   it('loads the next page when the user scrolls the sentinel into view', async () => {

@@ -50,6 +50,14 @@ interface PhotoFeedProps {
   isAdmin?: boolean;
 }
 
+function mergePhotosNewestFirst(existing: Photo[], incoming: Photo[]): Photo[] {
+  const byId = new Map(existing.map((photo) => [photo.id, photo]));
+  for (const photo of incoming) byId.set(photo.id, photo);
+  return [...byId.values()].sort(
+    (left, right) => right.uploadedAt - left.uploadedAt || right.id.localeCompare(left.id)
+  );
+}
+
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const {
     user,
@@ -88,6 +96,11 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const location = useLocation();
   const { photoId } = useParams<{ photoId: string }>();
   const requestedGroupId = new URLSearchParams(location.search).get('group');
+  const canSwitchToRequestedGroup = Boolean(
+    requestedGroupId &&
+    requestedGroupId !== currentGroup?.id &&
+    groups.some((group) => group.id === requestedGroupId)
+  );
   const linkedPhotoRequestRef = useRef<string | null>(null);
 
   const loadFeedReactionDetails = useCallback(
@@ -135,8 +148,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       // Those repeats still must not reach the list: duplicate ids collide as
       // React keys and make the lightbox's findIndex resolve to the wrong copy.
       setPhotos((prev) => {
-        const seen = new Set(prev.map((p) => p.id));
-        return [...prev, ...data.photos.filter((p) => !seen.has(p.id))];
+        return mergePhotosNewestFirst(prev, data.photos);
       });
       // A page of no rows at all cannot advance the offset, so honouring a
       // hasMore that contradicts it would re-request the same empty page
@@ -155,11 +167,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   }, [loadingMore, hasMore]);
 
   useEffect(() => {
-    if (
-      requestedGroupId &&
-      requestedGroupId !== currentGroup?.id &&
-      groups.some((group) => group.id === requestedGroupId)
-    ) {
+    if (canSwitchToRequestedGroup && requestedGroupId) {
       setLoading(true);
       switchGroup(requestedGroupId).catch((err) => {
         console.error('Failed to open the linked group:', err);
@@ -169,7 +177,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       return;
     }
     void loadPhotos();
-  }, [currentGroup?.id, groups, loadPhotos, requestedGroupId, switchGroup]);
+  }, [canSwitchToRequestedGroup, currentGroup?.id, loadPhotos, requestedGroupId, switchGroup]);
 
   // Paging used to rely solely on an IntersectionObserver over the sentinel.
   // A notification it failed to deliver stranded the feed for good: nothing
@@ -230,9 +238,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
       .get(photoId)
       .then((linkedPhoto) => {
         if (cancelled) return;
-        setPhotos((prev) =>
-          prev.some((photo) => photo.id === linkedPhoto.id) ? prev : [...prev, linkedPhoto]
-        );
+        setPhotos((prev) => mergePhotosNewestFirst(prev, [linkedPhoto]));
       })
       .catch((err) => {
         if (cancelled) return;

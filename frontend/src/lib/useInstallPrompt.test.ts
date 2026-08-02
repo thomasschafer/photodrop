@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useInstallPrompt } from './useInstallPrompt';
+import { resetInstallPromptStateForTests, useInstallPrompt } from './useInstallPrompt';
 
 // Mock Capacitor
 vi.mock('@capacitor/core', () => ({
@@ -14,6 +14,7 @@ import { Capacitor } from '@capacitor/core';
 describe('useInstallPrompt', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetInstallPromptStateForTests();
 
     // Mock localStorage
     vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
@@ -235,5 +236,46 @@ describe('useInstallPrompt', () => {
     expect(prompt).toHaveBeenCalledOnce();
     expect(result.current.canPromptNatively).toBe(false);
     expect(result.current.isInstalled).toBe(true);
+  });
+
+  it('retains a native prompt fired before any install UI mounts', async () => {
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const event = new Event('beforeinstallprompt') as Event & {
+      prompt: () => Promise<void>;
+      userChoice: Promise<{ outcome: 'accepted' }>;
+    };
+    event.prompt = prompt;
+    event.userChoice = Promise.resolve({ outcome: 'accepted' });
+
+    window.dispatchEvent(event);
+    const { result } = renderHook(() => useInstallPrompt());
+
+    expect(result.current.canPromptNatively).toBe(true);
+    await act(async () => {
+      await result.current.triggerNativePrompt();
+    });
+    expect(prompt).toHaveBeenCalledOnce();
+  });
+
+  it('does not downgrade a permanent dismissal when the native prompt is dismissed', async () => {
+    let stored = JSON.stringify({ dismissed: true, dismissedAt: Date.now() - 1000 });
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => stored);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation((_key, value) => {
+      stored = value;
+    });
+    const event = new Event('beforeinstallprompt') as Event & {
+      prompt: () => Promise<void>;
+      userChoice: Promise<{ outcome: 'dismissed' }>;
+    };
+    event.prompt = vi.fn().mockResolvedValue(undefined);
+    event.userChoice = Promise.resolve({ outcome: 'dismissed' });
+    window.dispatchEvent(event);
+    const { result } = renderHook(() => useInstallPrompt());
+
+    await act(async () => {
+      await result.current.triggerNativePrompt();
+    });
+
+    expect(JSON.parse(stored)).toMatchObject({ dismissed: true });
   });
 });

@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
 import { Button } from '../components/Button';
+import { api, ApiError } from '../lib/api';
 
 export function GroupPickerPage() {
   const { user, groups, selectGroup, logout } = useAuth();
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deletionStatus, setDeletionStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
 
   const handleSelectGroup = async (groupId: string) => {
     setIsLoading(groupId);
@@ -18,6 +20,19 @@ export function GroupPickerPage() {
       console.error('Failed to select group:', err);
     } finally {
       setIsLoading(null);
+    }
+  };
+
+  const handleRequestDeletion = async () => {
+    if (!user?.email) return;
+    setDeletionStatus('sending');
+    setError(null);
+    try {
+      await api.users.requestAccountDeletionWithoutGroup(user.email);
+      setDeletionStatus('sent');
+    } catch (err) {
+      setDeletionStatus('idle');
+      setError(err instanceof ApiError ? err.message : 'Failed to send the confirmation email');
     }
   };
 
@@ -58,9 +73,32 @@ export function GroupPickerPage() {
               Signed in as <span className="font-medium text-text-secondary">{user?.email}</span>
             </p>
 
-            <Button onClick={logout} variant="text" size="bare">
-              Sign out
-            </Button>
+            {error && (
+              <p className="mb-4 text-sm text-error" role="alert">
+                {error}
+              </p>
+            )}
+
+            {deletionStatus === 'sent' ? (
+              <p className="mb-4 text-sm text-success" role="status">
+                Check your email to confirm account deletion.
+              </p>
+            ) : (
+              <Button
+                onClick={handleRequestDeletion}
+                variant="danger"
+                disabled={deletionStatus === 'sending'}
+                className="mb-4"
+              >
+                {deletionStatus === 'sending' ? 'Sending…' : 'Delete account'}
+              </Button>
+            )}
+
+            <div>
+              <Button onClick={logout} variant="text" size="bare">
+                Sign out
+              </Button>
+            </div>
           </div>
         </div>
       </div>

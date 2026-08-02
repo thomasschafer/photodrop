@@ -486,6 +486,13 @@ export const api = {
     requestAccountDeletion: (): Promise<AccountDeletionRequestedResponse> =>
       requestJson('/users/me/account-deletion', { method: 'POST' }),
 
+    requestAccountDeletionWithoutGroup: (email: string): Promise<MessageResponse> =>
+      requestJson(
+        '/users/request-account-deletion',
+        { method: 'POST', body: JSON.stringify({ email }) },
+        false
+      ),
+
     confirmAccountDeletion: (token: string): Promise<MessageResponse> =>
       requestJson(
         '/users/confirm-account-deletion',

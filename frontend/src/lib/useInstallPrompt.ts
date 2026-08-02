@@ -26,6 +26,7 @@ const DISMISS_EVENT = 'installPromptDismissed';
 const PROMPT_EVENT = 'installPromptAvailable';
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 let sharedDeferredPrompt: BeforeInstallPromptEvent | null = null;
+let sharedInstalled = false;
 
 export type NativeInstallResult = 'accepted' | 'dismissed' | 'unavailable' | 'error';
 
@@ -42,6 +43,36 @@ function getStoredState(): InstallPromptState {
 function saveStoredState(state: InstallPromptState): void {
   if (typeof window === 'undefined') return;
   setLocalStorageItem(INSTALL_PROMPT_STORAGE_KEY, JSON.stringify(state));
+}
+
+function saveSnooze(): void {
+  saveStoredState({ ...getStoredState(), dismissedAt: Date.now() });
+}
+
+function captureBeforeInstallPrompt(event: Event): void {
+  event.preventDefault();
+  sharedDeferredPrompt = event as BeforeInstallPromptEvent;
+  window.dispatchEvent(new Event(PROMPT_EVENT));
+}
+
+function captureAppInstalled(): void {
+  sharedDeferredPrompt = null;
+  sharedInstalled = true;
+  window.dispatchEvent(new Event(PROMPT_EVENT));
+}
+
+// Chrome may fire beforeinstallprompt while the visitor is still on the login
+// page. The install UI mounts only after login, so capture at module load and
+// let later hook instances mirror this shared browser event.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', captureBeforeInstallPrompt);
+  window.addEventListener('appinstalled', captureAppInstalled);
+}
+
+/** Keep module-level browser event state isolated between unit tests. */
+export function resetInstallPromptStateForTests(): void {
+  sharedDeferredPrompt = null;
+  sharedInstalled = false;
 }
 
 function isStoredDismissed(state: InstallPromptState): boolean {
@@ -85,50 +116,26 @@ function checkIsInstalled(): boolean {
 export function useInstallPrompt() {
   const [state, setState] = useState<InstallState>(() => ({
     platform: detectPlatform(),
-    isInstalled: checkIsInstalled(),
+    isInstalled: sharedInstalled || checkIsInstalled(),
     canPromptNatively: sharedDeferredPrompt !== null,
     isDismissed: isStoredDismissed(getStoredState()),
     deferredPrompt: sharedDeferredPrompt,
   }));
 
-  // Listen for beforeinstallprompt event (Android/Desktop Chrome/Edge)
+  // Mirror module-level prompt/install events into this hook instance.
   useEffect(() => {
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      sharedDeferredPrompt = e as BeforeInstallPromptEvent;
-      setState((prev) => ({
-        ...prev,
-        canPromptNatively: true,
-        deferredPrompt: e as BeforeInstallPromptEvent,
-      }));
-      window.dispatchEvent(new Event(PROMPT_EVENT));
-    };
-
-    const handleAppInstalled = () => {
-      sharedDeferredPrompt = null;
-      setState((prev) => ({
-        ...prev,
-        isInstalled: true,
-        canPromptNatively: false,
-        deferredPrompt: null,
-      }));
-    };
-
     const handlePromptAvailable = () => {
       setState((prev) => ({
         ...prev,
+        isInstalled: sharedInstalled || checkIsInstalled(),
         canPromptNatively: sharedDeferredPrompt !== null,
         deferredPrompt: sharedDeferredPrompt,
       }));
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
     window.addEventListener(PROMPT_EVENT, handlePromptAvailable);
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener(PROMPT_EVENT, handlePromptAvailable);
     };
   }, []);
@@ -139,6 +146,7 @@ export function useInstallPrompt() {
       if (document.visibilityState === 'visible') {
         const isInstalled = checkIsInstalled();
         if (isInstalled) {
+          sharedInstalled = true;
           setState((prev) => ({ ...prev, isInstalled }));
         }
       }
@@ -168,6 +176,7 @@ export function useInstallPrompt() {
       sharedDeferredPrompt = null;
 
       if (outcome === 'accepted') {
+        sharedInstalled = true;
         setState((prev) => ({
           ...prev,
           isInstalled: true,
@@ -177,7 +186,7 @@ export function useInstallPrompt() {
         window.dispatchEvent(new Event(PROMPT_EVENT));
         return 'accepted';
       }
-      saveStoredState({ dismissedAt: Date.now() });
+      saveSnooze();
       setState((prev) => ({
         ...prev,
         isDismissed: true,
@@ -200,7 +209,7 @@ export function useInstallPrompt() {
     if (permanently) {
       saveStoredState({ ...INSTALL_PROMPT_DISMISSED, dismissedAt: Date.now() });
     } else {
-      saveStoredState({ dismissedAt: Date.now() });
+      saveSnooze();
     }
     setState((prev) => ({ ...prev, isDismissed: true }));
     window.dispatchEvent(new Event(DISMISS_EVENT));
