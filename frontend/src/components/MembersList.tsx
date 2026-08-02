@@ -570,7 +570,7 @@ export function MembersList() {
 
           return (
             <div key={member.userId} className="py-4 first:pt-0 last:pb-0">
-              <div className="flex flex-col mobile:flex-row mobile:items-center mobile:justify-between gap-3 mobile:gap-4">
+              <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-3 min-w-0">
                   <Avatar name={member.name} color={member.profileColor} size="lg" />
                   <div className="min-w-0">
@@ -607,7 +607,7 @@ export function MembersList() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-end gap-1 mobile:gap-3 flex-shrink-0 w-full mobile:w-auto ml-auto mobile:ml-0">
+                <div className="flex flex-wrap items-center justify-end gap-2 w-full">
                   <button
                     ref={(el) => {
                       if (el) {
