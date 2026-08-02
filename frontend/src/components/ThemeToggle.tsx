@@ -97,7 +97,7 @@ export function ThemeToggle() {
         aria-label="Theme"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        className="flex items-center justify-center w-9 h-9 rounded-lg border border-border cursor-pointer bg-surface text-text-secondary transition-colors hover:border-border-strong"
+        className="flex items-center justify-center w-11 h-11 rounded-lg border border-border cursor-pointer bg-surface text-text-secondary transition-colors hover:border-border-strong"
       >
         {currentTheme.icon}
       </button>

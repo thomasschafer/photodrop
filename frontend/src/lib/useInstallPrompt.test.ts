@@ -122,6 +122,26 @@ describe('useInstallPrompt', () => {
       expect(result.current.shouldShowPrompt).toBe(false);
       expect(result.current.isDismissed).toBe(true);
     });
+
+    it('keeps Later snoozed across remounts for seven days', () => {
+      vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(
+        JSON.stringify({ dismissedAt: Date.now() - 60_000 })
+      );
+
+      const { result } = renderHook(() => useInstallPrompt());
+
+      expect(result.current.shouldShowPrompt).toBe(false);
+    });
+
+    it('shows the prompt again after the seven-day snooze expires', () => {
+      vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(
+        JSON.stringify({ dismissedAt: Date.now() - 8 * 24 * 60 * 60 * 1000 })
+      );
+
+      const { result } = renderHook(() => useInstallPrompt());
+
+      expect(result.current.shouldShowPrompt).toBe(true);
+    });
   });
 
   describe('dismiss', () => {
@@ -150,8 +170,11 @@ describe('useInstallPrompt', () => {
       });
 
       expect(result.current.isDismissed).toBe(true);
-      // Should not persist to localStorage
-      expect(Storage.prototype.setItem).not.toHaveBeenCalled();
+      // “Later” is a seven-day snooze, so it survives a remount/logout.
+      expect(Storage.prototype.setItem).toHaveBeenCalledWith(
+        'installPrompt',
+        expect.stringContaining('dismissedAt')
+      );
     });
 
     it('still dismisses when localStorage refuses the write', () => {
@@ -188,5 +211,29 @@ describe('useInstallPrompt', () => {
       expect(result.current.platform).toBe('firefox');
       expect(result.current.canSkipInstall).toBe(true);
     });
+  });
+
+  it('uses and clears a captured native install prompt', async () => {
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const event = new Event('beforeinstallprompt') as Event & {
+      prompt: () => Promise<void>;
+      userChoice: Promise<{ outcome: 'accepted' }>;
+    };
+    event.prompt = prompt;
+    event.userChoice = Promise.resolve({ outcome: 'accepted' });
+    const { result } = renderHook(() => useInstallPrompt());
+
+    act(() => window.dispatchEvent(event));
+    expect(result.current.canPromptNatively).toBe(true);
+
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.triggerNativePrompt();
+    });
+
+    expect(outcome).toBe('accepted');
+    expect(prompt).toHaveBeenCalledOnce();
+    expect(result.current.canPromptNatively).toBe(false);
+    expect(result.current.isInstalled).toBe(true);
   });
 });

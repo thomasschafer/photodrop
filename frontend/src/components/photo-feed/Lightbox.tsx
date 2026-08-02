@@ -27,7 +27,7 @@ function ProgressiveImage({ photoId, alt }: { photoId: string; alt: string }) {
         <ProtectedImage
           protected={imageProtection}
           src={thumbnail.src}
-          alt={alt}
+          alt={full.src ? '' : alt}
           className={`absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
             showThumbnail ? 'opacity-100' : 'opacity-0'
           }`}
@@ -63,7 +63,7 @@ export function Lightbox({
   isAdmin: boolean;
   onPhotoUpdate: OnPhotoUpdate;
 }) {
-  const { user } = useAuth();
+  const { user, currentGroup } = useAuth();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const commentsExpanded = searchParams.get('comments') === 'open';
@@ -114,7 +114,14 @@ export function Lightbox({
     requestDeleteComment,
     confirmDeleteComment,
     cancelDeleteComment,
-  } = useLightboxComments({ photo, prevPhoto, nextPhoto, user, onPhotoUpdate });
+  } = useLightboxComments({
+    photo,
+    prevPhoto,
+    nextPhoto,
+    user,
+    userDisplayName: currentGroup?.displayName ?? null,
+    onPhotoUpdate,
+  });
 
   const [commentSortOrder, setCommentSortOrder] = useState<'newest' | 'oldest'>('oldest');
 
@@ -296,6 +303,7 @@ export function Lightbox({
                 return (
                   <div
                     key={slidePhoto.id}
+                    aria-hidden={photoIndex !== centerIndex}
                     className="flex-shrink-0 w-full h-full flex items-center justify-center p-1"
                     onClick={(e) => e.stopPropagation()}
                   >

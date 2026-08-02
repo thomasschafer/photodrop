@@ -7,7 +7,15 @@ import { Button } from './Button';
 
 // Small button for header - shows when dismissed, allows re-showing the prompt
 export function InstallButton() {
-  const { platform, isInstalled, isDismissed, canSkipInstall, dismiss } = useInstallPrompt();
+  const {
+    platform,
+    isInstalled,
+    isDismissed,
+    canSkipInstall,
+    canPromptNatively,
+    triggerNativePrompt,
+    dismiss,
+  } = useInstallPrompt();
   const [showInstructions, setShowInstructions] = useState(false);
   const [buttonRef, restoreFocus] = useFocusRestore<HTMLButtonElement>();
 
@@ -21,12 +29,20 @@ export function InstallButton() {
     restoreFocus();
   };
 
+  const handleOpen = async () => {
+    if (canPromptNatively) {
+      const result = await triggerNativePrompt();
+      if (result === 'accepted') return;
+    }
+    setShowInstructions(true);
+  };
+
   return (
     <>
       <button
         ref={buttonRef}
-        onClick={() => setShowInstructions(true)}
-        className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
+        onClick={handleOpen}
+        className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer min-w-[44px] min-h-[44px]"
         aria-label="Install app"
         title="Install app"
       >
@@ -87,9 +103,11 @@ export function InstallPrompt({ onDismiss, onInstalled }: InstallPromptProps) {
 
   const handleInstallClick = async () => {
     if (canPromptNatively) {
-      const installed = await triggerNativePrompt();
-      if (installed) {
+      const result = await triggerNativePrompt();
+      if (result === 'accepted') {
         onInstalled?.();
+      } else if (result === 'error' || result === 'unavailable') {
+        setShowInstructions(true);
       }
     } else {
       setShowInstructions(true);
@@ -185,8 +203,8 @@ function PlatformInstructions({ platform }: { platform: string }) {
           <ol className="list-decimal list-inside space-y-1 pl-1">
             <li>
               Tap the <strong>Share</strong> button{' '}
-              <ShareIcon className="inline-block w-4 h-4 align-text-bottom" /> at the bottom of
-              Safari
+              <ShareIcon className="inline-block w-4 h-4 align-text-bottom" /> at the bottom of your
+              browser
             </li>
             <li>
               Scroll down and tap <strong>Add to Home Screen</strong>
@@ -222,8 +240,8 @@ function PlatformInstructions({ platform }: { platform: string }) {
           <p>To install on your Android device:</p>
           <ol className="list-decimal list-inside space-y-1 pl-1">
             <li>
-              Tap the <strong>menu</strong> button{' '}
-              <MenuIcon className="inline-block w-4 h-4 align-text-bottom" /> in Chrome
+              Open your browser’s <strong>menu</strong>{' '}
+              <MenuIcon className="inline-block w-4 h-4 align-text-bottom" />
             </li>
             <li>
               Tap <strong>Add to Home screen</strong> or <strong>Install app</strong>
