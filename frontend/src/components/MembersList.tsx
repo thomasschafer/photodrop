@@ -6,7 +6,7 @@ import { displayNameFromInput } from '../lib/displayName';
 import { useFocusRestore } from '../lib/hooks';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
 import { setNativeScreenshotProtection } from '../lib/privacyScreen';
-import { exportGroup } from '../lib/groupExport';
+import { exportGroup, type GroupExportProgress } from '../lib/groupExport';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { ConfirmModal } from './ConfirmModal';
@@ -47,6 +47,7 @@ export function MembersList() {
   }>({ stage: 'closed', confirmText: '', photoCount: null, error: null });
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [exportProgress, setExportProgress] = useState<GroupExportProgress | null>(null);
   const [showTransferOwnership, setShowTransferOwnership] = useState(false);
   const [newOwnerId, setNewOwnerId] = useState('');
 
@@ -297,15 +298,17 @@ export function MembersList() {
   const handleExport = async () => {
     if (!currentGroup) return;
     setExportLoading(true);
+    setExportProgress(null);
     setError(null);
     try {
-      await exportGroup(currentGroup.id);
+      await exportGroup(currentGroup.id, setExportProgress);
       showSuccess('Group export downloaded');
     } catch (err) {
       console.error('Failed to export group:', err);
-      setError(err instanceof ApiError ? err.message : 'Failed to export group');
+      setError(err instanceof Error ? err.message : 'Failed to export group');
     } finally {
       setExportLoading(false);
+      setExportProgress(null);
     }
   };
 
@@ -779,7 +782,11 @@ export function MembersList() {
           uploader names. Only admins can export.
         </p>
         <Button onClick={handleExport} variant="secondary" disabled={exportLoading}>
-          {exportLoading ? 'Preparing export…' : 'Export group'}
+          {exportLoading
+            ? exportProgress
+              ? `Exporting ${exportProgress.completed}/${exportProgress.total}…`
+              : 'Preparing export…'
+            : 'Export group'}
         </Button>
       </div>
 
