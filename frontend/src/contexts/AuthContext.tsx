@@ -82,6 +82,7 @@ interface AuthContextType {
   switchGroup: (groupId: string) => Promise<void>;
   selectGroup: (groupId: string) => Promise<void>;
   onGroupDeleted: () => Promise<void>;
+  leaveGroup: () => Promise<void>;
   /** Apply an already-persisted change to the signed-in user's own profile. */
   updateProfile: (update: ProfileUpdate) => void;
 }
@@ -227,7 +228,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthState(refreshedAuthState(data));
       return true;
     } catch (error) {
-      console.error('Refresh error:', error);
       if (epoch !== getSessionEpoch()) {
         return true;
       }
@@ -235,6 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // the current session so a later refresh can recover. Only tear down on a
       // genuine expiry (the server rejected the refresh cookie).
       if (!isSessionExpired(error)) {
+        console.error('Refresh error:', error);
         return false;
       }
       await resetToLoggedOut();
@@ -334,6 +335,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await resetToLoggedOut();
     }
   }, [refreshAuth, resetToLoggedOut]);
+
+  const leaveGroup = useCallback(async () => {
+    if (!authState.currentGroup) return;
+    await api.groups.leave(authState.currentGroup.id);
+    localStorage.removeItem('accessToken');
+    await clearGroupCaches();
+    const settled = await refreshAuth();
+    if (!settled) await resetToLoggedOut();
+  }, [authState.currentGroup, refreshAuth, resetToLoggedOut]);
 
   useEffect(() => {
     let cancelled = false;
@@ -550,6 +560,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         switchGroup,
         selectGroup,
         onGroupDeleted,
+        leaveGroup,
         updateProfile,
       }}
     >

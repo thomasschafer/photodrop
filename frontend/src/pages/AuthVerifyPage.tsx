@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback, type FormEvent } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
 import { Button, ButtonLink } from '../components/Button';
+import { consumeAuthReturnPath, rememberAuthReturnPath } from '../lib/authReturn';
 
 type VerifyStatus = 'verifying' | 'needs_name' | 'submitting_name' | 'success' | 'error';
 
@@ -12,6 +13,7 @@ const NAME_FORM_WARNING_MS = 4 * 60 * 1000; // Show warning after 4 minutes
 export function AuthVerifyPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [status, setStatus] = useState<VerifyStatus>('verifying');
   const [errorMessage, setErrorMessage] = useState('');
@@ -56,11 +58,14 @@ export function AuthVerifyPage() {
 
       setStatus('success');
 
+      const emailedReturnTo = new URLSearchParams(location.search).get('returnTo');
+      if (emailedReturnTo) rememberAuthReturnPath(emailedReturnTo);
+
       setTimeout(() => {
-        navigate('/', { replace: true });
+        navigate(consumeAuthReturnPath(), { replace: true });
       }, 500);
     },
-    [login, navigate]
+    [login, location.search, navigate]
   );
 
   const handleVerificationError = useCallback((verifiedToken: string, error: unknown) => {

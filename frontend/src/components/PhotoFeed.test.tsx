@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getComments: vi.fn(),
   addReaction: vi.fn(),
   removeReaction: vi.fn(),
+  get: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
@@ -21,10 +22,23 @@ vi.mock('../lib/useAuthenticatedImage', () => ({
 }));
 
 vi.mock('../contexts/AuthContext', () => ({
-  useAuth: () => ({
-    user: { id: 'me', name: 'Me', email: 'me@example.com', profileColor: 'teal' },
-    imageProtection: false,
-  }),
+  useAuth: (() => {
+    const auth = {
+      user: { id: 'me', name: 'Me', email: 'me@example.com', profileColor: 'teal' },
+      imageProtection: false,
+      currentGroup: {
+        id: 'g1',
+        name: 'Family',
+        role: 'member',
+        ownerId: 'owner',
+        imageProtection: false,
+        displayName: null,
+      },
+      groups: [],
+      switchGroup: vi.fn(),
+    };
+    return () => auth;
+  })(),
 }));
 
 // The feed's own upload flow is not under test here; stand in for the picker
@@ -78,10 +92,13 @@ class TestResizeObserver {
   disconnect() {}
 }
 
-function renderFeed(isAdmin = false) {
+function renderFeed(isAdmin = false, entry = '/') {
   return render(
-    <MemoryRouter initialEntries={['/']}>
-      <PhotoFeed isAdmin={isAdmin} />
+    <MemoryRouter initialEntries={[entry]}>
+      <Routes>
+        <Route path="/" element={<PhotoFeed isAdmin={isAdmin} />} />
+        <Route path="/photo/:photoId" element={<PhotoFeed isAdmin={isAdmin} />} />
+      </Routes>
     </MemoryRouter>
   );
 }
@@ -133,6 +150,17 @@ describe('PhotoFeed', () => {
     expect(mocks.list).toHaveBeenCalledTimes(2);
     expect(mocks.list).toHaveBeenNthCalledWith(2, 20, 1);
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('fetches an older photo directly when it is not in the first feed page', async () => {
+    mocks.list.mockResolvedValue({ photos: [makePhoto('newest')], hasMore: true });
+    mocks.get.mockResolvedValue(makePhoto('older'));
+
+    renderFeed(false, '/photo/older');
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith('older');
+    expect(screen.getAllByText('photo older').length).toBeGreaterThan(0);
   });
 
   it('loads the next page when the user scrolls the sentinel into view', async () => {

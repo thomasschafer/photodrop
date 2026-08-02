@@ -22,6 +22,7 @@
     "@capacitor/status-bar": "^8.0.0",
     "@photodrop/common": "0.0.0",
     "browser-image-compression": "^2.0.2",
+    "fflate": "^0.8.2",
     "heic2any": "^0.0.4",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

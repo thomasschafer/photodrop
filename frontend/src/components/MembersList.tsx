@@ -6,6 +6,7 @@ import { displayNameFromInput } from '../lib/displayName';
 import { useFocusRestore } from '../lib/hooks';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
 import { setNativeScreenshotProtection } from '../lib/privacyScreen';
+import { exportGroup } from '../lib/groupExport';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { ConfirmModal } from './ConfirmModal';
@@ -14,7 +15,7 @@ import { InviteForm } from './InviteForm';
 import { NameField } from './NameField';
 
 export function MembersList() {
-  const { user, currentGroup, onGroupDeleted } = useAuth();
+  const { user, currentGroup, onGroupDeleted, refreshAuth } = useAuth();
   const [members, setMembers] = useState<MemberJson[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,6 +46,9 @@ export function MembersList() {
     error: string | null;
   }>({ stage: 'closed', confirmText: '', photoCount: null, error: null });
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [showTransferOwnership, setShowTransferOwnership] = useState(false);
+  const [newOwnerId, setNewOwnerId] = useState('');
 
   const [inviteButtonRef, restoreInviteFocus] = useFocusRestore<HTMLButtonElement>();
   const [deleteGroupButtonRef, restoreDeleteGroupFocus] = useFocusRestore<HTMLButtonElement>();
@@ -290,6 +294,43 @@ export function MembersList() {
 
   const isOwner = user?.id === ownerId;
 
+  const handleExport = async () => {
+    if (!currentGroup) return;
+    setExportLoading(true);
+    setError(null);
+    try {
+      await exportGroup(currentGroup.id);
+      showSuccess('Group export downloaded');
+    } catch (err) {
+      console.error('Failed to export group:', err);
+      setError(err instanceof ApiError ? err.message : 'Failed to export group');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleTransferOwnership = async () => {
+    if (!currentGroup || !newOwnerId) return;
+    setActionLoading('transfer-ownership');
+    setError(null);
+    try {
+      await api.groups.transferOwnership(currentGroup.id, newOwnerId);
+      const newOwner = members.find((member) => member.userId === newOwnerId);
+      setOwnerId(newOwnerId);
+      setMembers((prev) =>
+        prev.map((member) => (member.userId === newOwnerId ? { ...member, role: 'admin' } : member))
+      );
+      setShowTransferOwnership(false);
+      setNewOwnerId('');
+      await refreshAuth();
+      showSuccess(`Ownership transferred to ${newOwner?.name ?? 'the new owner'}`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to transfer ownership');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleInviteModalClose = () => {
     setShowInviteModal(false);
     restoreInviteFocus();
@@ -486,6 +527,41 @@ export function MembersList() {
         />
       )}
 
+      {showTransferOwnership && (
+        <ConfirmModal
+          title="Transfer ownership"
+          message="The new owner will have full control of the group. You will remain an admin."
+          confirmLabel="Transfer ownership"
+          confirmDisabled={!newOwnerId}
+          isLoading={actionLoading === 'transfer-ownership'}
+          onConfirm={handleTransferOwnership}
+          onCancel={() => {
+            setShowTransferOwnership(false);
+            setNewOwnerId('');
+          }}
+        >
+          <label htmlFor="new-owner" className="block text-sm font-medium text-text-primary mb-2">
+            New owner
+          </label>
+          <select
+            id="new-owner"
+            value={newOwnerId}
+            onChange={(event) => setNewOwnerId(event.target.value)}
+            className="input-field"
+            autoFocus
+          >
+            <option value="">Choose a member</option>
+            {members
+              .filter((member) => member.userId !== ownerId)
+              .map((member) => (
+                <option key={member.userId} value={member.userId}>
+                  {member.name} ({member.email})
+                </option>
+              ))}
+          </select>
+        </ConfirmModal>
+      )}
+
       <div className="divide-y divide-border">
         {members.map((member) => {
           const isCurrentUser = member.userId === user?.id;
@@ -510,23 +586,28 @@ export function MembersList() {
                         </span>
                       )}
                     </div>
-                    <div className="text-sm text-text-secondary truncate">
+                    <div className="text-sm text-text-secondary break-words mobile:truncate">
                       {member.displayName !== null && (
                         <>
                           {/* Labelled, not merely set beside the email: two bare
                               names on one line read as two different people. */}
-                          <span>Own name: {member.canonicalName}</span>
-                          <span className="mx-1.5 text-text-muted" aria-hidden="true">
+                          <span className="block mobile:inline">
+                            Own name: {member.canonicalName}
+                          </span>
+                          <span
+                            className="hidden mobile:inline mx-1.5 text-text-muted"
+                            aria-hidden="true"
+                          >
                             ·
                           </span>
                         </>
                       )}
-                      {member.email}
+                      <span className="block mobile:inline">{member.email}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 flex-shrink-0 ml-auto mobile:ml-0">
+                <div className="flex flex-wrap items-center justify-end gap-1 mobile:gap-3 flex-shrink-0 w-full mobile:w-auto ml-auto mobile:ml-0">
                   <button
                     ref={(el) => {
                       if (el) {
@@ -537,7 +618,7 @@ export function MembersList() {
                     }}
                     onClick={() => handleDisplayNameRequest(member)}
                     disabled={isLoading}
-                    className="p-2 text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer"
+                    className="p-2 text-text-muted hover:text-accent transition-colors disabled:opacity-50 cursor-pointer min-w-[44px] min-h-[44px]"
                     title={`Set display name in ${groupName}`}
                     aria-label={`Set ${member.name}'s display name in ${groupName}`}
                   >
@@ -579,7 +660,7 @@ export function MembersList() {
                         }
                       }}
                       disabled={isLoading}
-                      className="input-field py-1.5 px-2 text-sm w-[100px]"
+                      className="input-field py-2 px-2 text-sm w-[92px] mobile:w-[100px] min-h-[44px]"
                     >
                       <option value="admin">{ROLE_DISPLAY_NAMES.admin}</option>
                       <option value="member">{ROLE_DISPLAY_NAMES.member}</option>
@@ -595,7 +676,7 @@ export function MembersList() {
                       )
                     }
                     disabled={isLoading}
-                    className={`p-2 rounded-md transition-colors disabled:opacity-50 cursor-pointer ${
+                    className={`p-2 rounded-md transition-colors disabled:opacity-50 cursor-pointer min-w-[44px] min-h-[44px] ${
                       member.imageProtection
                         ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300'
                         : 'text-text-muted hover:text-text-secondary'
@@ -653,7 +734,7 @@ export function MembersList() {
                       setConfirmRemove({ memberId: member.userId, memberName: member.name })
                     }
                     disabled={isLoading || memberIsOwner}
-                    className={`p-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    className={`p-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] ${
                       memberIsOwner
                         ? 'text-text-muted'
                         : 'text-text-muted hover:text-red-600 dark:hover:text-red-400 cursor-pointer'
@@ -688,6 +769,29 @@ export function MembersList() {
       {members.length === 0 && (
         <div className="text-center py-8">
           <p className="text-text-secondary">No members yet</p>
+        </div>
+      )}
+
+      <div className="mt-8 pt-6 border-t border-border">
+        <h3 className="text-base font-medium text-text-primary mb-2">Family archive</h3>
+        <p className="text-sm text-text-secondary mb-4">
+          Download the converted photos currently stored, together with captions, upload dates and
+          uploader names. Only admins can export.
+        </p>
+        <Button onClick={handleExport} variant="secondary" disabled={exportLoading}>
+          {exportLoading ? 'Preparing export…' : 'Export group'}
+        </Button>
+      </div>
+
+      {isOwner && members.some((member) => member.userId !== ownerId) && (
+        <div className="mt-8 pt-6 border-t border-border">
+          <h3 className="text-base font-medium text-text-primary mb-2">Ownership</h3>
+          <p className="text-sm text-text-secondary mb-4">
+            Transfer ownership to another member. You will remain an admin.
+          </p>
+          <Button onClick={() => setShowTransferOwnership(true)} variant="secondary">
+            Transfer ownership
+          </Button>
         </div>
       )}
 

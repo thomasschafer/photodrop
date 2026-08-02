@@ -58,6 +58,7 @@ describe('UserMenu', () => {
     const menu = within(screen.getByRole('menu'));
     expect(menu.getByRole('menuitem', { name: 'Change name' })).toBeInTheDocument();
     expect(menu.getByRole('menuitem', { name: 'Change color' })).toBeInTheDocument();
+    expect(menu.getByRole('menuitem', { name: 'Account settings' })).toBeInTheDocument();
     expect(menu.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
   });
 

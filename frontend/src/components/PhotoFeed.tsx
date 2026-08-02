@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection } from '../lib/keyboard';
 import { useAuthenticatedImage } from '../lib/useAuthenticatedImage';
@@ -51,7 +51,13 @@ interface PhotoFeedProps {
 }
 
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
-  const { user, imageProtection: imageProtectionEnabled } = useAuth();
+  const {
+    user,
+    currentGroup,
+    groups,
+    switchGroup,
+    imageProtection: imageProtectionEnabled,
+  } = useAuth();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +87,8 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { photoId } = useParams<{ photoId: string }>();
+  const requestedGroupId = new URLSearchParams(location.search).get('group');
+  const linkedPhotoRequestRef = useRef<string | null>(null);
 
   const loadFeedReactionDetails = useCallback(
     (photoId: string) =>
@@ -94,7 +102,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   const selectedPhoto =
     selectedPhotoIndex !== null && selectedPhotoIndex >= 0 ? photos[selectedPhotoIndex] : null;
 
-  const loadPhotos = async () => {
+  const loadPhotos = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -110,7 +118,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [reactionsEngine]);
 
   const loadMorePhotos = useCallback(async () => {
     if (loadingMore || !hasMore) return;
@@ -147,8 +155,21 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   }, [loadingMore, hasMore]);
 
   useEffect(() => {
-    loadPhotos();
-  }, []);
+    if (
+      requestedGroupId &&
+      requestedGroupId !== currentGroup?.id &&
+      groups.some((group) => group.id === requestedGroupId)
+    ) {
+      setLoading(true);
+      switchGroup(requestedGroupId).catch((err) => {
+        console.error('Failed to open the linked group:', err);
+        setError('Failed to open this photo’s group');
+        setLoading(false);
+      });
+      return;
+    }
+    void loadPhotos();
+  }, [currentGroup?.id, groups, loadPhotos, requestedGroupId, switchGroup]);
 
   // Paging used to rely solely on an IntersectionObserver over the sentinel.
   // A notification it failed to deliver stranded the feed for good: nothing
@@ -200,10 +221,35 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
   }, [maybeLoadMore, photos.length]);
 
   useEffect(() => {
-    if (!loading && photoId && photos.length > 0 && selectedPhotoIndex === -1) {
-      navigate('/', { replace: true });
-    }
-  }, [loading, photoId, photos.length, selectedPhotoIndex, navigate]);
+    if (loading || !photoId || selectedPhotoIndex !== -1) return;
+    if (linkedPhotoRequestRef.current === photoId) return;
+
+    let cancelled = false;
+    linkedPhotoRequestRef.current = photoId;
+    api.photos
+      .get(photoId)
+      .then((linkedPhoto) => {
+        if (cancelled) return;
+        setPhotos((prev) =>
+          prev.some((photo) => photo.id === linkedPhoto.id) ? prev : [...prev, linkedPhoto]
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          navigate('/', { replace: true });
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to open photo');
+        }
+      })
+      .finally(() => {
+        if (linkedPhotoRequestRef.current === photoId) linkedPhotoRequestRef.current = null;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, photoId, selectedPhotoIndex, navigate]);
 
   const focusPhoto = useCallback(
     (index: number) => {
@@ -324,7 +370,11 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
         details: feedReactionDetails.get(photoId),
       },
       emoji,
-      { id: user.id, name: user.name, profileColor: user.profileColor },
+      {
+        id: user.id,
+        name: currentGroup?.displayName ?? user.name,
+        profileColor: user.profileColor,
+      },
       {
         onOptimisticUpdate: ({ reactions, userReactions, details }) => {
           setPhotos((prev) =>

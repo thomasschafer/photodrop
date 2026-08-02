@@ -1,16 +1,24 @@
-import { useState, type FormEvent } from 'react';
-import { Navigate } from 'react-router-dom';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { Button } from '../components/Button';
+import { rememberAuthReturnPath } from '../lib/authReturn';
 
 export function LoginPage() {
   const { user } = useAuth();
+  const location = useLocation();
+  const returnTo = new URLSearchParams(location.search).get('returnTo') ?? undefined;
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    const returnTo = new URLSearchParams(location.search).get('returnTo');
+    if (returnTo) rememberAuthReturnPath(returnTo);
+  }, [location.search]);
 
   if (user) {
     return <Navigate to="/" replace />;
@@ -29,7 +37,7 @@ export function LoginPage() {
     setErrorMessage('');
 
     try {
-      await api.auth.sendLoginLink(email.trim());
+      await api.auth.sendLoginLink(email.trim(), returnTo);
       setStatus('success');
     } catch (error) {
       console.error('Failed to send login link:', error);

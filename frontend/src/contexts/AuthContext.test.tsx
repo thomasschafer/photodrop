@@ -64,6 +64,7 @@ const currentGroup = {
   role: 'member' as const,
   ownerId: 'u0',
   imageProtection: true,
+  displayName: null,
 };
 
 const meResponse = { ...user, currentGroup, groups: [currentGroup] };

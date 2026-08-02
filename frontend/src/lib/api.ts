@@ -22,6 +22,8 @@ import type {
   MembersResponse,
   PhotoCountResponse,
   GroupDeletedResponse,
+  GroupExportResponse,
+  AccountDeletionRequestedResponse,
   UsersListResponse,
   ProfileUpdatedResponse,
   VapidPublicKeyResponse,
@@ -351,12 +353,12 @@ async function requestJson<T>(
 
 export const api = {
   auth: {
-    sendLoginLink: (email: string): Promise<MessageResponse> =>
+    sendLoginLink: (email: string, returnTo?: string): Promise<MessageResponse> =>
       requestJson(
         '/auth/send-login-link',
         {
           method: 'POST',
-          body: JSON.stringify({ email }),
+          body: JSON.stringify({ email, returnTo }),
         },
         false
       ),
@@ -447,6 +449,18 @@ export const api = {
     getPhotoCount: (groupId: string): Promise<PhotoCountResponse> =>
       requestJson(`/groups/${groupId}/photo-count`),
 
+    leave: (groupId: string): Promise<MessageResponse> =>
+      requestJson(`/groups/${groupId}/membership`, { method: 'DELETE' }),
+
+    transferOwnership: (groupId: string, newOwnerId: string): Promise<MessageResponse> =>
+      requestJson(`/groups/${groupId}/transfer-ownership`, {
+        method: 'POST',
+        body: JSON.stringify({ newOwnerId }),
+      }),
+
+    getExport: (groupId: string): Promise<GroupExportResponse> =>
+      requestJson(`/groups/${groupId}/export`),
+
     updateMemberImageProtection: (
       groupId: string,
       userId: string,
@@ -468,6 +482,16 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(update),
       }),
+
+    requestAccountDeletion: (): Promise<AccountDeletionRequestedResponse> =>
+      requestJson('/users/me/account-deletion', { method: 'POST' }),
+
+    confirmAccountDeletion: (token: string): Promise<MessageResponse> =>
+      requestJson(
+        '/users/confirm-account-deletion',
+        { method: 'POST', body: JSON.stringify({ token }) },
+        false
+      ),
   },
 
   photos: {
@@ -489,6 +513,14 @@ export const api = {
     },
 
     get: (photoId: string): Promise<PhotoDetailResponse> => requestJson(`/photos/${photoId}`),
+
+    downloadBlob: async (photoId: string): Promise<Blob> => {
+      const response = await fetchWithAuth(`/photos/${photoId}/download`);
+      if (response instanceof NativeResponse) {
+        throw new Error('Group export is available from the web app');
+      }
+      return response.blob();
+    },
 
     delete: (photoId: string): Promise<MessageResponse> =>
       requestJson(`/photos/${photoId}`, {
