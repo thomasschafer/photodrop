@@ -781,13 +781,15 @@ export function MembersList() {
           Download the converted photos currently stored, together with captions, upload dates and
           uploader names. Only admins can export.
         </p>
-        <Button onClick={handleExport} variant="secondary" disabled={exportLoading}>
-          {exportLoading
-            ? exportProgress
-              ? `Exporting ${exportProgress.completed}/${exportProgress.total}…`
-              : 'Preparing export…'
-            : 'Export group'}
-        </Button>
+        <div aria-live="polite">
+          <Button onClick={handleExport} variant="secondary" disabled={exportLoading}>
+            {exportLoading
+              ? exportProgress
+                ? `Exporting ${exportProgress.completed}/${exportProgress.total}…`
+                : 'Preparing export…'
+              : 'Export group'}
+          </Button>
+        </div>
       </div>
 
       {isOwner && members.some((member) => member.userId !== ownerId) && (

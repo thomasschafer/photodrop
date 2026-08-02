@@ -68,6 +68,7 @@ describe('exportGroup', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -106,6 +107,37 @@ describe('exportGroup', () => {
     );
     expect(mocks.downloadBlob).toHaveBeenCalledOnce();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('backs off before retrying a rate-limited download', async () => {
+    vi.useFakeTimers();
+    mocks.getExport.mockResolvedValue({
+      groupName: 'Our Family',
+      exportedAt: 123,
+      photos: [
+        {
+          id: 'photo-1',
+          caption: null,
+          uploadedAt: 100,
+          uploaderName: 'Alice',
+          fileName: 'first.jpg',
+        },
+      ],
+    });
+    mocks.downloadBlob
+      .mockRejectedValueOnce(new ApiError(429, 'Too Many Requests', 'Slow down'))
+      .mockResolvedValueOnce(new Blob([new Uint8Array([1])]));
+
+    const exportPromise = exportGroup('group-1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.downloadBlob).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(499);
+    expect(mocks.downloadBlob).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await exportPromise;
+    expect(mocks.downloadBlob).toHaveBeenCalledTimes(2);
   });
 
   it('stops after three attempts when a transient failure persists', async () => {

@@ -53,9 +53,13 @@ interface PhotoFeedProps {
 function mergePhotosNewestFirst(existing: Photo[], incoming: Photo[]): Photo[] {
   const byId = new Map(existing.map((photo) => [photo.id, photo]));
   for (const photo of incoming) byId.set(photo.id, photo);
-  return [...byId.values()].sort(
-    (left, right) => right.uploadedAt - left.uploadedAt || right.id.localeCompare(left.id)
-  );
+  return [...byId.values()].sort((left, right) => {
+    const newestFirst = right.uploadedAt - left.uploadedAt;
+    if (newestFirst !== 0 || left.id === right.id) return newestFirst;
+    // Mirror SQLite's default BINARY collation for the server's id DESC
+    // tiebreaker, rather than applying the browser's current locale.
+    return left.id < right.id ? 1 : -1;
+  });
 }
 
 export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {

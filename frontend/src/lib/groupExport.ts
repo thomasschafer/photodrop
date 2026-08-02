@@ -23,6 +23,10 @@ function isRetryable(error: unknown): boolean {
   );
 }
 
+function waitBeforeRetry(attempt: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 500 * attempt));
+}
+
 async function downloadPhoto(
   photo: { id: string; fileName: string },
   position: number,
@@ -38,6 +42,7 @@ async function downloadPhoto(
     } catch (error) {
       lastError = error;
       if (attempt === maxAttempts || !isRetryable(error)) break;
+      await waitBeforeRetry(attempt);
     }
   }
 
@@ -66,6 +71,11 @@ export async function exportGroup(
     settleZip = resolve;
     rejectZip = reject;
   });
+  // The callback can reject before execution reaches the await below. Attach
+  // a handler immediately so a simultaneous synchronous ZIP error cannot leave
+  // an orphaned browser-level unhandled rejection; awaiting the original
+  // promise still propagates that error to the caller.
+  void completedZip.catch(() => {});
   const zip = new Zip((error, chunk, final) => {
     if (error) {
       rejectZip(error);
