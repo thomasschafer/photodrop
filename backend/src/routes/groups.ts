@@ -184,6 +184,9 @@ groups.delete('/:groupId/membership', requireAuth, async (c) => {
   ]);
   const result = await deleteMembership(c.env.DB, currentUser.id, groupId);
   if (!result.success) {
+    if (result.error === 'is_owner') {
+      throw new ForbiddenError('Transfer ownership or delete the group before leaving');
+    }
     throw new InternalServerError('Failed to leave group');
   }
 

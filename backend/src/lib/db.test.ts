@@ -44,6 +44,7 @@ import {
   touchSession,
   deleteSessionFamily,
   pruneExpiredSessions,
+  anonymizeUserAccount,
 } from './db';
 import {
   getRandomProfileColor,
@@ -295,25 +296,18 @@ describe('Membership functions', () => {
 
   describe('deleteMembership', () => {
     it('removes non-owner membership and returns success', async () => {
-      // First call: getGroup returns group where user is not owner
-      // Second call (after getGroup in deleteMembership runs the delete)
-      const group = {
-        id: 'group-1',
-        name: 'Test Group',
-        owner_id: 'other-user',
-        created_at: 1000,
-      };
-      const db = createSequentialMockDb([group]);
+      const db = createMockDb();
 
       const result = await deleteMembership(db, 'user-1', 'group-1');
 
       expect(result.success).toBe(true);
       expect(result.error).toBeUndefined();
       expect(db._mocks.mockRun).toHaveBeenCalled();
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(expect.stringContaining('NOT EXISTS'));
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1', 'group-1', 'user-1');
     });
 
     it('rejects removing owner and returns error', async () => {
-      // getGroup returns group where user IS the owner
       const group = {
         id: 'group-1',
         name: 'Test Group',
@@ -321,13 +315,15 @@ describe('Membership functions', () => {
         created_at: 1000,
       };
       const db = createSequentialMockDb([group]);
+      db._mocks.mockRun.mockResolvedValueOnce({ success: true, meta: { changes: 0 } });
 
       const result = await deleteMembership(db, 'owner-1', 'group-1');
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('is_owner');
-      // Should not have called run() since we reject early
-      expect(db._mocks.mockRun).not.toHaveBeenCalled();
+      // The guarded DELETE runs first, then the ownership read explains why
+      // no row changed without opening a race between a check and the DELETE.
+      expect(db._mocks.mockRun).toHaveBeenCalledOnce();
     });
 
     it('removes member successfully', async () => {
@@ -591,6 +587,57 @@ describe('Membership functions', () => {
       // The caller's own display name for each group comes from this query.
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(expect.stringContaining('m.display_name'));
     });
+  });
+});
+
+describe('anonymizeUserAccount', () => {
+  function createBatchDb(changes: number[]) {
+    const sql: string[] = [];
+    const batch = vi
+      .fn()
+      .mockResolvedValue(changes.map((count) => ({ success: true, meta: { changes: count } })));
+    const prepare = vi.fn((statement: string) => {
+      sql.push(statement);
+      const prepared = {
+        bind: vi.fn(() => prepared),
+      };
+      return prepared;
+    });
+    return {
+      db: { prepare, batch } as unknown as D1Database,
+      sql,
+      batch,
+    };
+  }
+
+  const user = {
+    id: 'user-1',
+    email: 'jane@example.com',
+    name: 'Jane',
+    profile_color: 'teal' as const,
+    created_at: 1000,
+    last_seen_at: 1000,
+    deleted_at: null,
+  };
+
+  it('gates every cleanup and token mutation on the ownership-safe tombstone', async () => {
+    const { db, sql, batch } = createBatchDb(new Array(10).fill(1));
+
+    await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(true);
+
+    expect(batch).toHaveBeenCalledOnce();
+    expect(sql).toHaveLength(10);
+    expect(sql[0]).toContain('NOT EXISTS (SELECT 1 FROM groups WHERE owner_id = ?)');
+    for (const cleanup of sql.slice(1)) {
+      expect(cleanup).toContain('deleted_at = ?');
+    }
+    expect(sql[9]).toContain('used_at IS NULL');
+  });
+
+  it('reports a blocked tombstone or unburned token as unsuccessful', async () => {
+    const { db } = createBatchDb(new Array(10).fill(0));
+
+    await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(false);
   });
 });
 

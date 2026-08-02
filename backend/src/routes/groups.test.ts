@@ -777,6 +777,27 @@ describe('self-service group access and archive actions', () => {
     expect(mockDeleteMembership).not.toHaveBeenCalled();
   });
 
+  it('returns the owner guidance if ownership changes during the leave request', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'user-1',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+    mockIsGroupOwner.mockResolvedValue(false);
+    mockDeleteMembership.mockResolvedValue({ success: false, error: 'is_owner' });
+
+    const res = await app.request('/groups/group-1/membership', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: string }).toEqual({
+      error: 'Transfer ownership or delete the group before leaving',
+    });
+  });
+
   it('allows an owner to transfer ownership to an existing member', async () => {
     mockVerifyJWT.mockResolvedValue({
       sub: 'owner-1',

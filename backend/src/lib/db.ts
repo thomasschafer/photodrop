@@ -412,17 +412,25 @@ export async function deleteMembership(
   userId: string,
   groupId: string
 ): Promise<{ success: boolean; error?: 'is_owner' }> {
-  // Check if the user is the group owner - owners cannot be removed
+  const result = await db
+    .prepare(
+      `DELETE FROM memberships
+       WHERE user_id = ? AND group_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM groups WHERE id = ? AND owner_id = ?
+         )`
+    )
+    .bind(userId, groupId, groupId, userId)
+    .run();
+
+  if (result.meta.changes > 0) return { success: true };
+
+  // The write itself carries the invariant. This read is only to turn its
+  // guarded no-op into the useful owner-specific error expected by callers.
   if (await isGroupOwner(db, userId, groupId)) {
     return { success: false, error: 'is_owner' };
   }
-
-  const result = await db
-    .prepare('DELETE FROM memberships WHERE user_id = ? AND group_id = ?')
-    .bind(userId, groupId)
-    .run();
-
-  return { success: result.meta.changes > 0 };
+  return { success: false };
 }
 
 /** Transfer ownership to an existing member and make the new owner an admin. */
@@ -531,31 +539,79 @@ export async function anonymizeUserAccount(
   const now = Math.floor(Date.now() / 1000);
   const anonymousEmail = `deleted-${user.id}@deleted.invalid`;
 
+  // The first statement is the gate for the whole batch. Every later write
+  // requires the exact tombstone marker it sets, so becoming an owner between
+  // the route's check and this batch makes every mutation a no-op (including
+  // leaving the confirmation token reusable after ownership is transferred).
   const results = await db.batch([
-    db.prepare('DELETE FROM photo_reactions WHERE user_id = ?').bind(user.id),
-    db.prepare('DELETE FROM photo_views WHERE user_id = ?').bind(user.id),
-    db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').bind(user.id),
-    db.prepare('DELETE FROM device_tokens WHERE user_id = ?').bind(user.id),
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
-    db.prepare('DELETE FROM memberships WHERE user_id = ?').bind(user.id),
-    db
-      .prepare("UPDATE comments SET user_id = NULL, author_name = 'Deleted user' WHERE user_id = ?")
-      .bind(user.id),
-    db.prepare('DELETE FROM magic_link_tokens WHERE email = ?').bind(user.email),
     db
       .prepare(
         `UPDATE users
          SET name = 'Deleted user', email = ?, profile_color = 'terracotta',
              last_seen_at = NULL, deleted_at = ?
-         WHERE id = ? AND deleted_at IS NULL`
+         WHERE id = ? AND deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM groups WHERE owner_id = ?)`
       )
-      .bind(anonymousEmail, now, user.id),
+      .bind(anonymousEmail, now, user.id, user.id),
     db
-      .prepare('UPDATE account_deletion_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL')
-      .bind(now, confirmationToken),
+      .prepare(
+        `DELETE FROM photo_reactions WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM photo_views WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM push_subscriptions WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM device_tokens WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM sessions WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM memberships WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `UPDATE comments SET user_id = NULL, author_name = 'Deleted user'
+         WHERE user_id = ?
+           AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM magic_link_tokens WHERE email = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.email, user.id, now),
+    db
+      .prepare(
+        `UPDATE account_deletion_tokens SET used_at = ?
+         WHERE token = ? AND user_id = ? AND used_at IS NULL
+           AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(now, confirmationToken, user.id, user.id, now),
   ]);
 
-  return (results[8]?.meta.changes ?? 0) > 0 && (results[9]?.meta.changes ?? 0) > 0;
+  return (results[0]?.meta.changes ?? 0) > 0 && (results[9]?.meta.changes ?? 0) > 0;
 }
 
 /** The parts of a user's own profile they may change. */
@@ -1407,7 +1463,7 @@ export async function listPhotosWithCounts(
       LEFT JOIN users u ON u.id = p.uploaded_by
       LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id
       WHERE p.group_id = ?
-      ORDER BY p.uploaded_at DESC
+      ORDER BY p.uploaded_at DESC, p.id DESC
       LIMIT ? OFFSET ?`
     )
     .bind(groupId, limit, offset)

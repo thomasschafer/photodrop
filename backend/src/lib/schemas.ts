@@ -139,6 +139,10 @@ export const accountDeletionTokenSchema = z.object({
   token: z.string().trim().min(1, 'Confirmation token is required'),
 });
 
+export const accountDeletionRequestSchema = z.object({
+  email: emailSchema,
+});
+
 export const displayNameSchema = z.object({
   // Required, and explicitly nullable: null is the only way to clear an
   // override, so an absent key must not be read as "clear it".
