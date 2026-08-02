@@ -1,12 +1,29 @@
 import { Hono } from 'hono';
-import { getUserById, getUserMemberships, getGroupMembers, updateUserProfile } from '../lib/db';
+import {
+  getUserById,
+  getUserMemberships,
+  getGroupMembers,
+  updateUserProfile,
+  getOwnedGroups,
+  createAccountDeletionToken,
+  getAccountDeletionToken,
+  anonymizeUserAccount,
+} from '../lib/db';
 import { requireAdmin, requireAuth } from '../middleware/auth';
-import { updateProfileSchema } from '../lib/schemas';
-import { NotFoundError, InternalServerError, parseJsonBody } from '../lib/http';
+import { updateProfileSchema, accountDeletionTokenSchema } from '../lib/schemas';
+import {
+  BadRequestError,
+  ForbiddenError,
+  NotFoundError,
+  InternalServerError,
+  parseJsonBody,
+} from '../lib/http';
+import { sendAccountDeletionEmail } from '../lib/email';
 import type {
   UsersListResponse,
   MeResponse,
   ProfileUpdatedResponse,
+  AccountDeletionRequestedResponse,
 } from '@photodrop/common/apiTypes';
 import type { AppEnv } from '../types';
 
@@ -57,6 +74,7 @@ users.get('/me', requireAuth, async (c) => {
           role: currentMembership.role,
           ownerId: currentMembership.group_owner_id,
           imageProtection: currentMembership.image_protection === 1,
+          displayName: currentMembership.display_name,
         }
       : null,
     groups: memberships.map((m) => ({
@@ -65,6 +83,7 @@ users.get('/me', requireAuth, async (c) => {
       role: m.role,
       ownerId: m.group_owner_id,
       imageProtection: m.image_protection === 1,
+      displayName: m.display_name,
     })),
   } satisfies MeResponse);
 });
@@ -98,6 +117,54 @@ users.patch('/me/profile', requireAuth, async (c) => {
     name: user.name,
     profileColor: user.profile_color,
   } satisfies ProfileUpdatedResponse);
+});
+
+users.post('/me/account-deletion', requireAuth, async (c) => {
+  const currentUser = c.get('user');
+  const user = await getUserById(c.env.DB, currentUser.id);
+  if (!user || typeof user.deleted_at === 'number') throw new NotFoundError('User not found');
+
+  const ownedGroups = await getOwnedGroups(c.env.DB, user.id);
+  if (ownedGroups.length > 0) {
+    throw new ForbiddenError(
+      'Transfer ownership or delete your groups before deleting your account'
+    );
+  }
+
+  const token = await createAccountDeletionToken(c.env.DB, user.id);
+  const confirmationLink = `${c.env.FRONTEND_URL}/delete-account/${token}`;
+  await sendAccountDeletionEmail(c.env, user.email, user.name, confirmationLink);
+
+  return c.json({
+    message: 'Account deletion email sent',
+    email: user.email,
+  } satisfies AccountDeletionRequestedResponse);
+});
+
+// The emailed token is the fresh proof of identity; this endpoint deliberately
+// does not depend on whatever browser session happens to open the link.
+users.post('/confirm-account-deletion', async (c) => {
+  const { token } = await parseJsonBody(c, accountDeletionTokenSchema);
+  const confirmation = await getAccountDeletionToken(c.env.DB, token);
+  const now = Math.floor(Date.now() / 1000);
+  if (!confirmation || confirmation.used_at !== null || confirmation.expires_at < now) {
+    throw new BadRequestError('This account deletion link is invalid or has expired');
+  }
+
+  const user = await getUserById(c.env.DB, confirmation.user_id);
+  if (!user || typeof user.deleted_at === 'number') {
+    throw new BadRequestError('This account has already been deleted');
+  }
+  if ((await getOwnedGroups(c.env.DB, user.id)).length > 0) {
+    throw new ForbiddenError(
+      'Transfer ownership or delete your groups before deleting your account'
+    );
+  }
+
+  const deleted = await anonymizeUserAccount(c.env.DB, user, token);
+  if (!deleted) throw new InternalServerError('Failed to delete account');
+
+  return c.json({ message: 'Account deleted successfully' });
 });
 
 export default users;

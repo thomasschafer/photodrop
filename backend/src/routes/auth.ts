@@ -98,6 +98,7 @@ function membershipGroupJson(m: MembershipWithGroup): GroupJson {
     role: m.role,
     ownerId: m.group_owner_id,
     imageProtection: m.image_protection === 1,
+    displayName: m.display_name,
   };
 }
 
@@ -253,7 +254,7 @@ auth.post('/send-invite', requireAdmin, sendInviteRateLimit, async (c) => {
 
 // Send login link (public)
 auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
-  const { email } = await parseJsonBody(c, sendLoginLinkSchema);
+  const { email, returnTo } = await parseJsonBody(c, sendLoginLinkSchema);
 
   // Get user by email
   const user = await getUserByEmail(c.env.DB, email);
@@ -272,7 +273,7 @@ auth.post('/send-login-link', sendLoginLinkRateLimit, async (c) => {
   const token = await createMagicLinkToken(c.env.DB, groupId, email, 'login');
 
   // Generate magic link URL
-  const magicLink = `${c.env.FRONTEND_URL}/auth/${token}`;
+  const magicLink = `${c.env.FRONTEND_URL}/auth/${token}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`;
 
   // Send login email
   await sendLoginLinkEmail(c.env, email, user.name, magicLink);

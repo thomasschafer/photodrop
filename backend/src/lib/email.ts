@@ -142,6 +142,30 @@ This login link was sent to ${toEmail}. If you didn't request this, you can safe
   await sendEmail(env, { to: toEmail, subject, html, text });
 }
 
+export async function sendAccountDeletionEmail(
+  env: EmailEnv,
+  toEmail: string,
+  toName: string,
+  confirmationLink: string
+): Promise<void> {
+  const safeName = escapeHtml(toName);
+  const subject = 'Confirm deletion of your photodrop account';
+  const html = `
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"><style>${EMAIL_STYLES}</style></head>
+    <body><div class="container">
+      <p>Hi ${safeName},</p>
+      <p>You asked to permanently delete your photodrop account. Your photos and comments will remain in family archives under “Deleted user”; your reactions and account details will be removed.</p>
+      <p>This link expires in 15 minutes. Nothing will be deleted unless you open it and confirm.</p>
+      <p><a href="${confirmationLink}" class="button">Review account deletion</a></p>
+      <p style="font-size: 12px; color: #6b7280; word-break: break-all;">${confirmationLink}</p>
+      <div class="footer"><p>If you didn't request this, you can safely ignore this email.</p></div>
+    </div></body></html>`;
+  const text = `Hi ${toName},\n\nReview and confirm deletion of your photodrop account (expires in 15 minutes):\n${confirmationLink}\n\nYour photos and comments will remain in family archives under “Deleted user”; your reactions and account details will be removed. If you didn't request this, ignore this email.`;
+
+  await sendEmail(env, { to: toEmail, subject, html, text });
+}
+
 /**
  * Low-level email sending function
  * Uses Resend API in production, logs to console in development
@@ -187,7 +211,7 @@ async function sendEmail(env: EmailEnv, options: SendEmailOptions): Promise<void
   }
 
   // Development: log to console (safe - only runs locally)
-  const magicLinkMatch = options.text.match(/(https?:\/\/[^\s]+\/auth\/[^\s]+)/);
+  const magicLinkMatch = options.text.match(/(https?:\/\/[^\s]+\/(?:auth|delete-account)\/[^\s]+)/);
   const magicLink = magicLinkMatch ? magicLinkMatch[1] : null;
 
   const output = [

@@ -7,6 +7,11 @@ const mockGetUserById = vi.fn();
 const mockGetUserMemberships = vi.fn();
 const mockGetMembership = vi.fn();
 const mockUpdateUserProfile = vi.fn();
+const mockGetOwnedGroups = vi.fn();
+const mockCreateAccountDeletionToken = vi.fn();
+const mockGetAccountDeletionToken = vi.fn();
+const mockAnonymizeUserAccount = vi.fn();
+const mockSendAccountDeletionEmail = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
@@ -19,6 +24,14 @@ vi.mock('../lib/db', () => ({
   getMembership: (...args: unknown[]) => mockGetMembership(...args),
   getGroup: vi.fn(),
   updateUserProfile: (...args: unknown[]) => mockUpdateUserProfile(...args),
+  getOwnedGroups: (...args: unknown[]) => mockGetOwnedGroups(...args),
+  createAccountDeletionToken: (...args: unknown[]) => mockCreateAccountDeletionToken(...args),
+  getAccountDeletionToken: (...args: unknown[]) => mockGetAccountDeletionToken(...args),
+  anonymizeUserAccount: (...args: unknown[]) => mockAnonymizeUserAccount(...args),
+}));
+
+vi.mock('../lib/email', () => ({
+  sendAccountDeletionEmail: (...args: unknown[]) => mockSendAccountDeletionEmail(...args),
 }));
 
 import users from './users';
@@ -55,7 +68,7 @@ function membership(overrides: Record<string, unknown> = {}) {
 function createTestApp(): Hono {
   const app = new Hono();
   app.use('*', async (c, next) => {
-    c.env = { JWT_SECRET: 'test-secret', DB: {} };
+    c.env = { JWT_SECRET: 'test-secret', DB: {}, FRONTEND_URL: 'http://localhost:5173' };
     await next();
   });
   app.route('/users', users);
@@ -219,5 +232,73 @@ describe('PATCH /users/me/profile', () => {
     expect(res.status).toBe(500);
     const json = (await res.json()) as { error: string };
     expect(json.error).toBe('Failed to update profile');
+  });
+});
+
+describe('account deletion confirmation', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    app = createTestApp();
+    authenticate();
+    mockGetUserById.mockResolvedValue({ ...storedUser, deleted_at: null });
+    mockGetOwnedGroups.mockResolvedValue([]);
+    mockCreateAccountDeletionToken.mockResolvedValue('delete-token');
+    mockSendAccountDeletionEmail.mockResolvedValue(undefined);
+  });
+
+  it('emails a separate short-lived confirmation link', async () => {
+    const res = await app.request('/users/me/account-deletion', {
+      method: 'POST',
+      headers: authHeaders,
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockCreateAccountDeletionToken).toHaveBeenCalledWith({}, 'user-1');
+    expect(mockSendAccountDeletionEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      'jane@example.com',
+      'Jane Doe',
+      'http://localhost:5173/delete-account/delete-token'
+    );
+  });
+
+  it('blocks deletion while the person still owns a group', async () => {
+    mockGetOwnedGroups.mockResolvedValue([
+      { id: 'group-1', name: 'Family', owner_id: 'user-1', created_at: 1000 },
+    ]);
+
+    const res = await app.request('/users/me/account-deletion', {
+      method: 'POST',
+      headers: authHeaders,
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockCreateAccountDeletionToken).not.toHaveBeenCalled();
+  });
+
+  it('uses the emailed token to anonymize the account', async () => {
+    mockGetAccountDeletionToken.mockResolvedValue({
+      token: 'delete-token',
+      user_id: 'user-1',
+      created_at: 1000,
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+      used_at: null,
+    });
+    mockAnonymizeUserAccount.mockResolvedValue(true);
+
+    const res = await app.request('/users/confirm-account-deletion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'delete-token' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockAnonymizeUserAccount).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ id: 'user-1' }),
+      'delete-token'
+    );
   });
 });

@@ -4,6 +4,7 @@ import {
   createPhoto,
   getPhoto,
   listPhotosWithCounts,
+  getPhotoWithCounts,
   deletePhoto as dbDeletePhoto,
   recordPhotoView,
   getPhotoViewers,
@@ -128,7 +129,7 @@ async function sendPhotoUploadNotifications(
             title,
             body,
             data: {
-              url: `${env.FRONTEND_URL || ''}/photo/${photoId}`,
+              url: `${env.FRONTEND_URL || ''}/photo/${photoId}?group=${encodeURIComponent(groupId)}`,
               groupId,
               photoId,
             },
@@ -157,7 +158,7 @@ async function sendPhotoUploadNotifications(
             title,
             body,
             data: {
-              url: `${env.FRONTEND_URL || ''}/photo/${photoId}`,
+              url: `${env.FRONTEND_URL || ''}/photo/${photoId}?group=${encodeURIComponent(groupId)}`,
               groupId,
               photoId,
             },
@@ -364,13 +365,21 @@ photos.post('/', requireAdmin, uploadRateLimit, async (c) => {
 });
 
 photos.get('/:id', requireAuth, async (c) => {
-  const photo = await requirePhoto(c);
+  const user = c.get('user');
+  const photoId = requireParam(c.req.param('id'), 'id');
+  const photo = await getPhotoWithCounts(c.env.DB, photoId, user.groupId, user.id);
+  if (!photo) throw new NotFoundError('Photo not found');
 
   return c.json({
     id: photo.id,
     caption: photo.caption,
     uploadedBy: photo.uploaded_by,
+    uploaderName: photo.uploader_name,
+    uploaderProfileColor: photo.uploader_profile_color,
     uploadedAt: photo.uploaded_at,
+    commentCount: photo.comment_count,
+    reactions: photo.reactions,
+    userReactions: photo.user_reactions,
   } satisfies PhotoDetailResponse);
 });
 
@@ -505,22 +514,22 @@ photos.get('/:id/comments', requireAuth, async (c) => {
       // means "the author's account is gone" for a comment that is still live.
       // Checking deleted_at first keeps the two states distinguishable.
       //
-      // For a live author, user_name is the name their membership resolves to
-      // now, and null once that membership is gone — at which point the stored
-      // author_name takes over. That snapshot is the name this group saw when
-      // the comment was written, so it is what a removed member's display-name
-      // override keeps standing behind after they leave.
+      // A live comment reveals its author only while they remain a member.
+      // Once they leave, use the same neutral label as photos and reactions.
       const authorName = isDeleted
         ? comment.author_name
-        : comment.user_id === null
+        : comment.user_id === null || typeof comment.account_deleted_at === 'number'
           ? 'Deleted user'
-          : (comment.user_name ?? comment.author_name);
+          : (comment.user_name ?? 'Former member');
 
       return {
         id: comment.id,
         userId: comment.user_id,
         authorName,
-        authorProfileColor: comment.author_profile_color,
+        authorProfileColor:
+          comment.user_name === null || typeof comment.account_deleted_at === 'number'
+            ? null
+            : comment.author_profile_color,
         content: comment.content,
         createdAt: comment.created_at,
         isDeleted,
