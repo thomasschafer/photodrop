@@ -143,7 +143,7 @@ export interface PhotoReaction {
 
 export interface PhotoReactionWithUser extends PhotoReaction {
   user_name: string;
-  user_profile_color: ProfileColor;
+  user_profile_color: ProfileColor | null;
 }
 
 /**
@@ -1402,6 +1402,7 @@ export async function getPhotoReactionsWithUsers(
   return (result.results || []).map((row) => ({
     ...row,
     user_name: row.user_name ?? FORMER_MEMBER_NAME,
+    user_profile_color: row.user_name === null ? null : row.user_profile_color,
   }));
 }
 

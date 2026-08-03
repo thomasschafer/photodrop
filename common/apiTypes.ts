@@ -122,7 +122,7 @@ export interface ReactionWithUserJson {
   emoji: string;
   userId: string;
   userName: string;
-  profileColor: ProfileColor;
+  profileColor: ProfileColor | null;
   createdAt: number;
 }
 

@@ -758,6 +758,36 @@ describe('self-service group access and archive actions', () => {
       'group-1'
     );
     expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
+    expect(mockDeleteMembership.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDeleteAllUserPushSubscriptionsForGroup.mock.invocationCallOrder[0]
+    );
+    expect(mockDeleteMembership.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDeleteAllUserDeviceTokensForGroup.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('treats a concurrent completed leave as success and still cleans up notifications', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'user-1',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+    mockIsGroupOwner.mockResolvedValue(false);
+    mockDeleteMembership.mockResolvedValue({ success: false });
+
+    const res = await app.request('/groups/group-1/membership', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteAllUserPushSubscriptionsForGroup).toHaveBeenCalledWith(
+      {},
+      'user-1',
+      'group-1'
+    );
+    expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
   });
 
   it('requires an owner to transfer or delete before leaving', async () => {

@@ -58,7 +58,7 @@ function addStoredFile(zip: Zip, name: string, bytes: Uint8Array): void {
   file.push(bytes, true);
 }
 
-/** Download converted archive photos into a bounded-memory, uncompressed ZIP. */
+/** Download converted archive photos into an incrementally generated, uncompressed ZIP. */
 export async function exportGroup(
   groupId: string,
   onProgress?: (progress: GroupExportProgress) => void

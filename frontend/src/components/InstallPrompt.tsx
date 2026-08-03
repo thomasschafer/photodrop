@@ -32,7 +32,7 @@ export function InstallButton() {
   const handleOpen = async () => {
     if (canPromptNatively) {
       const result = await triggerNativePrompt();
-      if (result === 'accepted') return;
+      if (result === 'accepted' || result === 'dismissed') return;
     }
     setShowInstructions(true);
   };

@@ -179,16 +179,22 @@ groups.delete('/:groupId/membership', requireAuth, async (c) => {
     throw new ForbiddenError('Transfer ownership or delete the group before leaving');
   }
 
-  await Promise.all([
+  const result = await deleteMembership(c.env.DB, currentUser.id, groupId);
+  if (result.error === 'is_owner') {
+    throw new ForbiddenError('Transfer ownership or delete the group before leaving');
+  }
+
+  // A concurrent leave can remove the membership after authentication but
+  // before this guarded delete. That is already the requested end state, so
+  // keep the operation idempotent and finish cleaning up any notification
+  // credentials that remain. Cleanup follows the membership write so a failed
+  // delete never silently disables notifications for someone still inside.
+  const cleanupResults = await Promise.allSettled([
     deleteAllUserPushSubscriptionsForGroup(c.env.DB, currentUser.id, groupId),
     deleteAllUserDeviceTokensForGroup(c.env.DB, currentUser.id, groupId),
   ]);
-  const result = await deleteMembership(c.env.DB, currentUser.id, groupId);
-  if (!result.success) {
-    if (result.error === 'is_owner') {
-      throw new ForbiddenError('Transfer ownership or delete the group before leaving');
-    }
-    throw new InternalServerError('Failed to leave group');
+  if (cleanupResults.some((cleanup) => cleanup.status === 'rejected')) {
+    console.error('Group left but notification credential cleanup failed', cleanupResults);
   }
 
   return c.json({ message: 'You have left the group' });

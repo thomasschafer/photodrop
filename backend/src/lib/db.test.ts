@@ -1434,12 +1434,14 @@ describe('Reaction functions', () => {
           emoji: '❤️',
           created_at: 1000,
           user_name: null,
+          user_profile_color: 'teal',
         },
       ]);
 
       const result = await getPhotoReactionsWithUsers(db, 'photo-1');
 
       expect(result[0].user_name).toBe('Former member');
+      expect(result[0].user_profile_color).toBeNull();
     });
 
     it('resolves reactor names against the group the reacted-to photo is in', async () => {
