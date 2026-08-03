@@ -29,6 +29,7 @@ vi.mock('../lib/jwt', () => ({
 }));
 
 vi.mock('../lib/db', () => ({
+  DELETED_USER_NAME: 'Deleted user',
   getGroup: (...args: unknown[]) => mockGetGroup(...args),
   getGroupPhotoKeys: (...args: unknown[]) => mockGetGroupPhotoKeys(...args),
   getGroupPhotoCount: (...args: unknown[]) => mockGetGroupPhotoCount(...args),
