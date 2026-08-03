@@ -82,6 +82,7 @@ function deferred<T>() {
 describe('AuthVerifyPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     mockLogin.mockResolvedValue(undefined);
   });
 
@@ -190,5 +191,29 @@ describe('AuthVerifyPage', () => {
     expect(screen.getByText('Welcome!')).toBeTruthy();
 
     consoleError.mockRestore();
+  });
+
+  it('cancels the previous links redirect when a second token opens', async () => {
+    vi.useFakeTimers();
+    mockVerifyMagicLink
+      .mockResolvedValueOnce({
+        accessToken: 'token-a',
+        user,
+        currentGroup: group,
+        groups: [group],
+      })
+      .mockResolvedValueOnce({ needsName: true });
+
+    renderHarness();
+    await screen.findByText("You're signed in");
+
+    await act(async () => {
+      screen.getByText('open second link').click();
+    });
+    await screen.findByText('Welcome!');
+
+    act(() => vi.advanceTimersByTime(500));
+
+    expect(screen.getByText('Welcome!')).toBeInTheDocument();
   });
 });

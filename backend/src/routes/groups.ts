@@ -17,6 +17,7 @@ import {
   transferGroupOwnership,
   getGroup,
   getGroupExportPhotos,
+  DELETED_USER_NAME,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
 import {
@@ -296,6 +297,7 @@ groups.get('/:groupId/export', requireAdmin, async (c) => {
     getGroupExportPhotos(c.env.DB, groupId),
   ]);
   if (!group) throw new NotFoundError('Group not found');
+  const fileNameWidth = Math.max(4, String(photos.length).length);
 
   return c.json({
     groupName: group.name,
@@ -310,8 +312,8 @@ groups.get('/:groupId/export', requireAdmin, async (c) => {
         id: photo.id,
         caption: photo.caption,
         uploadedAt: photo.uploaded_at,
-        uploaderName: photo.uploader_name ?? 'Deleted user',
-        fileName: `${String(index + 1).padStart(4, '0')}-${photo.id}.${extension}`,
+        uploaderName: photo.uploader_name ?? DELETED_USER_NAME,
+        fileName: `${String(index + 1).padStart(fileNameWidth, '0')}-${photo.id}.${extension}`,
       };
     }),
   } satisfies GroupExportResponse);

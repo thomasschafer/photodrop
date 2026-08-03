@@ -317,33 +317,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthState((prev) => (prev.user ? { ...prev, user: { ...prev.user, ...update } } : prev));
   }, []);
 
+  const settleAfterGroupAccessEnds = useCallback(
+    async (clearDepartedGroupCaches: boolean) => {
+      localStorage.removeItem('accessToken');
+      if (clearDepartedGroupCaches) {
+        await clearGroupCaches();
+      }
+      const settled = await refreshAuth();
+      if (!settled) {
+        await resetToLoggedOut();
+      }
+    },
+    [refreshAuth, resetToLoggedOut]
+  );
+
   // After the current group is deleted, the access token is dead (it's scoped
   // to that group). Refresh instead of patching state locally: the refresh
   // endpoint sees the missing membership and returns the remaining groups plus
   // the selection token the group picker needs — without it, selecting a new
-  // group would fail.
+  // group would fail. If refresh fails transiently, settleAfterGroupAccessEnds
+  // tears down rather than leaving a stale group with no usable token.
   const onGroupDeleted = useCallback(async () => {
-    localStorage.removeItem('accessToken');
-    const settled = await refreshAuth();
-    // If the refresh failed transiently (network / 5xx), refreshAuth leaves the
-    // prior state untouched — but here that state names the group we just
-    // deleted, and its token is already gone. Rather than strand a broken
-    // session (stale currentGroup, no token, MembersList wedged mid-delete),
-    // tear down to a clean logged-out state; the user re-authenticates and is
-    // routed to the picker or their remaining group from there.
-    if (!settled) {
-      await resetToLoggedOut();
-    }
-  }, [refreshAuth, resetToLoggedOut]);
+    await settleAfterGroupAccessEnds(false);
+  }, [settleAfterGroupAccessEnds]);
 
   const leaveGroup = useCallback(async () => {
     if (!authState.currentGroup) return;
     await api.groups.leave(authState.currentGroup.id);
-    localStorage.removeItem('accessToken');
-    await clearGroupCaches();
-    const settled = await refreshAuth();
-    if (!settled) await resetToLoggedOut();
-  }, [authState.currentGroup, refreshAuth, resetToLoggedOut]);
+    await settleAfterGroupAccessEnds(true);
+  }, [authState.currentGroup, settleAfterGroupAccessEnds]);
 
   useEffect(() => {
     let cancelled = false;

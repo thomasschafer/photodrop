@@ -25,7 +25,7 @@ export const sendLoginLinkSchema = z.object({
   returnTo: z
     .string()
     .max(500)
-    .refine((path) => path.startsWith('/photo/'), 'Invalid return path')
+    .refine((path) => path.startsWith('/photo/'), { error: 'Invalid return path' })
     .optional(),
 });
 

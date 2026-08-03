@@ -325,7 +325,13 @@ export function MembersList() {
       );
       setShowTransferOwnership(false);
       setNewOwnerId('');
-      await refreshAuth();
+      try {
+        await refreshAuth();
+      } catch (refreshError) {
+        // The ownership write has already succeeded. A transient refresh
+        // failure must not turn that success into a contradictory error.
+        console.error('Ownership transferred but auth refresh failed:', refreshError);
+      }
       showSuccess(`Ownership transferred to ${newOwner?.name ?? 'the new owner'}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to transfer ownership');

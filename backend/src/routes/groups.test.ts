@@ -826,6 +826,33 @@ describe('self-service group access and archive actions', () => {
     expect(mockTransferGroupOwnership).toHaveBeenCalledWith({}, 'group-1', 'owner-1', 'user-2');
   });
 
+  it('rejects a non-owner admin before transferring ownership', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-1',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetGroup.mockResolvedValue({
+      id: 'group-1',
+      name: 'Family',
+      owner_id: 'owner-1',
+      created_at: 1000,
+    });
+
+    const res = await app.request('/groups/group-1/transfer-ownership', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ newOwnerId: 'user-2' }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockTransferGroupOwnership).not.toHaveBeenCalled();
+  });
+
   it('keeps the archive export admin-only', async () => {
     mockVerifyJWT.mockResolvedValue({
       sub: 'user-1',

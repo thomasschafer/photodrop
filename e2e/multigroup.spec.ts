@@ -139,12 +139,14 @@ test.describe('Multi-group selection', () => {
     await page.locator('button[aria-haspopup="menu"][aria-label$=" menu"]').click();
     await page.getByRole('menuitem', { name: 'Account settings' }).click();
     await page.getByRole('button', { name: 'Leave group' }).click();
+    await expect(page.getByText(/Are you sure you want to leave Group Alpha/)).toBeVisible();
     await page.getByRole('button', { name: 'Leave group' }).click();
 
     await expect(page.getByText('Choose a group')).toBeVisible();
     await page.getByRole('button', { name: /Group Beta member/i }).click();
     await expect(page.getByRole('button', { name: 'Group Beta', exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Group Beta', exact: true }).click();
+    await expect(page.getByRole('option', { name: /Group Beta/i })).toBeVisible();
     await expect(page.getByRole('option', { name: /Group Alpha/i })).not.toBeVisible();
   });
 });

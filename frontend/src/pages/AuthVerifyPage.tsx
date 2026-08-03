@@ -25,6 +25,7 @@ export function AuthVerifyPage() {
   // wanted — see verify() below.
   const activeToken = useRef<string | null>(null);
   const nameFormShownAt = useRef<number | null>(null);
+  const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Both handlers below take the token their response came from and drop it
   // unless that token is still the one on screen. Opening a second link while
@@ -61,8 +62,12 @@ export function AuthVerifyPage() {
       const emailedReturnTo = new URLSearchParams(location.search).get('returnTo');
       if (emailedReturnTo) rememberAuthReturnPath(emailedReturnTo);
 
-      setTimeout(() => {
-        navigate(consumeAuthReturnPath(), { replace: true });
+      if (redirectTimer.current) clearTimeout(redirectTimer.current);
+      redirectTimer.current = setTimeout(() => {
+        if (activeToken.current === verifiedToken) {
+          navigate(consumeAuthReturnPath(), { replace: true });
+        }
+        redirectTimer.current = null;
       }, 500);
     },
     [login, location.search, navigate]
@@ -97,6 +102,10 @@ export function AuthVerifyPage() {
       return;
     }
 
+    if (redirectTimer.current) {
+      clearTimeout(redirectTimer.current);
+      redirectTimer.current = null;
+    }
     activeToken.current = token;
 
     async function verify(tokenToVerify: string) {
@@ -115,6 +124,13 @@ export function AuthVerifyPage() {
 
     verify(token);
   }, [token, handleVerificationResult, handleVerificationError]);
+
+  useEffect(
+    () => () => {
+      if (redirectTimer.current) clearTimeout(redirectTimer.current);
+    },
+    []
+  );
 
   // Show expiry warning if user is on name form for too long
   useEffect(() => {

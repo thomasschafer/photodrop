@@ -214,6 +214,17 @@ describe('GET /photos/:id', () => {
       reactions: [{ emoji: '❤️', count: 1 }],
     });
   });
+
+  it('returns 404 when the photo is not in the current group', async () => {
+    const app = createTestApp();
+    authenticateAsMember();
+    mockGetPhotoWithCounts.mockResolvedValue(null);
+
+    const res = await app.request('/photos/missing-photo', { headers: authHeaders });
+
+    expect(res.status).toBe(404);
+    expect(mockGetPhotoWithCounts).toHaveBeenCalledWith({}, 'missing-photo', 'group-1', 'user-1');
+  });
 });
 
 describe('GET /photos/:id/comments', () => {

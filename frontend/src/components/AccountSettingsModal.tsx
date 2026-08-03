@@ -15,6 +15,11 @@ export function AccountSettingsModal({ onClose }: { onClose: () => void }) {
   if (!user || !currentGroup) return null;
   const isOwner = currentGroup.ownerId === user.id;
 
+  const changeStage = (nextStage: Stage) => {
+    setError(null);
+    setStage(nextStage);
+  };
+
   const leave = async () => {
     setLoading(true);
     setError(null);
@@ -32,7 +37,7 @@ export function AccountSettingsModal({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       await api.users.requestAccountDeletion();
-      setStage('deletion-sent');
+      changeStage('deletion-sent');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to send the confirmation email');
     } finally {
@@ -61,7 +66,7 @@ export function AccountSettingsModal({ onClose }: { onClose: () => void }) {
                 As owner, transfer ownership in Group settings or delete the group first.
               </p>
             ) : (
-              <Button onClick={() => setStage('leave')} variant="secondary" className="mt-3">
+              <Button onClick={() => changeStage('leave')} variant="secondary" className="mt-3">
                 Leave group
               </Button>
             )}
@@ -73,7 +78,7 @@ export function AccountSettingsModal({ onClose }: { onClose: () => void }) {
               Remove your account details and reactions permanently. Photos and comments remain in
               family archives under “Deleted user”.
             </p>
-            <Button onClick={() => setStage('delete')} variant="danger" className="mt-3">
+            <Button onClick={() => changeStage('delete')} variant="danger" className="mt-3">
               Delete account
             </Button>
           </section>
@@ -87,7 +92,7 @@ export function AccountSettingsModal({ onClose }: { onClose: () => void }) {
             invitation to rejoin.
           </p>
           <div className="mt-6 flex justify-end gap-3">
-            <Button onClick={() => setStage('main')} variant="secondary" disabled={loading}>
+            <Button onClick={() => changeStage('main')} variant="secondary" disabled={loading}>
               Cancel
             </Button>
             <Button onClick={leave} variant="danger" disabled={loading}>
@@ -110,10 +115,10 @@ export function AccountSettingsModal({ onClose }: { onClose: () => void }) {
             </p>
           )}
           <div className="mt-6 flex justify-end gap-3">
-            <Button onClick={() => setStage('main')} variant="secondary" disabled={loading}>
+            <Button onClick={() => changeStage('main')} variant="secondary" disabled={loading}>
               Cancel
             </Button>
-            <Button onClick={requestDeletion} variant="danger" disabled={loading}>
+            <Button onClick={requestDeletion} variant="danger" disabled={loading || isOwner}>
               {loading ? 'Sending…' : 'Email confirmation link'}
             </Button>
           </div>

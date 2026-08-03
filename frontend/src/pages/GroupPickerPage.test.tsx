@@ -22,6 +22,7 @@ vi.mock('../contexts/AuthContext', () => ({
 }));
 
 import { GroupPickerPage } from './GroupPickerPage';
+import { ApiError } from '../lib/api';
 
 function renderPage() {
   return render(
@@ -60,5 +61,18 @@ describe('GroupPickerPage without memberships', () => {
       'Failed to send the confirmation email'
     );
     expect(screen.getByRole('button', { name: 'Delete account' })).toBeEnabled();
+  });
+
+  it('shows the API explanation when the deletion request is rejected', async () => {
+    mocks.requestDeletion.mockRejectedValue(
+      new ApiError('Transfer ownership before deleting your account')
+    );
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete account' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Transfer ownership before deleting your account'
+    );
   });
 });

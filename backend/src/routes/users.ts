@@ -232,7 +232,7 @@ users.post('/confirm-account-deletion', confirmAccountDeletionRateLimit, async (
     throw new InternalServerError('Failed to delete account');
   }
 
-  return c.json({ message: 'Account deleted successfully' });
+  return c.json({ message: 'Account deleted successfully' } satisfies MessageResponse);
 });
 
 export default users;

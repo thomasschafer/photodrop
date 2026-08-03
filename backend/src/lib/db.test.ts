@@ -45,6 +45,7 @@ import {
   deleteSessionFamily,
   pruneExpiredSessions,
   anonymizeUserAccount,
+  transferGroupOwnership,
 } from './db';
 import {
   getRandomProfileColor,
@@ -638,6 +639,44 @@ describe('anonymizeUserAccount', () => {
     const { db } = createBatchDb(new Array(10).fill(0));
 
     await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(false);
+  });
+
+  it('reports an unburned token as unsuccessful after the tombstone succeeds', async () => {
+    const changes = new Array(10).fill(1);
+    changes[9] = 0;
+    const { db } = createBatchDb(changes);
+
+    await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(false);
+  });
+});
+
+describe('transferGroupOwnership', () => {
+  it('is safe to retry when the requested owner is already in place', async () => {
+    const statements: Array<{ sql: string; bindings: unknown[] }> = [];
+    const prepare = vi.fn((sql: string) => {
+      const statement = {
+        bind: vi.fn((...bindings: unknown[]) => {
+          statements.push({ sql, bindings });
+          return statement;
+        }),
+      };
+      return statement;
+    });
+    const db = {
+      prepare,
+      batch: vi.fn().mockResolvedValue([{ meta: { changes: 1 } }, { meta: { changes: 0 } }]),
+    } as unknown as D1Database;
+
+    await expect(transferGroupOwnership(db, 'group-1', 'owner-1', 'owner-2')).resolves.toBe(true);
+    expect(statements[0].sql).toContain('owner_id IN (?, ?)');
+    expect(statements[0].bindings).toEqual([
+      'owner-2',
+      'group-1',
+      'owner-1',
+      'owner-2',
+      'owner-2',
+      'group-1',
+    ]);
   });
 });
 
@@ -1512,6 +1551,7 @@ describe('listPhotosWithCounts', () => {
     // A removed member is labelled rather than nulled, so the feed still
     // distinguishes them from a deleted account — and never names them.
     expect(result[2].uploader_name).toBe('Former member');
+    expect(result[2].uploader_profile_color).toBeNull();
 
     // The mocked rows would map through even if the query stopped asking for
     // the uploader, so pin the projection and the joins that produce them.

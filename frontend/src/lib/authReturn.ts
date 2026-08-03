@@ -17,8 +17,13 @@ export function rememberAuthReturnPath(path: string): void {
 }
 
 export function consumeAuthReturnPath(): string {
-  const stored = localStorage.getItem(RETURN_PATH_KEY);
-  localStorage.removeItem(RETURN_PATH_KEY);
+  let stored: string | null;
+  try {
+    stored = localStorage.getItem(RETURN_PATH_KEY);
+    localStorage.removeItem(RETURN_PATH_KEY);
+  } catch {
+    return '/';
+  }
   if (!stored) return '/';
 
   try {

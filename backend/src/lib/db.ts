@@ -444,12 +444,12 @@ export async function transferGroupOwnership(
     db
       .prepare(
         `UPDATE groups SET owner_id = ?
-         WHERE id = ? AND owner_id = ?
+         WHERE id = ? AND owner_id IN (?, ?)
            AND EXISTS (
              SELECT 1 FROM memberships WHERE user_id = ? AND group_id = ?
            )`
       )
-      .bind(newOwnerId, groupId, currentOwnerId, newOwnerId, groupId),
+      .bind(newOwnerId, groupId, currentOwnerId, newOwnerId, newOwnerId, groupId),
     db
       .prepare(
         `UPDATE memberships SET role = 'admin'
@@ -1417,6 +1417,21 @@ interface PhotoWithCountsRow extends Photo {
   uploader_deleted_at: number | null;
 }
 
+function uploaderAttribution(
+  row: Pick<
+    PhotoWithCountsRow,
+    'uploader_name' | 'uploader_user_id' | 'uploader_deleted_at' | 'uploader_profile_color'
+  >
+): { name: string | null; profileColor: ProfileColor | null } {
+  const accountDeleted = typeof row.uploader_deleted_at === 'number';
+  return {
+    name: pastAuthorName(row.uploader_name, row.uploader_user_id !== null, accountDeleted),
+    // A former member's group identity is deliberately private. Once their
+    // group-scoped name is gone, their distinctive profile colour goes too.
+    profileColor: accountDeleted || row.uploader_name === null ? null : row.uploader_profile_color,
+  };
+}
+
 interface ReactionAggregateRow {
   photo_id: string;
   emoji: string;
@@ -1525,26 +1540,24 @@ export async function listPhotosWithCounts(
   }
 
   // Combine photos with their reaction summaries
-  return photos.map((photo) => ({
-    id: photo.id,
-    group_id: photo.group_id,
-    r2_key: photo.r2_key,
-    caption: photo.caption,
-    uploaded_by: photo.uploaded_by,
-    uploaded_at: photo.uploaded_at,
-    thumbnail_r2_key: photo.thumbnail_r2_key,
-    reaction_count: reactionCountByPhoto.get(photo.id) || 0,
-    comment_count: photo.comment_count,
-    reactions: reactionsByPhoto.get(photo.id) || [],
-    user_reactions: userReactionsByPhoto.get(photo.id) || [],
-    uploader_name: pastAuthorName(
-      photo.uploader_name,
-      photo.uploader_user_id !== null,
-      typeof photo.uploader_deleted_at === 'number'
-    ),
-    uploader_profile_color:
-      typeof photo.uploader_deleted_at === 'number' ? null : photo.uploader_profile_color,
-  }));
+  return photos.map((photo) => {
+    const attribution = uploaderAttribution(photo);
+    return {
+      id: photo.id,
+      group_id: photo.group_id,
+      r2_key: photo.r2_key,
+      caption: photo.caption,
+      uploaded_by: photo.uploaded_by,
+      uploaded_at: photo.uploaded_at,
+      thumbnail_r2_key: photo.thumbnail_r2_key,
+      reaction_count: reactionCountByPhoto.get(photo.id) || 0,
+      comment_count: photo.comment_count,
+      reactions: reactionsByPhoto.get(photo.id) || [],
+      user_reactions: userReactionsByPhoto.get(photo.id) || [],
+      uploader_name: attribution.name,
+      uploader_profile_color: attribution.profileColor,
+    };
+  });
 }
 
 /** A single photo with the same social and attribution fields as the feed. */
@@ -1589,6 +1602,7 @@ export async function getPhotoWithCounts(
     .all<{ emoji: string; count: number; reacted_by_user: number }>();
   const reactionRows = reactionsResult.results || [];
 
+  const attribution = uploaderAttribution(row);
   return {
     id: row.id,
     group_id: row.group_id,
@@ -1603,13 +1617,8 @@ export async function getPhotoWithCounts(
     user_reactions: reactionRows
       .filter((reaction) => reaction.reacted_by_user === 1)
       .map((reaction) => reaction.emoji),
-    uploader_name: pastAuthorName(
-      row.uploader_name,
-      row.uploader_user_id !== null,
-      typeof row.uploader_deleted_at === 'number'
-    ),
-    uploader_profile_color:
-      typeof row.uploader_deleted_at === 'number' ? null : row.uploader_profile_color,
+    uploader_name: attribution.name,
+    uploader_profile_color: attribution.profileColor,
   };
 }
 
@@ -1620,6 +1629,7 @@ export interface GroupExportPhotoRow {
   uploader_name: string | null;
   uploader_user_id: string | null;
   uploader_deleted_at: number | null;
+  uploader_profile_color: ProfileColor | null;
   r2_key: string;
 }
 
@@ -1631,6 +1641,7 @@ export async function getGroupExportPhotos(
     .prepare(
       `SELECT p.id, p.caption, p.uploaded_at, p.r2_key,
               u.id as uploader_user_id, u.deleted_at as uploader_deleted_at,
+              u.profile_color as uploader_profile_color,
               ${RESOLVED_MEMBER_NAME_IF_MEMBER} as uploader_name
        FROM photos p
        LEFT JOIN users u ON u.id = p.uploaded_by
@@ -1643,10 +1654,6 @@ export async function getGroupExportPhotos(
 
   return (result.results || []).map((photo) => ({
     ...photo,
-    uploader_name: pastAuthorName(
-      photo.uploader_name,
-      photo.uploader_user_id !== null,
-      typeof photo.uploader_deleted_at === 'number'
-    ),
+    uploader_name: uploaderAttribution(photo).name,
   }));
 }
