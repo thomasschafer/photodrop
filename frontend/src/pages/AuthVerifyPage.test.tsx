@@ -194,7 +194,6 @@ describe('AuthVerifyPage', () => {
   });
 
   it('cancels the previous links redirect when a second token opens', async () => {
-    vi.useFakeTimers();
     mockVerifyMagicLink
       .mockResolvedValueOnce({
         accessToken: 'token-a',
@@ -212,7 +211,9 @@ describe('AuthVerifyPage', () => {
     });
     await screen.findByText('Welcome!');
 
-    act(() => vi.advanceTimersByTime(500));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
 
     expect(screen.getByText('Welcome!')).toBeInTheDocument();
   });

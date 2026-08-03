@@ -8,7 +8,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../lib/api', () => ({
-  ApiError: class ApiError extends Error {},
+  ApiError: class ApiError extends Error {
+    constructor(_status: number, _statusText: string, message: string) {
+      super(message);
+    }
+  },
   api: { users: { requestAccountDeletionWithoutGroup: mocks.requestDeletion } },
 }));
 
