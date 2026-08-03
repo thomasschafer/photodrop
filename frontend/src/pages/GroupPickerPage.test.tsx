@@ -65,7 +65,7 @@ describe('GroupPickerPage without memberships', () => {
 
   it('shows the API explanation when the deletion request is rejected', async () => {
     mocks.requestDeletion.mockRejectedValue(
-      new ApiError('Transfer ownership before deleting your account')
+      new ApiError(403, 'Forbidden', 'Transfer ownership before deleting your account')
     );
     renderPage();
 
