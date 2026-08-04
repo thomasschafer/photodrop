@@ -21,12 +21,15 @@ const mockDeleteMembership = vi.fn();
 const mockIsGroupOwner = vi.fn();
 const mockDeleteAllUserPushSubscriptionsForGroup = vi.fn();
 const mockDeleteAllUserDeviceTokensForGroup = vi.fn();
+const mockTransferGroupOwnership = vi.fn();
+const mockGetGroupExportPhotos = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
   verifyJWT: (...args: unknown[]) => mockVerifyJWT(...args),
 }));
 
 vi.mock('../lib/db', () => ({
+  DELETED_USER_NAME: 'Deleted user',
   getGroup: (...args: unknown[]) => mockGetGroup(...args),
   getGroupPhotoKeys: (...args: unknown[]) => mockGetGroupPhotoKeys(...args),
   getGroupPhotoCount: (...args: unknown[]) => mockGetGroupPhotoCount(...args),
@@ -45,6 +48,8 @@ vi.mock('../lib/db', () => ({
     mockDeleteAllUserPushSubscriptionsForGroup(...args),
   deleteAllUserDeviceTokensForGroup: (...args: unknown[]) =>
     mockDeleteAllUserDeviceTokensForGroup(...args),
+  transferGroupOwnership: (...args: unknown[]) => mockTransferGroupOwnership(...args),
+  getGroupExportPhotos: (...args: unknown[]) => mockGetGroupExportPhotos(...args),
 }));
 
 import groups from './groups';
@@ -705,6 +710,194 @@ describe('PATCH /groups/:groupId/members/:userId/display-name', () => {
     expect(res.status).toBe(500);
     const json = (await res.json()) as { error: string };
     expect(json.error).toBe('Failed to update display name');
+  });
+});
+
+describe('self-service group access and archive actions', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    app = new Hono();
+    app.use('*', async (c, next) => {
+      c.env = { JWT_SECRET: 'test-secret', DB: {}, PHOTOS: {} };
+      await next();
+    });
+    app.route('/groups', groups);
+    app.onError(errorHandler);
+    mockGetMembership.mockResolvedValue({
+      user_id: 'user-1',
+      group_id: 'group-1',
+      role: 'member',
+      joined_at: 1000,
+      image_protection: 1,
+      display_name: null,
+    });
+  });
+
+  it('lets an ordinary member leave without reading the member directory', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'user-1',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+    mockIsGroupOwner.mockResolvedValue(false);
+    mockDeleteMembership.mockResolvedValue({ success: true });
+
+    const res = await app.request('/groups/group-1/membership', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockGetGroupMembers).not.toHaveBeenCalled();
+    expect(mockDeleteAllUserPushSubscriptionsForGroup).toHaveBeenCalledWith(
+      {},
+      'user-1',
+      'group-1'
+    );
+    expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
+    expect(mockDeleteMembership.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDeleteAllUserPushSubscriptionsForGroup.mock.invocationCallOrder[0]
+    );
+    expect(mockDeleteMembership.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDeleteAllUserDeviceTokensForGroup.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('treats a concurrent completed leave as success and still cleans up notifications', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'user-1',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+    mockIsGroupOwner.mockResolvedValue(false);
+    mockDeleteMembership.mockResolvedValue({ success: false });
+
+    const res = await app.request('/groups/group-1/membership', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteAllUserPushSubscriptionsForGroup).toHaveBeenCalledWith(
+      {},
+      'user-1',
+      'group-1'
+    );
+    expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
+  });
+
+  it('requires an owner to transfer or delete before leaving', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'owner-1',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockIsGroupOwner.mockResolvedValue(true);
+
+    const res = await app.request('/groups/group-1/membership', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockDeleteMembership).not.toHaveBeenCalled();
+  });
+
+  it('returns the owner guidance if ownership changes during the leave request', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'user-1',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+    mockIsGroupOwner.mockResolvedValue(false);
+    mockDeleteMembership.mockResolvedValue({ success: false, error: 'is_owner' });
+
+    const res = await app.request('/groups/group-1/membership', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: string }).toEqual({
+      error: 'Transfer ownership or delete the group before leaving',
+    });
+  });
+
+  it('allows an owner to transfer ownership to an existing member', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'owner-1',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetGroup.mockResolvedValue({
+      id: 'group-1',
+      name: 'Family',
+      owner_id: 'owner-1',
+      created_at: 1000,
+    });
+    mockTransferGroupOwnership.mockResolvedValue(true);
+
+    const res = await app.request('/groups/group-1/transfer-ownership', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ newOwnerId: 'user-2' }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockTransferGroupOwnership).toHaveBeenCalledWith({}, 'group-1', 'owner-1', 'user-2');
+  });
+
+  it('rejects a non-owner admin before transferring ownership', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'admin-1',
+      groupId: 'group-1',
+      role: 'admin',
+      type: 'access',
+    });
+    mockGetGroup.mockResolvedValue({
+      id: 'group-1',
+      name: 'Family',
+      owner_id: 'owner-1',
+      created_at: 1000,
+    });
+
+    const res = await app.request('/groups/group-1/transfer-ownership', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer valid-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ newOwnerId: 'user-2' }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockTransferGroupOwnership).not.toHaveBeenCalled();
+  });
+
+  it('keeps the archive export admin-only', async () => {
+    mockVerifyJWT.mockResolvedValue({
+      sub: 'user-1',
+      groupId: 'group-1',
+      role: 'member',
+      type: 'access',
+    });
+
+    const res = await app.request('/groups/group-1/export', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(403);
+    expect(mockGetGroupExportPhotos).not.toHaveBeenCalled();
   });
 });
 

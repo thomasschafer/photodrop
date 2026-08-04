@@ -6,7 +6,9 @@
 export const INSTALL_PROMPT_STORAGE_KEY = 'installPrompt';
 
 export interface InstallPromptState {
+  /** Permanent opt-out. */
   dismissed?: boolean;
+  /** The last time “Later” was chosen; prompt again after the snooze period. */
   dismissedAt?: number;
 }
 

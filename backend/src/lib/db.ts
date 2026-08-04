@@ -18,6 +18,7 @@ export interface User {
   profile_color: ProfileColor;
   created_at: number;
   last_seen_at: number | null;
+  deleted_at: number | null;
 }
 
 export interface Membership {
@@ -80,17 +81,24 @@ const RESOLVED_MEMBER_NAME_IF_MEMBER = `CASE WHEN m.user_id IS NULL THEN NULL EL
  * person is no longer a member, which it can see anyway, and nothing else.
  */
 export const FORMER_MEMBER_NAME = 'Former member';
+export const DELETED_USER_NAME = 'Deleted user';
 
 /**
  * The name to show for the author of something the group still displays after
  * the author has gone, given the group-resolved name (null once they are not a
  * member) and whether their account still exists.
  *
- * Null means the account itself is gone, which callers render differently from a
- * former member — the two states are distinct and both are already visible from
- * other columns, so collapsing them would only lose information.
+ * Deleted accounts use a stable anonymous label while people who only left the
+ * group use the distinct former-member label.
  */
-function pastAuthorName(resolvedName: string | null, accountExists: boolean): string | null {
+function pastAuthorName(
+  resolvedName: string | null,
+  accountExists: boolean,
+  accountDeleted: boolean
+): string | null {
+  if (accountDeleted) {
+    return DELETED_USER_NAME;
+  }
   if (resolvedName !== null) {
     return resolvedName;
   }
@@ -135,7 +143,7 @@ export interface PhotoReaction {
 
 export interface PhotoReactionWithUser extends PhotoReaction {
   user_name: string;
-  user_profile_color: ProfileColor;
+  user_profile_color: ProfileColor | null;
 }
 
 /**
@@ -157,6 +165,7 @@ export interface Comment {
   content: string;
   created_at: number;
   deleted_at: number | null;
+  account_deleted_at?: number | null;
 }
 
 export interface PhotoWithCounts extends Photo {
@@ -403,17 +412,62 @@ export async function deleteMembership(
   userId: string,
   groupId: string
 ): Promise<{ success: boolean; error?: 'is_owner' }> {
-  // Check if the user is the group owner - owners cannot be removed
+  const result = await db
+    .prepare(
+      `DELETE FROM memberships
+       WHERE user_id = ? AND group_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM groups WHERE id = ? AND owner_id = ?
+         )`
+    )
+    .bind(userId, groupId, groupId, userId)
+    .run();
+
+  if (result.meta.changes > 0) return { success: true };
+
+  // The write itself carries the invariant. This read is only to turn its
+  // guarded no-op into the useful owner-specific error expected by callers.
   if (await isGroupOwner(db, userId, groupId)) {
     return { success: false, error: 'is_owner' };
   }
+  return { success: false };
+}
 
+/** Transfer ownership to an existing member and make the new owner an admin. */
+export async function transferGroupOwnership(
+  db: D1Database,
+  groupId: string,
+  currentOwnerId: string,
+  newOwnerId: string
+): Promise<boolean> {
+  const results = await db.batch([
+    db
+      .prepare(
+        `UPDATE groups SET owner_id = ?
+         WHERE id = ? AND owner_id IN (?, ?)
+           AND EXISTS (
+             SELECT 1 FROM memberships WHERE user_id = ? AND group_id = ?
+           )`
+      )
+      .bind(newOwnerId, groupId, currentOwnerId, newOwnerId, newOwnerId, groupId),
+    db
+      .prepare(
+        `UPDATE memberships SET role = 'admin'
+         WHERE user_id = ? AND group_id = ?
+           AND EXISTS (SELECT 1 FROM groups WHERE id = ? AND owner_id = ?)`
+      )
+      .bind(newOwnerId, groupId, groupId, newOwnerId),
+  ]);
+
+  return (results[0]?.meta.changes ?? 0) > 0;
+}
+
+export async function getOwnedGroups(db: D1Database, userId: string): Promise<Group[]> {
   const result = await db
-    .prepare('DELETE FROM memberships WHERE user_id = ? AND group_id = ?')
-    .bind(userId, groupId)
-    .run();
-
-  return { success: result.meta.changes > 0 };
+    .prepare('SELECT * FROM groups WHERE owner_id = ? ORDER BY created_at ASC')
+    .bind(userId)
+    .all<Group>();
+  return result.results || [];
 }
 
 export async function getUserById(db: D1Database, userId: string): Promise<User | null> {
@@ -436,6 +490,128 @@ export async function updateUserLastSeen(db: D1Database, userId: string): Promis
   const now = Math.floor(Date.now() / 1000);
 
   await db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now, userId).run();
+}
+
+export interface AccountDeletionToken {
+  token: string;
+  user_id: string;
+  created_at: number;
+  expires_at: number;
+  used_at: number | null;
+}
+
+export async function createAccountDeletionToken(db: D1Database, userId: string): Promise<string> {
+  const token = generateInviteToken();
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + 15 * 60;
+
+  await db.batch([
+    db.prepare('DELETE FROM account_deletion_tokens WHERE user_id = ?').bind(userId),
+    db
+      .prepare(
+        `INSERT INTO account_deletion_tokens (token, user_id, created_at, expires_at)
+         VALUES (?, ?, ?, ?)`
+      )
+      .bind(token, userId, now, expiresAt),
+  ]);
+  return token;
+}
+
+export async function getAccountDeletionToken(
+  db: D1Database,
+  token: string
+): Promise<AccountDeletionToken | null> {
+  return db
+    .prepare('SELECT * FROM account_deletion_tokens WHERE token = ?')
+    .bind(token)
+    .first<AccountDeletionToken>();
+}
+
+/**
+ * Erase an account while retaining its photo and comment contributions in the
+ * family archive. The remaining users row is an inert, non-login tombstone.
+ */
+export async function anonymizeUserAccount(
+  db: D1Database,
+  user: User,
+  confirmationToken: string
+): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const anonymousEmail = `deleted-${user.id}@deleted.invalid`;
+
+  // The first statement is the gate for the whole batch. Every later write
+  // requires the exact tombstone marker it sets, so becoming an owner between
+  // the route's check and this batch makes every mutation a no-op (including
+  // leaving the confirmation token reusable after ownership is transferred).
+  const results = await db.batch([
+    db
+      .prepare(
+        `UPDATE users
+         SET name = 'Deleted user', email = ?, profile_color = 'terracotta',
+             last_seen_at = NULL, deleted_at = ?
+         WHERE id = ? AND deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM groups WHERE owner_id = ?)`
+      )
+      .bind(anonymousEmail, now, user.id, user.id),
+    db
+      .prepare(
+        `DELETE FROM photo_reactions WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM photo_views WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM push_subscriptions WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM device_tokens WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM sessions WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM memberships WHERE user_id = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `UPDATE comments SET user_id = NULL, author_name = 'Deleted user'
+         WHERE user_id = ?
+           AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.id, user.id, now),
+    db
+      .prepare(
+        `DELETE FROM magic_link_tokens WHERE email = ?
+         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(user.email, user.id, now),
+    db
+      .prepare(
+        `UPDATE account_deletion_tokens SET used_at = ?
+         WHERE token = ? AND user_id = ? AND used_at IS NULL
+           AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
+      )
+      .bind(now, confirmationToken, user.id, user.id, now),
+  ]);
+
+  return (results[0]?.meta.changes ?? 0) > 0 && (results[9]?.meta.changes ?? 0) > 0;
 }
 
 /** The parts of a user's own profile they may change. */
@@ -1158,11 +1334,11 @@ export async function getCommentsByPhotoId(db: D1Database, photoId: string): Pro
       // The photo join is what scopes the name to a group: a comment is only
       // ever read in the context of the group its photo belongs to, so that is
       // the membership whose display name applies. Once that membership is gone
-      // user_name is null and the caller falls back to c.author_name, the
-      // group-scoped name snapshotted when the comment was written.
+      // user_name is null once the membership is gone. The route deliberately
+      // renders that as Former member rather than revealing the old name.
       `SELECT c.id, c.photo_id, c.user_id, c.author_name,
               ${RESOLVED_MEMBER_NAME_IF_MEMBER} as user_name, u.profile_color as author_profile_color,
-              c.content, c.created_at, c.deleted_at
+              u.deleted_at as account_deleted_at, c.content, c.created_at, c.deleted_at
        FROM comments c
        JOIN photos p ON p.id = c.photo_id
        LEFT JOIN users u ON c.user_id = u.id
@@ -1226,6 +1402,7 @@ export async function getPhotoReactionsWithUsers(
   return (result.results || []).map((row) => ({
     ...row,
     user_name: row.user_name ?? FORMER_MEMBER_NAME,
+    user_profile_color: row.user_name === null ? null : row.user_profile_color,
   }));
 }
 
@@ -1238,6 +1415,22 @@ interface PhotoWithCountsRow extends Photo {
   uploader_user_id: string | null;
   uploader_name: string | null;
   uploader_profile_color: ProfileColor | null;
+  uploader_deleted_at: number | null;
+}
+
+function uploaderAttribution(
+  row: Pick<
+    PhotoWithCountsRow,
+    'uploader_name' | 'uploader_user_id' | 'uploader_deleted_at' | 'uploader_profile_color'
+  >
+): { name: string | null; profileColor: ProfileColor | null } {
+  const accountDeleted = typeof row.uploader_deleted_at === 'number';
+  return {
+    name: pastAuthorName(row.uploader_name, row.uploader_user_id !== null, accountDeleted),
+    // A former member's group identity is deliberately private. Once their
+    // group-scoped name is gone, their distinctive profile colour goes too.
+    profileColor: accountDeleted || row.uploader_name === null ? null : row.uploader_profile_color,
+  };
 }
 
 interface ReactionAggregateRow {
@@ -1274,7 +1467,8 @@ export async function listPhotosWithCounts(
         COALESCE(c.comment_count, 0) as comment_count,
         u.id as uploader_user_id,
         ${RESOLVED_MEMBER_NAME_IF_MEMBER} as uploader_name,
-        u.profile_color as uploader_profile_color
+        u.profile_color as uploader_profile_color,
+        u.deleted_at as uploader_deleted_at
       FROM photos p
       LEFT JOIN (
         SELECT photo_id, COUNT(*) as comment_count
@@ -1285,7 +1479,7 @@ export async function listPhotosWithCounts(
       LEFT JOIN users u ON u.id = p.uploaded_by
       LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id
       WHERE p.group_id = ?
-      ORDER BY p.uploaded_at DESC
+      ORDER BY p.uploaded_at DESC, p.id DESC
       LIMIT ? OFFSET ?`
     )
     .bind(groupId, limit, offset)
@@ -1347,19 +1541,120 @@ export async function listPhotosWithCounts(
   }
 
   // Combine photos with their reaction summaries
-  return photos.map((photo) => ({
-    id: photo.id,
-    group_id: photo.group_id,
-    r2_key: photo.r2_key,
-    caption: photo.caption,
-    uploaded_by: photo.uploaded_by,
-    uploaded_at: photo.uploaded_at,
-    thumbnail_r2_key: photo.thumbnail_r2_key,
-    reaction_count: reactionCountByPhoto.get(photo.id) || 0,
-    comment_count: photo.comment_count,
-    reactions: reactionsByPhoto.get(photo.id) || [],
-    user_reactions: userReactionsByPhoto.get(photo.id) || [],
-    uploader_name: pastAuthorName(photo.uploader_name, photo.uploader_user_id !== null),
-    uploader_profile_color: photo.uploader_profile_color,
+  return photos.map((photo) => {
+    const attribution = uploaderAttribution(photo);
+    return {
+      id: photo.id,
+      group_id: photo.group_id,
+      r2_key: photo.r2_key,
+      caption: photo.caption,
+      uploaded_by: photo.uploaded_by,
+      uploaded_at: photo.uploaded_at,
+      thumbnail_r2_key: photo.thumbnail_r2_key,
+      reaction_count: reactionCountByPhoto.get(photo.id) || 0,
+      comment_count: photo.comment_count,
+      reactions: reactionsByPhoto.get(photo.id) || [],
+      user_reactions: userReactionsByPhoto.get(photo.id) || [],
+      uploader_name: attribution.name,
+      uploader_profile_color: attribution.profileColor,
+    };
+  });
+}
+
+/** A single photo with the same social and attribution fields as the feed. */
+export async function getPhotoWithCounts(
+  db: D1Database,
+  photoId: string,
+  groupId: string,
+  userId: string
+): Promise<PhotoWithCounts | null> {
+  const row = await db
+    .prepare(
+      `SELECT
+        p.id, p.group_id, p.r2_key, p.caption, p.uploaded_by, p.uploaded_at,
+        p.thumbnail_r2_key,
+        COALESCE(c.comment_count, 0) as comment_count,
+        u.id as uploader_user_id,
+        ${RESOLVED_MEMBER_NAME_IF_MEMBER} as uploader_name,
+        u.profile_color as uploader_profile_color,
+        u.deleted_at as uploader_deleted_at
+       FROM photos p
+       LEFT JOIN (
+         SELECT photo_id, COUNT(*) as comment_count
+         FROM comments WHERE deleted_at IS NULL GROUP BY photo_id
+       ) c ON c.photo_id = p.id
+       LEFT JOIN users u ON u.id = p.uploaded_by
+       LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id
+       WHERE p.id = ? AND p.group_id = ?`
+    )
+    .bind(photoId, groupId)
+    .first<PhotoWithCountsRow>();
+
+  if (!row) return null;
+
+  const reactionsResult = await db
+    .prepare(
+      `SELECT emoji, COUNT(*) as count,
+              MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) as reacted_by_user
+       FROM photo_reactions WHERE photo_id = ?
+       GROUP BY emoji ORDER BY count DESC, emoji ASC`
+    )
+    .bind(userId, photoId)
+    .all<{ emoji: string; count: number; reacted_by_user: number }>();
+  const reactionRows = reactionsResult.results || [];
+
+  const attribution = uploaderAttribution(row);
+  return {
+    id: row.id,
+    group_id: row.group_id,
+    r2_key: row.r2_key,
+    caption: row.caption,
+    uploaded_by: row.uploaded_by,
+    uploaded_at: row.uploaded_at,
+    thumbnail_r2_key: row.thumbnail_r2_key,
+    reaction_count: reactionRows.reduce((total, reaction) => total + reaction.count, 0),
+    comment_count: row.comment_count,
+    reactions: reactionRows.map(({ emoji, count }) => ({ emoji, count })),
+    user_reactions: reactionRows
+      .filter((reaction) => reaction.reacted_by_user === 1)
+      .map((reaction) => reaction.emoji),
+    uploader_name: attribution.name,
+    uploader_profile_color: attribution.profileColor,
+  };
+}
+
+export interface GroupExportPhotoRow {
+  id: string;
+  caption: string | null;
+  uploaded_at: number;
+  uploader_name: string | null;
+  uploader_user_id: string | null;
+  uploader_deleted_at: number | null;
+  uploader_profile_color: ProfileColor | null;
+  r2_key: string;
+}
+
+export async function getGroupExportPhotos(
+  db: D1Database,
+  groupId: string
+): Promise<GroupExportPhotoRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT p.id, p.caption, p.uploaded_at, p.r2_key,
+              u.id as uploader_user_id, u.deleted_at as uploader_deleted_at,
+              u.profile_color as uploader_profile_color,
+              ${RESOLVED_MEMBER_NAME_IF_MEMBER} as uploader_name
+       FROM photos p
+       LEFT JOIN users u ON u.id = p.uploaded_by
+       LEFT JOIN memberships m ON m.user_id = p.uploaded_by AND m.group_id = p.group_id
+       WHERE p.group_id = ?
+       ORDER BY p.uploaded_at ASC, p.id ASC`
+    )
+    .bind(groupId)
+    .all<GroupExportPhotoRow>();
+
+  return (result.results || []).map((photo) => ({
+    ...photo,
+    uploader_name: uploaderAttribution(photo).name,
   }));
 }

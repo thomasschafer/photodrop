@@ -392,7 +392,7 @@ export function NotificationBell() {
                     ? 'Notifications enabled for this group'
                     : 'Enable notifications for this group'
         }
-        className={`flex items-center justify-center w-9 h-9 rounded-lg border cursor-pointer transition-colors ${
+        className={`flex items-center justify-center w-11 h-11 rounded-lg border cursor-pointer transition-colors ${
           isError
             ? 'border-red-500 bg-red-500/10 text-red-500'
             : isLoading

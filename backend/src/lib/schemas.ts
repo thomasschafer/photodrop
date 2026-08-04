@@ -22,6 +22,11 @@ export const sendInviteSchema = z.object({
 
 export const sendLoginLinkSchema = z.object({
   email: emailSchema,
+  returnTo: z
+    .string()
+    .max(500)
+    .refine((path) => path.startsWith('/photo/'), { error: 'Invalid return path' })
+    .optional(),
 });
 
 const nameSchema = z
@@ -124,6 +129,18 @@ export const updateMemberSchema = z.object({
           ? 'Provide a role to update'
           : undefined,
   }),
+});
+
+export const transferOwnershipSchema = z.object({
+  newOwnerId: z.string().trim().min(1, 'New owner is required'),
+});
+
+export const accountDeletionTokenSchema = z.object({
+  token: z.string().trim().min(1, 'Confirmation token is required'),
+});
+
+export const accountDeletionRequestSchema = z.object({
+  email: emailSchema,
 });
 
 export const displayNameSchema = z.object({

@@ -59,6 +59,30 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Send sign-in link' })).toBeInTheDocument();
   });
 
+  it('sends signed-out photo links to sign in so the photo can be resumed', async () => {
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/photo/photo-1?group=group-1']}>
+          <App />
+        </MemoryRouter>
+      </ThemeProvider>
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  it('returns other signed-out app routes to the landing page', async () => {
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={['/members']}>
+          <App />
+        </MemoryRouter>
+      </ThemeProvider>
+    );
+
+    expect(await screen.findByRole('link', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
   it('follows a deep link published before it mounted', () => {
     // Cold start: main.tsx reads the launch URL at module scope, which can beat
     // React's first render. The link is buffered, so App picks it up on

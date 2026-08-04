@@ -20,6 +20,8 @@ export interface GroupJson {
   role: MembershipRole;
   ownerId: string;
   imageProtection: boolean;
+  /** The caller's group-scoped display name, or null when using their account name. */
+  displayName: string | null;
 }
 
 /**
@@ -86,7 +88,7 @@ export interface PhotoSummary {
   id: string;
   caption: string | null;
   uploadedBy: string;
-  /** Null when the uploader's account has since been deleted. */
+  /** "Deleted user" after account deletion; null is retained for legacy records. */
   uploaderName: string | null;
   uploaderProfileColor: ProfileColor | null;
   uploadedAt: number;
@@ -102,12 +104,7 @@ export interface PhotoListResponse {
   hasMore: boolean;
 }
 
-export interface PhotoDetailResponse {
-  id: string;
-  caption: string | null;
-  uploadedBy: string;
-  uploadedAt: number;
-}
+export type PhotoDetailResponse = PhotoSummary;
 
 export interface PhotoUploadResponse extends MessageResponse {
   id: string;
@@ -125,7 +122,7 @@ export interface ReactionWithUserJson {
   emoji: string;
   userId: string;
   userName: string;
-  profileColor: ProfileColor;
+  profileColor: ProfileColor | null;
   createdAt: number;
 }
 
@@ -219,6 +216,24 @@ export interface PhotoCountResponse {
 
 export interface GroupDeletedResponse extends MessageResponse {
   deletedFiles: number;
+}
+
+export interface GroupExportPhoto {
+  id: string;
+  caption: string | null;
+  uploadedAt: number;
+  uploaderName: string;
+  fileName: string;
+}
+
+export interface GroupExportResponse {
+  groupName: string;
+  exportedAt: number;
+  photos: GroupExportPhoto[];
+}
+
+export interface AccountDeletionRequestedResponse extends MessageResponse {
+  email: string;
 }
 
 // Users

@@ -4,17 +4,19 @@ import { isVerticalNavKey } from '../lib/keyboard';
 import { useDropdown } from '../lib/useDropdown';
 import { Avatar } from './Avatar';
 import { ProfileModals, type ProfileModalKind } from './ProfileModals';
+import { AccountSettingsModal } from './AccountSettingsModal';
 
 export function UserMenu() {
   const { user, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [openModal, setOpenModal] = useState<ProfileModalKind | null>(null);
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
   const buildStamp = import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_GIT_SHA || 'dev';
 
   const { containerRef, triggerRef, setOptionRef, handleOptionKeyDown, handleBlur } = useDropdown({
     isOpen,
     onClose: () => setIsOpen(false),
-    itemCount: 3,
+    itemCount: 4,
     closeOnScroll: true,
   });
 
@@ -42,7 +44,7 @@ export function UserMenu() {
           aria-label={`${user.name} menu`}
           aria-expanded={isOpen}
           aria-haspopup="menu"
-          className="flex items-center gap-2 rounded-lg p-1 cursor-pointer transition-colors hover:bg-bg-secondary border-none bg-transparent"
+          className="flex items-center justify-center gap-2 rounded-lg p-1 cursor-pointer transition-colors hover:bg-bg-secondary border-none bg-transparent min-w-[44px] min-h-[44px]"
         >
           <Avatar name={user.name} color={user.profileColor} size="md" />
         </button>
@@ -92,17 +94,41 @@ export function UserMenu() {
                 />
                 Change color
               </button>
-              <div className="px-3.5 pt-1 pb-1 text-[10px] text-text-muted">
-                Version: {buildStamp}
-              </div>
               <button
                 ref={setOptionRef(2)}
                 role="menuitem"
                 onClick={() => {
                   setIsOpen(false);
-                  logout();
+                  setShowAccountSettings(true);
                 }}
                 onKeyDown={(e) => handleOptionKeyDown(e, 2)}
+                className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-text-secondary bg-transparent transition-colors hover:bg-bg-tertiary"
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.6v.2h-4V21a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 00.3-1.9A1.7 1.7 0 003 14H2.8v-4H3a1.7 1.7 0 001.6-1 1.7 1.7 0 00-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 001.9.3A1.7 1.7 0 0010 3V2.8h4V3a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 00-.3 1.9 1.7 1.7 0 001.6 1h.2v4H21a1.7 1.7 0 00-1.6 1z" />
+                </svg>
+                Account settings
+              </button>
+              <div className="px-3.5 pt-1 pb-1 text-[10px] text-text-muted">
+                Version: {buildStamp}
+              </div>
+              <button
+                ref={setOptionRef(3)}
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  logout();
+                }}
+                onKeyDown={(e) => handleOptionKeyDown(e, 3)}
                 className="flex items-center gap-2.5 w-full py-2.5 px-3.5 border-none cursor-pointer text-left text-sm text-accent bg-transparent transition-colors hover:bg-bg-tertiary rounded-b-lg"
               >
                 <svg
@@ -129,6 +155,14 @@ export function UserMenu() {
           triggerRef.current?.focus();
         }}
       />
+      {showAccountSettings && (
+        <AccountSettingsModal
+          onClose={() => {
+            setShowAccountSettings(false);
+            triggerRef.current?.focus();
+          }}
+        />
+      )}
     </>
   );
 }

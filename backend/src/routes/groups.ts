@@ -14,10 +14,20 @@ import {
   updateMemberDisplayName,
   getMemberNames,
   isGroupOwner,
+  transferGroupOwnership,
+  getGroup,
+  getGroupExportPhotos,
+  DELETED_USER_NAME,
 } from '../lib/db';
 import { requireAuth, requireAdmin, requireOwner } from '../middleware/auth';
-import { updateMemberSchema, imageProtectionSchema, displayNameSchema } from '../lib/schemas';
 import {
+  updateMemberSchema,
+  imageProtectionSchema,
+  displayNameSchema,
+  transferOwnershipSchema,
+} from '../lib/schemas';
+import {
+  BadRequestError,
   NotFoundError,
   ForbiddenError,
   InternalServerError,
@@ -30,6 +40,7 @@ import type {
   MemberDisplayNameUpdatedResponse,
   PhotoCountResponse,
   GroupDeletedResponse,
+  GroupExportResponse,
 } from '@photodrop/common/apiTypes';
 import type { AppEnv } from '../types';
 
@@ -158,6 +169,57 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
   return c.json({ message: 'Member removed successfully' });
 });
 
+// Leave the current group without revealing its admin-only membership list.
+groups.delete('/:groupId/membership', requireAuth, async (c) => {
+  const groupId = requireParam(c.req.param('groupId'), 'groupId');
+  const currentUser = c.get('user');
+  requireCurrentGroup(groupId, currentUser.groupId, 'leave');
+
+  if (await isGroupOwner(c.env.DB, currentUser.id, groupId)) {
+    throw new ForbiddenError('Transfer ownership or delete the group before leaving');
+  }
+
+  const result = await deleteMembership(c.env.DB, currentUser.id, groupId);
+  if (result.error === 'is_owner') {
+    throw new ForbiddenError('Transfer ownership or delete the group before leaving');
+  }
+
+  // A concurrent leave can remove the membership after authentication but
+  // before this guarded delete. That is already the requested end state, so
+  // keep the operation idempotent and finish cleaning up any notification
+  // credentials that remain. Cleanup follows the membership write so a failed
+  // delete never silently disables notifications for someone still inside.
+  const cleanupResults = await Promise.allSettled([
+    deleteAllUserPushSubscriptionsForGroup(c.env.DB, currentUser.id, groupId),
+    deleteAllUserDeviceTokensForGroup(c.env.DB, currentUser.id, groupId),
+  ]);
+  if (cleanupResults.some((cleanup) => cleanup.status === 'rejected')) {
+    console.error('Group left but notification credential cleanup failed', cleanupResults);
+  }
+
+  return c.json({ message: 'You have left the group' });
+});
+
+groups.post('/:groupId/transfer-ownership', requireOwner, async (c) => {
+  const groupId = requireParam(c.req.param('groupId'), 'groupId');
+  const currentUser = c.get('user');
+  requireCurrentGroup(groupId, currentUser.groupId, 'transfer ownership of');
+  const { newOwnerId } = await parseJsonBody(c, transferOwnershipSchema);
+
+  if (newOwnerId === currentUser.id) {
+    throw new BadRequestError('Choose another member as the new owner');
+  }
+  if (!(await getMembership(c.env.DB, newOwnerId, groupId))) {
+    throw new NotFoundError('New owner must be a member of this group');
+  }
+  const transferred = await transferGroupOwnership(c.env.DB, groupId, currentUser.id, newOwnerId);
+  if (!transferred) {
+    throw new InternalServerError('Failed to transfer ownership');
+  }
+
+  return c.json({ message: 'Ownership transferred successfully' });
+});
+
 // Set or clear a member's display name for this group (admin of the group, or
 // the member themselves). The override is scoped to this group's membership
 // row, so it can never reach the user's canonical name or any other group —
@@ -230,6 +292,37 @@ groups.get('/:groupId/photo-count', requireOwner, async (c) => {
 
   const count = await getGroupPhotoCount(c.env.DB, groupId);
   return c.json({ count } satisfies PhotoCountResponse);
+});
+
+// Admin-only metadata for an export of the converted files currently stored.
+groups.get('/:groupId/export', requireAdmin, async (c) => {
+  const groupId = requireParam(c.req.param('groupId'), 'groupId');
+  requireCurrentGroup(groupId, c.get('user').groupId, 'export');
+  const [group, photos] = await Promise.all([
+    getGroup(c.env.DB, groupId),
+    getGroupExportPhotos(c.env.DB, groupId),
+  ]);
+  if (!group) throw new NotFoundError('Group not found');
+  const fileNameWidth = Math.max(4, String(photos.length).length);
+
+  return c.json({
+    groupName: group.name,
+    exportedAt: Math.floor(Date.now() / 1000),
+    photos: photos.map((photo, index) => {
+      const storedExtension = photo.r2_key.split('.').pop()?.toLowerCase();
+      const extension =
+        storedExtension && ['jpg', 'jpeg', 'png', 'webp', 'heic'].includes(storedExtension)
+          ? storedExtension
+          : 'jpg';
+      return {
+        id: photo.id,
+        caption: photo.caption,
+        uploadedAt: photo.uploaded_at,
+        uploaderName: photo.uploader_name ?? DELETED_USER_NAME,
+        fileName: `${String(index + 1).padStart(fileNameWidth, '0')}-${photo.id}.${extension}`,
+      };
+    }),
+  } satisfies GroupExportResponse);
 });
 
 // Delete the entire group (owner only)

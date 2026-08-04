@@ -13,6 +13,7 @@ interface UseLightboxCommentsArgs {
   prevPhoto: Photo | undefined;
   nextPhoto: Photo | undefined;
   user: User | null;
+  userDisplayName?: string | null;
   onPhotoUpdate: OnPhotoUpdate;
 }
 
@@ -28,6 +29,7 @@ export function useLightboxComments({
   prevPhoto,
   nextPhoto,
   user,
+  userDisplayName,
   onPhotoUpdate,
 }: UseLightboxCommentsArgs) {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -141,7 +143,7 @@ export function useLightboxComments({
       const created: Comment = {
         id: result.id,
         userId: user?.id ?? null,
-        authorName: user?.name ?? 'You',
+        authorName: userDisplayName ?? user?.name ?? 'You',
         authorProfileColor: user?.profileColor ?? null,
         content: trimmed,
         createdAt: Math.floor(Date.now() / 1000),

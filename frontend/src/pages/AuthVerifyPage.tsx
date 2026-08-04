@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback, type FormEvent } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Logo } from '../components/Logo';
 import { Button, ButtonLink } from '../components/Button';
+import { consumeAuthReturnPath, rememberAuthReturnPath } from '../lib/authReturn';
 
 type VerifyStatus = 'verifying' | 'needs_name' | 'submitting_name' | 'success' | 'error';
 
@@ -12,6 +13,7 @@ const NAME_FORM_WARNING_MS = 4 * 60 * 1000; // Show warning after 4 minutes
 export function AuthVerifyPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [status, setStatus] = useState<VerifyStatus>('verifying');
   const [errorMessage, setErrorMessage] = useState('');
@@ -23,6 +25,7 @@ export function AuthVerifyPage() {
   // wanted — see verify() below.
   const activeToken = useRef<string | null>(null);
   const nameFormShownAt = useRef<number | null>(null);
+  const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Both handlers below take the token their response came from and drop it
   // unless that token is still the one on screen. Opening a second link while
@@ -56,11 +59,18 @@ export function AuthVerifyPage() {
 
       setStatus('success');
 
-      setTimeout(() => {
-        navigate('/', { replace: true });
+      const emailedReturnTo = new URLSearchParams(location.search).get('returnTo');
+      if (emailedReturnTo) rememberAuthReturnPath(emailedReturnTo);
+
+      if (redirectTimer.current) clearTimeout(redirectTimer.current);
+      redirectTimer.current = setTimeout(() => {
+        if (activeToken.current === verifiedToken) {
+          navigate(consumeAuthReturnPath(), { replace: true });
+        }
+        redirectTimer.current = null;
       }, 500);
     },
-    [login, navigate]
+    [login, location.search, navigate]
   );
 
   const handleVerificationError = useCallback((verifiedToken: string, error: unknown) => {
@@ -92,6 +102,10 @@ export function AuthVerifyPage() {
       return;
     }
 
+    if (redirectTimer.current) {
+      clearTimeout(redirectTimer.current);
+      redirectTimer.current = null;
+    }
     activeToken.current = token;
 
     async function verify(tokenToVerify: string) {
@@ -110,6 +124,13 @@ export function AuthVerifyPage() {
 
     verify(token);
   }, [token, handleVerificationResult, handleVerificationError]);
+
+  useEffect(
+    () => () => {
+      if (redirectTimer.current) clearTimeout(redirectTimer.current);
+    },
+    []
+  );
 
   // Show expiry warning if user is on name form for too long
   useEffect(() => {

@@ -8,7 +8,14 @@ import {
   cleanupTestGroup,
   TestGroup,
 } from './helpers/setup';
-import { loginWithMagicLink, logout, expectLoggedIn, expectLoggedOut } from './helpers/auth';
+import {
+  loginWithMagicLink,
+  logout,
+  expectLoggedIn,
+  expectLoggedOut,
+  getAuthToken,
+} from './helpers/auth';
+import { uploadPhotoViaApi } from './helpers/api';
 
 test.describe('Auth edge cases', () => {
   let testGroup: TestGroup;
@@ -115,6 +122,30 @@ test.describe('Auth edge cases', () => {
     // Refresh should still be logged out
     await page.reload();
     await expectLoggedOut(page);
+  });
+
+  test('signed-out photo link returns to the same photo after magic-link sign in', async ({
+    page,
+    request,
+  }) => {
+    const initialLogin = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
+    await loginWithMagicLink(page, initialLogin);
+    const token = await getAuthToken(page);
+    expect(token).toBeTruthy();
+    const photo = await uploadPhotoViaApi(request, token!, 'Private deep-link photo');
+    await logout(page);
+
+    const returnPath = `/photo/${photo.id}?group=${testGroup.groupId}`;
+    await page.goto(`${FRONTEND_BASE}${returnPath}`);
+    await expect(page).toHaveURL(/\/login\?returnTo=/);
+
+    const freshLogin = createFreshMagicLink(testGroup.groupId, testGroup.adminEmail, 'login');
+    await page.goto(freshLogin);
+
+    await expect(page).toHaveURL(`${FRONTEND_BASE}${returnPath}`, { timeout: 15000 });
+    await expect(
+      page.getByRole('dialog').getByRole('img', { name: 'Private deep-link photo' })
+    ).toBeVisible();
   });
 
   test('API request with invalid token returns 401', async ({ request }) => {

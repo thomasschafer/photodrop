@@ -9,7 +9,7 @@ import { Avatar } from '../Avatar';
 type BylineVariant = 'default' | 'overlay';
 
 interface UploaderBylineProps {
-  /** Null once the uploader's account has been deleted. */
+  /** Null is supported for legacy records and is displayed as "Deleted user". */
   name: string | null;
   color: ProfileColor | null;
   uploadedAt: number;

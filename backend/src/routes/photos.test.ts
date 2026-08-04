@@ -4,6 +4,7 @@ import { COMMENT_MAX_LENGTH, CAPTION_MAX_LENGTH } from '@photodrop/common/limits
 
 const mockVerifyJWT = vi.fn();
 const mockGetPhoto = vi.fn();
+const mockGetPhotoWithCounts = vi.fn();
 const mockGetResolvedMemberName = vi.fn();
 const mockGetGroupPushSubscriptions = vi.fn();
 const mockSendPushNotifications = vi.fn();
@@ -21,6 +22,7 @@ vi.mock('../lib/jwt', () => ({
 vi.mock('../lib/db', () => ({
   createPhoto: (...args: unknown[]) => mockCreatePhoto(...args),
   getPhoto: (...args: unknown[]) => mockGetPhoto(...args),
+  getPhotoWithCounts: (...args: unknown[]) => mockGetPhotoWithCounts(...args),
   listPhotosWithCounts: vi.fn(),
   deletePhoto: vi.fn(),
   recordPhotoView: vi.fn(),
@@ -180,6 +182,51 @@ describe('POST /photos', () => {
   });
 });
 
+describe('GET /photos/:id', () => {
+  it('returns a complete feed-shaped photo for a direct link', async () => {
+    const app = createTestApp();
+    authenticateAsMember();
+    mockGetPhotoWithCounts.mockResolvedValue({
+      id: 'older-photo',
+      group_id: 'group-1',
+      r2_key: 'photos/older.jpg',
+      thumbnail_r2_key: 'thumbnails/older.jpg',
+      caption: 'An older memory',
+      uploaded_by: 'user-2',
+      uploaded_at: 1000,
+      uploader_name: 'Mum',
+      uploader_profile_color: 'teal',
+      comment_count: 2,
+      reaction_count: 1,
+      reactions: [{ emoji: '❤️', count: 1 }],
+      user_reactions: [],
+    });
+
+    const res = await app.request('/photos/older-photo', { headers: authHeaders });
+    const json = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(mockGetPhotoWithCounts).toHaveBeenCalledWith({}, 'older-photo', 'group-1', 'user-1');
+    expect(json).toMatchObject({
+      id: 'older-photo',
+      uploaderName: 'Mum',
+      commentCount: 2,
+      reactions: [{ emoji: '❤️', count: 1 }],
+    });
+  });
+
+  it('returns 404 when the photo is not in the current group', async () => {
+    const app = createTestApp();
+    authenticateAsMember();
+    mockGetPhotoWithCounts.mockResolvedValue(null);
+
+    const res = await app.request('/photos/missing-photo', { headers: authHeaders });
+
+    expect(res.status).toBe(404);
+    expect(mockGetPhotoWithCounts).toHaveBeenCalledWith({}, 'missing-photo', 'group-1', 'user-1');
+  });
+});
+
 describe('GET /photos/:id/comments', () => {
   let app: Hono;
 
@@ -258,7 +305,7 @@ describe('GET /photos/:id/comments', () => {
     expect(json.comments[0].authorName).toBe('New Name');
   });
 
-  it('falls back to the stored name for an author who has left the group', async () => {
+  it('uses Former member for an author who has left the group', async () => {
     // The account still exists, so this is not the deleted-user case; what is
     // gone is the membership the name resolved against. The snapshot in
     // author_name is the name this group saw at the time, which is what a
@@ -280,7 +327,7 @@ describe('GET /photos/:id/comments', () => {
     const res = await app.request('/photos/photo-1/comments', { headers: authHeaders });
 
     const json = (await res.json()) as { comments: Array<{ authorName: string }> };
-    expect(json.comments[0].authorName).toBe('Mum');
+    expect(json.comments[0].authorName).toBe('Former member');
   });
 });
 

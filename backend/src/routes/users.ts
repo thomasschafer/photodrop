@@ -1,16 +1,67 @@
-import { Hono } from 'hono';
-import { getUserById, getUserMemberships, getGroupMembers, updateUserProfile } from '../lib/db';
+import { Context, Hono } from 'hono';
+import {
+  getUserById,
+  getUserMemberships,
+  getGroupMembers,
+  updateUserProfile,
+  getOwnedGroups,
+  getUserByEmail,
+  createAccountDeletionToken,
+  getAccountDeletionToken,
+  anonymizeUserAccount,
+} from '../lib/db';
 import { requireAdmin, requireAuth } from '../middleware/auth';
-import { updateProfileSchema } from '../lib/schemas';
-import { NotFoundError, InternalServerError, parseJsonBody } from '../lib/http';
+import {
+  updateProfileSchema,
+  accountDeletionTokenSchema,
+  accountDeletionRequestSchema,
+} from '../lib/schemas';
+import { createRateLimitMiddleware, getClientIP, rateLimitKeys } from '../middleware/rateLimit';
+import {
+  BadRequestError,
+  ForbiddenError,
+  NotFoundError,
+  InternalServerError,
+  parseJsonBody,
+} from '../lib/http';
+import { sendAccountDeletionEmail } from '../lib/email';
 import type {
   UsersListResponse,
   MeResponse,
   ProfileUpdatedResponse,
+  AccountDeletionRequestedResponse,
+  MessageResponse,
 } from '@photodrop/common/apiTypes';
 import type { AppEnv } from '../types';
 
 const users = new Hono<AppEnv>();
+
+const requestAccountDeletionRateLimit = createRateLimitMiddleware({
+  maxRequests: 3,
+  windowSeconds: 60 * 60,
+  keyFn: rateLimitKeys.byEmailFromBody('account-deletion-request'),
+});
+
+const authenticatedAccountDeletionRateLimit = createRateLimitMiddleware({
+  maxRequests: 3,
+  windowSeconds: 60 * 60,
+  keyFn: rateLimitKeys.byUserId('account-deletion-authenticated'),
+});
+
+const confirmAccountDeletionRateLimit = createRateLimitMiddleware({
+  maxRequests: 30,
+  windowSeconds: 15 * 60,
+  keyFn: (c) => `account-deletion-confirm:${getClientIP(c)}`,
+});
+
+async function sendDeletionConfirmation(
+  c: Context<AppEnv>,
+  user: { id: string; email: string; name: string }
+) {
+  const token = await createAccountDeletionToken(c.env.DB, user.id);
+  const confirmationLink = `${c.env.FRONTEND_URL}/delete-account/${token}`;
+  await sendAccountDeletionEmail(c.env, user.email, user.name, confirmationLink);
+}
 
 users.get('/', requireAdmin, async (c) => {
   const currentUser = c.get('user');
@@ -57,6 +108,7 @@ users.get('/me', requireAuth, async (c) => {
           role: currentMembership.role,
           ownerId: currentMembership.group_owner_id,
           imageProtection: currentMembership.image_protection === 1,
+          displayName: currentMembership.display_name,
         }
       : null,
     groups: memberships.map((m) => ({
@@ -65,6 +117,7 @@ users.get('/me', requireAuth, async (c) => {
       role: m.role,
       ownerId: m.group_owner_id,
       imageProtection: m.image_protection === 1,
+      displayName: m.display_name,
     })),
   } satisfies MeResponse);
 });
@@ -98,6 +151,88 @@ users.patch('/me/profile', requireAuth, async (c) => {
     name: user.name,
     profileColor: user.profile_color,
   } satisfies ProfileUpdatedResponse);
+});
+
+users.post(
+  '/me/account-deletion',
+  requireAuth,
+  authenticatedAccountDeletionRateLimit,
+  async (c) => {
+    const currentUser = c.get('user');
+    const user = await getUserById(c.env.DB, currentUser.id);
+    if (!user || typeof user.deleted_at === 'number') throw new NotFoundError('User not found');
+
+    const ownedGroups = await getOwnedGroups(c.env.DB, user.id);
+    if (ownedGroups.length > 0) {
+      throw new ForbiddenError(
+        'Transfer ownership or delete your groups before deleting your account'
+      );
+    }
+
+    await sendDeletionConfirmation(c, user);
+
+    return c.json({
+      message: 'Account deletion email sent',
+      email: user.email,
+    } satisfies AccountDeletionRequestedResponse);
+  }
+);
+
+// A zero-membership login proves control of the email address but deliberately
+// creates no group-scoped access token or refresh session. This non-enumerating
+// request lets that otherwise-orphaned account obtain the same confirmation
+// link. Accounts that still belong to a group must use the authenticated route.
+users.post('/request-account-deletion', requestAccountDeletionRateLimit, async (c) => {
+  const { email } = await parseJsonBody(c, accountDeletionRequestSchema);
+  const user = await getUserByEmail(c.env.DB, email);
+
+  if (user && typeof user.deleted_at !== 'number') {
+    const memberships = await getUserMemberships(c.env.DB, user.id);
+    if (memberships.length === 0) {
+      await sendDeletionConfirmation(c, user);
+    }
+  }
+
+  return c.json({
+    message: 'If this account is eligible for deletion, a confirmation link has been sent.',
+  } satisfies MessageResponse);
+});
+
+// The emailed token is the fresh proof of identity; this endpoint deliberately
+// does not depend on whatever browser session happens to open the link.
+users.post('/confirm-account-deletion', confirmAccountDeletionRateLimit, async (c) => {
+  const { token } = await parseJsonBody(c, accountDeletionTokenSchema);
+  const confirmation = await getAccountDeletionToken(c.env.DB, token);
+  const now = Math.floor(Date.now() / 1000);
+  if (!confirmation || confirmation.used_at !== null || confirmation.expires_at < now) {
+    throw new BadRequestError('This account deletion link is invalid or has expired');
+  }
+
+  const user = await getUserById(c.env.DB, confirmation.user_id);
+  if (!user || typeof user.deleted_at === 'number') {
+    throw new BadRequestError('This account has already been deleted');
+  }
+  if ((await getOwnedGroups(c.env.DB, user.id)).length > 0) {
+    throw new ForbiddenError(
+      'Transfer ownership or delete your groups before deleting your account'
+    );
+  }
+
+  const deleted = await anonymizeUserAccount(c.env.DB, user, token);
+  if (!deleted) {
+    const currentUser = await getUserById(c.env.DB, user.id);
+    if (!currentUser || typeof currentUser.deleted_at === 'number') {
+      throw new BadRequestError('This account has already been deleted');
+    }
+    if ((await getOwnedGroups(c.env.DB, user.id)).length > 0) {
+      throw new ForbiddenError(
+        'Transfer ownership or delete your groups before deleting your account'
+      );
+    }
+    throw new InternalServerError('Failed to delete account');
+  }
+
+  return c.json({ message: 'Account deleted successfully' } satisfies MessageResponse);
 });
 
 export default users;

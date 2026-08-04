@@ -19,6 +19,7 @@ import { AuthVerifyPage } from './pages/AuthVerifyPage';
 import { LandingPage } from './pages/LandingPage';
 import { GroupPickerPage } from './pages/GroupPickerPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { DeleteAccountPage } from './pages/DeleteAccountPage';
 
 // Lazy-load heavy components
 const PhotoFeed = lazy(() =>
@@ -78,6 +79,10 @@ function MainApp() {
   };
 
   if (!user || !currentGroup) {
+    if (location.pathname.startsWith('/photo/')) {
+      const returnTo = `${location.pathname}${location.search}`;
+      return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
+    }
     if (location.pathname !== '/') {
       return <Navigate to="/" replace />;
     }
@@ -193,6 +198,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/:token" element={<AuthVerifyPage />} />
+        <Route path="/delete-account/:token" element={<DeleteAccountPage />} />
         <Route path="*" element={<GroupPickerPage />} />
       </Routes>
     );
@@ -202,6 +208,7 @@ function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/:token" element={<AuthVerifyPage />} />
+      <Route path="/delete-account/:token" element={<DeleteAccountPage />} />
       <Route path="/" element={<MainApp />}>
         <Route index element={null} />
         <Route path="photo/:photoId" element={null} />

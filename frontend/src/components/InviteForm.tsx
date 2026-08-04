@@ -104,8 +104,8 @@ export function InviteForm({ onInviteSent, isModal = false }: InviteFormProps) {
             className="input-field"
             disabled={status === 'loading'}
           >
-            <option value="member">Member - can view photos</option>
-            <option value="admin">Admin - can upload and manage</option>
+            <option value="member">Member - can view photos, comment and react</option>
+            <option value="admin">Admin - can upload photos and manage the group</option>
           </select>
         </div>
 

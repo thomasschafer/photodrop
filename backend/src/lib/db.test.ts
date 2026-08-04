@@ -44,6 +44,8 @@ import {
   touchSession,
   deleteSessionFamily,
   pruneExpiredSessions,
+  anonymizeUserAccount,
+  transferGroupOwnership,
 } from './db';
 import {
   getRandomProfileColor,
@@ -295,25 +297,18 @@ describe('Membership functions', () => {
 
   describe('deleteMembership', () => {
     it('removes non-owner membership and returns success', async () => {
-      // First call: getGroup returns group where user is not owner
-      // Second call (after getGroup in deleteMembership runs the delete)
-      const group = {
-        id: 'group-1',
-        name: 'Test Group',
-        owner_id: 'other-user',
-        created_at: 1000,
-      };
-      const db = createSequentialMockDb([group]);
+      const db = createMockDb();
 
       const result = await deleteMembership(db, 'user-1', 'group-1');
 
       expect(result.success).toBe(true);
       expect(result.error).toBeUndefined();
       expect(db._mocks.mockRun).toHaveBeenCalled();
+      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(expect.stringContaining('NOT EXISTS'));
+      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1', 'group-1', 'user-1');
     });
 
     it('rejects removing owner and returns error', async () => {
-      // getGroup returns group where user IS the owner
       const group = {
         id: 'group-1',
         name: 'Test Group',
@@ -321,13 +316,15 @@ describe('Membership functions', () => {
         created_at: 1000,
       };
       const db = createSequentialMockDb([group]);
+      db._mocks.mockRun.mockResolvedValueOnce({ success: true, meta: { changes: 0 } });
 
       const result = await deleteMembership(db, 'owner-1', 'group-1');
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('is_owner');
-      // Should not have called run() since we reject early
-      expect(db._mocks.mockRun).not.toHaveBeenCalled();
+      // The guarded DELETE runs first, then the ownership read explains why
+      // no row changed without opening a race between a check and the DELETE.
+      expect(db._mocks.mockRun).toHaveBeenCalledOnce();
     });
 
     it('removes member successfully', async () => {
@@ -591,6 +588,95 @@ describe('Membership functions', () => {
       // The caller's own display name for each group comes from this query.
       expect(db._mocks.mockPrepare).toHaveBeenCalledWith(expect.stringContaining('m.display_name'));
     });
+  });
+});
+
+describe('anonymizeUserAccount', () => {
+  function createBatchDb(changes: number[]) {
+    const sql: string[] = [];
+    const batch = vi
+      .fn()
+      .mockResolvedValue(changes.map((count) => ({ success: true, meta: { changes: count } })));
+    const prepare = vi.fn((statement: string) => {
+      sql.push(statement);
+      const prepared = {
+        bind: vi.fn(() => prepared),
+      };
+      return prepared;
+    });
+    return {
+      db: { prepare, batch } as unknown as D1Database,
+      sql,
+      batch,
+    };
+  }
+
+  const user = {
+    id: 'user-1',
+    email: 'jane@example.com',
+    name: 'Jane',
+    profile_color: 'teal' as const,
+    created_at: 1000,
+    last_seen_at: 1000,
+    deleted_at: null,
+  };
+
+  it('gates every cleanup and token mutation on the ownership-safe tombstone', async () => {
+    const { db, sql, batch } = createBatchDb(new Array(10).fill(1));
+
+    await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(true);
+
+    expect(batch).toHaveBeenCalledOnce();
+    expect(sql).toHaveLength(10);
+    expect(sql[0]).toContain('NOT EXISTS (SELECT 1 FROM groups WHERE owner_id = ?)');
+    for (const cleanup of sql.slice(1)) {
+      expect(cleanup).toContain('deleted_at = ?');
+    }
+    expect(sql[9]).toContain('used_at IS NULL');
+  });
+
+  it('reports a blocked tombstone or unburned token as unsuccessful', async () => {
+    const { db } = createBatchDb(new Array(10).fill(0));
+
+    await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(false);
+  });
+
+  it('reports an unburned token as unsuccessful after the tombstone succeeds', async () => {
+    const changes = new Array(10).fill(1);
+    changes[9] = 0;
+    const { db } = createBatchDb(changes);
+
+    await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(false);
+  });
+});
+
+describe('transferGroupOwnership', () => {
+  it('is safe to retry when the requested owner is already in place', async () => {
+    const statements: Array<{ sql: string; bindings: unknown[] }> = [];
+    const prepare = vi.fn((sql: string) => {
+      const statement = {
+        bind: vi.fn((...bindings: unknown[]) => {
+          statements.push({ sql, bindings });
+          return statement;
+        }),
+      };
+      return statement;
+    });
+    const db = {
+      prepare,
+      batch: vi.fn().mockResolvedValue([{ meta: { changes: 1 } }, { meta: { changes: 0 } }]),
+    } as unknown as D1Database;
+
+    await expect(transferGroupOwnership(db, 'group-1', 'owner-1', 'owner-2')).resolves.toBe(true);
+    expect(statements[0].sql).toContain('owner_id IN (?, ?)');
+    expect(statements[0].bindings).toEqual([
+      'owner-2',
+      'group-1',
+      'owner-1',
+      'owner-2',
+      'owner-2',
+      'group-1',
+    ]);
   });
 });
 
@@ -1348,12 +1434,14 @@ describe('Reaction functions', () => {
           emoji: '❤️',
           created_at: 1000,
           user_name: null,
+          user_profile_color: 'teal',
         },
       ]);
 
       const result = await getPhotoReactionsWithUsers(db, 'photo-1');
 
       expect(result[0].user_name).toBe('Former member');
+      expect(result[0].user_profile_color).toBeNull();
     });
 
     it('resolves reactor names against the group the reacted-to photo is in', async () => {
@@ -1465,6 +1553,7 @@ describe('listPhotosWithCounts', () => {
     // A removed member is labelled rather than nulled, so the feed still
     // distinguishes them from a deleted account — and never names them.
     expect(result[2].uploader_name).toBe('Former member');
+    expect(result[2].uploader_profile_color).toBeNull();
 
     // The mocked rows would map through even if the query stopped asking for
     // the uploader, so pin the projection and the joins that produce them.
