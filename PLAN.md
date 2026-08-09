@@ -169,7 +169,7 @@ CREATE TABLE photos (
   FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
--- Plus: photo_views, photo_reactions, push_subscriptions, device_tokens tables
+-- Plus: photo_views, photo_reactions, push_subscriptions tables
 ```
 
 **Critical:** All queries MUST filter by group_id (from JWT) to prevent cross-group access.
