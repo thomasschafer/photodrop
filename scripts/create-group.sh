@@ -20,7 +20,9 @@ fi
 # escapes), so escaped values cannot alter query structure. Use the SQL_*
 # variables only inside SQL; use the raw arguments everywhere else.
 escape_sql() {
-    echo "$1" | sed "s/'/''/g"
+    # printf, not echo: echo would swallow a value that looks like its own
+    # options (e.g. a name that is literally "-n")
+    printf '%s' "$1" | sed "s/'/''/g"
 }
 
 SQL_GROUP_NAME=$(escape_sql "$1")
