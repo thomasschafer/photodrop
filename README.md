@@ -217,8 +217,11 @@ authenticate temporarily and clean up afterwards:
 2. Run what you need:
    - Provision or tear down: `nix run .#setup-prod` / `nix run .#teardown-prod`
    - Manual deploy: export the variables listed under "CI/CD setup" (e.g.
-     `set -a; source backend/.prod.vars; set +a` after provisioning), then
-     `nix run .#deploy`
+     `set -a; source backend/.prod.vars; set +a` after provisioning). Note
+     that `.prod.vars` does not contain `RESEND_API_KEY`; supply it without
+     leaving it in files or shell history, e.g.
+     `read -rs RESEND_API_KEY && export RESEND_API_KEY`, then paste the key.
+     Then `nix run .#deploy`, and `unset RESEND_API_KEY` afterwards
    - Inspect the production database: prefer the D1 console in the Cloudflare
      dashboard; for CLI access run
      `npx wrangler d1 execute photodrop-db-prod --remote --command "..."` from

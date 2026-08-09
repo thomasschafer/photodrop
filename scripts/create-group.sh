@@ -15,14 +15,17 @@ if [ "$#" -lt 3 ]; then
     exit 1
 fi
 
-# Escape single quotes for SQL (replace ' with '')
+# Escape for use inside a single-quoted SQL string literal. Doubling single
+# quotes is SQLite's complete escaping mechanism (it has no backslash
+# escapes), so escaped values cannot alter query structure. Use the SQL_*
+# variables only inside SQL; use the raw arguments everywhere else.
 escape_sql() {
     echo "$1" | sed "s/'/''/g"
 }
 
-GROUP_NAME=$(escape_sql "$1")
-OWNER_NAME=$(escape_sql "$2")
-OWNER_EMAIL=$(escape_sql "$3")
+SQL_GROUP_NAME=$(escape_sql "$1")
+SQL_OWNER_NAME=$(escape_sql "$2")
+SQL_OWNER_EMAIL=$(escape_sql "$3")
 IS_PROD=false
 EMAIL_ONLY=false
 
@@ -74,11 +77,11 @@ fi
 # In email-only mode, keep owner details out of the output as defence in depth
 # against them landing in publicly visible CI logs.
 if [ "$EMAIL_ONLY" = true ]; then
-    echo "Creating group: $GROUP_NAME"
+    echo "Creating group: $1"
     echo "Owner: (withheld from logs)"
 else
-    echo "Creating group: $GROUP_NAME"
-    echo "Owner: $OWNER_NAME ($OWNER_EMAIL)"
+    echo "Creating group: $1"
+    echo "Owner: $2 ($3)"
 fi
 if [ "$IS_PROD" = true ]; then
     echo "Environment: Production"
@@ -118,7 +121,7 @@ fi
 
 # Check if user already exists
 EXISTING_USER=$(wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
-SELECT id FROM users WHERE email = '$OWNER_EMAIL';
+SELECT id FROM users WHERE email = '$SQL_OWNER_EMAIL';
 " 2>&1 | grep -oE '[a-f0-9]{32}' | head -1 || true)
 
 if [ -n "$EXISTING_USER" ]; then
@@ -132,7 +135,7 @@ else
     RANDOM_COLOR=${PROFILE_COLORS[$((RANDOM % ${#PROFILE_COLORS[@]}))]}
     wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
 INSERT INTO users (id, name, email, profile_color, created_at)
-VALUES ('$USER_ID', '$OWNER_NAME', '$OWNER_EMAIL', '$RANDOM_COLOR', $NOW);
+VALUES ('$USER_ID', '$SQL_OWNER_NAME', '$SQL_OWNER_EMAIL', '$RANDOM_COLOR', $NOW);
 "
     echo "Created new user (ID: $USER_ID)"
 fi
@@ -143,7 +146,7 @@ fi
 # duplicates. The lookup fails closed: a wrangler or parse error aborts the
 # script (set -e) rather than falling through to a duplicate insert.
 GROUP_LOOKUP=$(wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --json --command "
-SELECT id FROM groups WHERE owner_id = '$USER_ID' AND name = '$GROUP_NAME';
+SELECT id FROM groups WHERE owner_id = '$USER_ID' AND name = '$SQL_GROUP_NAME';
 ")
 EXISTING_GROUP=$(printf '%s' "$GROUP_LOOKUP" | node -e '
 let data = "";
@@ -160,7 +163,7 @@ if [ -n "$EXISTING_GROUP" ]; then
 else
     wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
 INSERT INTO groups (id, name, owner_id, created_at)
-VALUES ('$GROUP_ID', '$GROUP_NAME', '$USER_ID', $NOW);
+VALUES ('$GROUP_ID', '$SQL_GROUP_NAME', '$USER_ID', $NOW);
 "
     echo "Created group (ID: $GROUP_ID)"
 fi
@@ -176,7 +179,7 @@ echo "Ensured owner membership"
 # Create magic link token for initial login
 wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
 INSERT INTO magic_link_tokens (token, group_id, email, type, invite_role, created_at, expires_at)
-VALUES ('$TOKEN', '$GROUP_ID', '$OWNER_EMAIL', 'login', NULL, $NOW, $EXPIRES_AT);
+VALUES ('$TOKEN', '$GROUP_ID', '$SQL_OWNER_EMAIL', 'login', NULL, $NOW, $EXPIRES_AT);
 "
 echo "Created magic link token"
 

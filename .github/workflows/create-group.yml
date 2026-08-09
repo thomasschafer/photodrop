@@ -22,6 +22,10 @@ on:
 
 concurrency: create-group
 
+# The default GITHUB_TOKEN never needs more than reading the repo here.
+permissions:
+  contents: read
+
 jobs:
   create-group:
     name: Create group
@@ -48,6 +52,10 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # No later step runs git; don't leave GITHUB_TOKEN in .git/config
+          # while production secrets are in scope.
+          persist-credentials: false
 
       - name: Setup
         uses: ./.github/actions/setup
