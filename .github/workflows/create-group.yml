@@ -27,16 +27,24 @@ jobs:
     name: Create group
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Only run against reviewed code: a dispatch from any other ref would hand
+    # production credentials to unmerged scripts.
+    if: github.ref == 'refs/heads/main'
 
     steps:
-      # Must run before any step that could echo the inputs.
+      # Must run before any step that could echo the inputs. The values are
+      # read from the event payload rather than a step env block or ${{ }}
+      # interpolation, both of which the runner prints to the (public) log
+      # before the shell that registers the masks even starts. Masking per
+      # line also covers values that somehow contain newlines.
       - name: Mask owner details in logs
-        env:
-          OWNER_NAME: ${{ inputs.owner_name }}
-          OWNER_EMAIL: ${{ inputs.owner_email }}
         run: |
-          echo "::add-mask::$OWNER_NAME"
-          echo "::add-mask::$OWNER_EMAIL"
+          jq -r '.inputs.owner_name, .inputs.owner_email' "$GITHUB_EVENT_PATH" |
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then
+                echo "::add-mask::$line"
+              fi
+            done
 
       - name: Checkout code
         uses: actions/checkout@v4

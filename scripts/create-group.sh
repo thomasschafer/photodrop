@@ -137,19 +137,30 @@ VALUES ('$USER_ID', '$OWNER_NAME', '$OWNER_EMAIL', '$RANDOM_COLOR', $NOW);
     echo "Created new user (ID: $USER_ID)"
 fi
 
-# Create group with owner_id
-wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
+# Reuse an existing group with the same owner and name, so a run that failed
+# partway (e.g. email delivery) can be retried without creating duplicates
+EXISTING_GROUP=$(wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
+SELECT id FROM groups WHERE owner_id = '$USER_ID' AND name = '$GROUP_NAME';
+" 2>&1 | grep -oE '[a-f0-9]{32}' | grep -v "$USER_ID" | head -1 || true)
+
+if [ -n "$EXISTING_GROUP" ]; then
+    GROUP_ID="$EXISTING_GROUP"
+    echo "Found existing group (ID: $GROUP_ID)"
+else
+    wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
 INSERT INTO groups (id, name, owner_id, created_at)
 VALUES ('$GROUP_ID', '$GROUP_NAME', '$USER_ID', $NOW);
 "
-echo "Created group (ID: $GROUP_ID)"
+    echo "Created group (ID: $GROUP_ID)"
+fi
 
-# Create membership for owner (with 'admin' role - owner is identified via groups.owner_id)
+# Create membership for owner (with 'admin' role - owner is identified via
+# groups.owner_id). OR IGNORE keeps retried runs idempotent.
 wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
-INSERT INTO memberships (user_id, group_id, role, joined_at)
+INSERT OR IGNORE INTO memberships (user_id, group_id, role, joined_at)
 VALUES ('$USER_ID', '$GROUP_ID', 'admin', $NOW);
 "
-echo "Created owner membership"
+echo "Ensured owner membership"
 
 # Create magic link token for initial login
 wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
@@ -165,20 +176,38 @@ EMAIL_SENT=false
 if [ "$IS_PROD" = true ] && [ -n "${RESEND_API_KEY:-}" ] && [ -n "${EMAIL_FROM:-}" ]; then
     echo "Sending invite email..."
 
-    # Escape special characters for JSON
-    JSON_GROUP_NAME=$(echo "$1" | sed 's/"/\\"/g')
-    JSON_OWNER_NAME=$(echo "$2" | sed 's/"/\\"/g')
-    JSON_EMAIL_FROM=$(echo "$EMAIL_FROM" | sed 's/"/\\"/g')
+    # Build the request body with a real JSON encoder, and HTML-escape the
+    # user-supplied names where they land in markup
+    EMAIL_PAYLOAD=$(
+        RAW_GROUP_NAME="$1" RAW_OWNER_NAME="$2" RAW_OWNER_EMAIL="$3" \
+        RAW_EMAIL_FROM="$EMAIL_FROM" RAW_MAGIC_LINK="$MAGIC_LINK" node <<'NODE'
+const escapeHtml = (s) =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const groupName = escapeHtml(process.env.RAW_GROUP_NAME);
+const ownerName = escapeHtml(process.env.RAW_OWNER_NAME);
+const magicLink = process.env.RAW_MAGIC_LINK;
+
+process.stdout.write(
+  JSON.stringify({
+    from: process.env.RAW_EMAIL_FROM,
+    to: process.env.RAW_OWNER_EMAIL,
+    subject: `Welcome to ${process.env.RAW_GROUP_NAME}!`,
+    html: `<h1>Welcome to photodrop!</h1><p>Hi ${ownerName}!</p><p>Your group <strong>${groupName}</strong> has been created.</p><p>Click the link below to get started (expires in 15 minutes):</p><p><a href='${magicLink}'>${magicLink}</a></p>`,
+  }),
+);
+NODE
+    )
 
     EMAIL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.resend.com/emails" \
         -H "Authorization: Bearer $RESEND_API_KEY" \
         -H "Content-Type: application/json" \
-        -d "{
-            \"from\": \"$JSON_EMAIL_FROM\",
-            \"to\": \"$3\",
-            \"subject\": \"Welcome to $JSON_GROUP_NAME!\",
-            \"html\": \"<h1>Welcome to photodrop!</h1><p>Hi $JSON_OWNER_NAME!</p><p>Your group <strong>$JSON_GROUP_NAME</strong> has been created.</p><p>Click the link below to get started (expires in 15 minutes):</p><p><a href='$MAGIC_LINK'>$MAGIC_LINK</a></p>\"
-        }")
+        -d "$EMAIL_PAYLOAD")
 
     HTTP_CODE=$(echo "$EMAIL_RESPONSE" | tail -n1)
     if [ "$HTTP_CODE" = "200" ]; then
@@ -193,9 +222,9 @@ fi
 if [ "$EMAIL_ONLY" = true ] && [ "$EMAIL_SENT" != true ]; then
     echo ""
     echo "Error: The invite email could not be sent, and --email-only forbids"
-    echo "printing the magic link. The group and owner were already created, so"
-    echo "fix the email problem and re-run — but note that re-running creates a"
-    echo "second group; delete the unused one afterwards."
+    echo "printing the magic link. Fix the email problem and re-run with the"
+    echo "same inputs: the run is idempotent, so the existing user and group"
+    echo "are reused and a fresh magic link is issued."
     exit 1
 fi
 
