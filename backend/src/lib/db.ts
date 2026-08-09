@@ -573,12 +573,6 @@ export async function anonymizeUserAccount(
       .bind(user.id, user.id, now),
     db
       .prepare(
-        `DELETE FROM device_tokens WHERE user_id = ?
-         AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
-      )
-      .bind(user.id, user.id, now),
-    db
-      .prepare(
         `DELETE FROM sessions WHERE user_id = ?
          AND EXISTS (SELECT 1 FROM users WHERE id = ? AND deleted_at = ?)`
       )
@@ -611,7 +605,7 @@ export async function anonymizeUserAccount(
       .bind(now, confirmationToken, user.id, user.id, now),
   ]);
 
-  return (results[0]?.meta.changes ?? 0) > 0 && (results[9]?.meta.changes ?? 0) > 0;
+  return (results[0]?.meta.changes ?? 0) > 0 && (results[8]?.meta.changes ?? 0) > 0;
 }
 
 /** The parts of a user's own profile they may change. */
@@ -1160,150 +1154,6 @@ export async function deleteAllUserPushSubscriptionsForGroup(
     .prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND group_id = ?')
     .bind(userId, groupId)
     .run();
-}
-
-// Device token types and functions (native push notifications)
-export type DevicePlatform = 'ios' | 'android';
-
-export interface DeviceToken {
-  id: string;
-  user_id: string;
-  group_id: string;
-  platform: DevicePlatform;
-  token: string;
-  created_at: number;
-}
-
-export async function createDeviceToken(
-  db: D1Database,
-  userId: string,
-  groupId: string,
-  platform: DevicePlatform,
-  token: string
-): Promise<string> {
-  const id = generateId();
-  const now = Math.floor(Date.now() / 1000);
-
-  // Note: created_at is NOT updated on conflict - it reflects first registration
-  // This allows rate limiting based on new token creation time
-  await db
-    .prepare(
-      `INSERT INTO device_tokens (id, user_id, group_id, platform, token, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT (user_id, group_id, token) DO UPDATE SET
-         platform = excluded.platform`
-    )
-    .bind(id, userId, groupId, platform, token, now)
-    .run();
-
-  return id;
-}
-
-/**
- * Count device tokens created by a user since a given timestamp.
- * Used for rate limiting new device registrations.
- */
-export async function countUserDeviceTokensSince(
-  db: D1Database,
-  userId: string,
-  sinceTimestamp: number
-): Promise<number> {
-  const result = await db
-    .prepare('SELECT COUNT(*) as count FROM device_tokens WHERE user_id = ? AND created_at >= ?')
-    .bind(userId, sinceTimestamp)
-    .first<{ count: number }>();
-
-  return result?.count ?? 0;
-}
-
-export async function getDeviceToken(
-  db: D1Database,
-  userId: string,
-  groupId: string,
-  token: string
-): Promise<DeviceToken | null> {
-  const result = await db
-    .prepare('SELECT * FROM device_tokens WHERE user_id = ? AND group_id = ? AND token = ?')
-    .bind(userId, groupId, token)
-    .first<DeviceToken>();
-
-  return result;
-}
-
-/**
- * Recipients of a group's native notifications. As with push subscriptions, the
- * membership join — not cleanup on removal — is what guarantees an expelled
- * member's device stops receiving the group's photos and captions.
- */
-export async function getGroupDeviceTokens(
-  db: D1Database,
-  groupId: string,
-  excludeUserId?: string
-): Promise<DeviceToken[]> {
-  const baseQuery = `SELECT dt.* FROM device_tokens dt
-       JOIN memberships m ON m.user_id = dt.user_id AND m.group_id = dt.group_id
-       WHERE dt.group_id = ?`;
-
-  const statement = excludeUserId
-    ? db.prepare(`${baseQuery} AND dt.user_id != ?`).bind(groupId, excludeUserId)
-    : db.prepare(baseQuery).bind(groupId);
-
-  const result = await statement.all<DeviceToken>();
-  return result.results || [];
-}
-
-/**
- * Remove a device token from every group it is registered in for this user.
- * An FCM/APNs token identifies a device, not a group membership, so signing out
- * of the app has to detach the whole device rather than just the current group.
- */
-export async function deleteUserDeviceTokensForToken(
-  db: D1Database,
-  userId: string,
-  token: string
-): Promise<number> {
-  const result = await db
-    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND token = ?')
-    .bind(userId, token)
-    .run();
-
-  return result.meta.changes;
-}
-
-/**
- * Detach a device token from any other account. The token is a device-scoped
- * secret, so once a different user registers it the previous owner's rows must
- * go — otherwise the new signed-in user keeps receiving the old user's
- * notifications for groups they were never part of.
- */
-export async function deleteDeviceTokenForOtherUsers(
-  db: D1Database,
-  userId: string,
-  token: string
-): Promise<number> {
-  const result = await db
-    .prepare('DELETE FROM device_tokens WHERE token = ? AND user_id != ?')
-    .bind(token, userId)
-    .run();
-
-  return result.meta.changes;
-}
-
-// Bulk cleanup when a member leaves or is removed; deleting zero rows is fine.
-export async function deleteAllUserDeviceTokensForGroup(
-  db: D1Database,
-  userId: string,
-  groupId: string
-): Promise<void> {
-  await db
-    .prepare('DELETE FROM device_tokens WHERE user_id = ? AND group_id = ?')
-    .bind(userId, groupId)
-    .run();
-}
-
-// Best-effort cleanup of a token FCM reports as invalid; deleting zero rows is fine.
-export async function deleteDeviceTokenByToken(db: D1Database, token: string): Promise<void> {
-  await db.prepare('DELETE FROM device_tokens WHERE token = ?').bind(token).run();
 }
 
 // Comment functions

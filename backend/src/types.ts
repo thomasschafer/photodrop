@@ -13,7 +13,6 @@ export type Bindings = {
   ENVIRONMENT?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
-  FIREBASE_SERVICE_ACCOUNT?: string;
 };
 
 export type Variables = {

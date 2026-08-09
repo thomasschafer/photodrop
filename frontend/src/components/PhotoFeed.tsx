@@ -4,7 +4,6 @@ import { api, ApiError } from '../lib/api';
 import { useFocusRestore } from '../lib/hooks';
 import { getNavDirection } from '../lib/keyboard';
 import { useAuthenticatedImage } from '../lib/useAuthenticatedImage';
-import { PullToRefresh } from './PullToRefresh';
 import { Button } from './Button';
 import { ConfirmModal } from './ConfirmModal';
 import { Modal } from './Modal';
@@ -501,7 +500,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
 
   return (
     <>
-      <PullToRefresh onRefresh={loadPhotos} className="max-w-[540px] mx-auto">
+      <div className="max-w-[540px] mx-auto">
         {isAdmin && (
           <div className="flex justify-end mb-4">
             <Button
@@ -629,7 +628,7 @@ export function PhotoFeed({ isAdmin = false }: PhotoFeedProps) {
             )}
           </div>
         )}
-      </PullToRefresh>
+      </div>
 
       {selectedPhoto && selectedPhotoIndex !== null && selectedPhotoIndex >= 0 && (
         <Lightbox

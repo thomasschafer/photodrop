@@ -269,7 +269,3 @@ export interface PushSubscribedResponse extends MessageResponse {
 export interface PushStatusResponse {
   subscribed: boolean;
 }
-
-export interface DeviceStatusResponse {
-  registered: boolean;
-}

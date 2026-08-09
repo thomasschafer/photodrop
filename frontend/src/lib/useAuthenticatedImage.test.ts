@@ -10,16 +10,6 @@ import {
 // Declare global for Node.js environment in tests
 declare const global: typeof globalThis;
 
-// Mock Capacitor
-vi.mock('@capacitor/core', () => ({
-  Capacitor: {
-    isNativePlatform: vi.fn(() => false),
-  },
-  CapacitorHttp: {
-    get: vi.fn(),
-  },
-}));
-
 // Keep the real api module (for API_BASE_URL) but stub the refresh so we can
 // drive the image hook's 401-recovery path deterministically.
 vi.mock('./api', async (importActual) => {
@@ -28,7 +18,6 @@ vi.mock('./api', async (importActual) => {
 });
 
 // Import mocked modules
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { refreshAccessToken } from './api';
 
 describe('useAuthenticatedImage', () => {
@@ -47,7 +36,7 @@ describe('useAuthenticatedImage', () => {
       return null;
     });
 
-    // Setup fetch mock for web
+    // Setup fetch mock
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       blob: () => Promise.resolve(mockBlob),
@@ -62,11 +51,7 @@ describe('useAuthenticatedImage', () => {
     vi.restoreAllMocks();
   });
 
-  describe('web platform', () => {
-    beforeEach(() => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
-    });
-
+  describe('image fetching', () => {
     it('fetches image with Authorization header', async () => {
       const { result } = renderHook(() => useAuthenticatedImage(mockPhotoId, 'thumbnail'));
 
@@ -181,54 +166,6 @@ describe('useAuthenticatedImage', () => {
       expect(URL.revokeObjectURL).not.toHaveBeenCalled();
       expect(result.current.src).toBe('blob:test-url');
       expect(result.current.error).toBeNull();
-    });
-  });
-
-  describe('native platform', () => {
-    beforeEach(() => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-    });
-
-    it('uses CapacitorHttp with Authorization header', async () => {
-      const mockBase64 = btoa('test-image-data');
-      vi.mocked(CapacitorHttp.get).mockResolvedValue({
-        status: 200,
-        data: mockBase64,
-        headers: { 'content-type': 'image/jpeg' },
-        url: '',
-      });
-
-      const { result } = renderHook(() => useAuthenticatedImage(mockPhotoId, 'thumbnail'));
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(CapacitorHttp.get).toHaveBeenCalledWith(
-        expect.objectContaining({
-          headers: { Authorization: `Bearer ${mockToken}` },
-          responseType: 'blob',
-        })
-      );
-    });
-
-    it('returns blob URL from base64 response', async () => {
-      const mockBase64 = btoa('test-image-data');
-      vi.mocked(CapacitorHttp.get).mockResolvedValue({
-        status: 200,
-        data: mockBase64,
-        headers: { 'content-type': 'image/jpeg' },
-        url: '',
-      });
-
-      const { result } = renderHook(() => useAuthenticatedImage(mockPhotoId, 'thumbnail'));
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(result.current.src).toBe('blob:test-url');
-      expect(URL.createObjectURL).toHaveBeenCalled();
     });
   });
 

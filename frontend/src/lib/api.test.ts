@@ -1,17 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-// Force the web (fetch) transport: api.ts captures isNative at module load.
-vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => false },
-  CapacitorHttp: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-    patch: vi.fn(),
-  },
-}));
-
 import { api, ApiError, bumpSessionEpoch } from './api';
 
 function jsonResponse(body: unknown, status = 200): Response {

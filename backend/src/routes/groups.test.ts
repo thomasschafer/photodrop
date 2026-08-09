@@ -20,7 +20,6 @@ const mockGetGroupMembers = vi.fn();
 const mockDeleteMembership = vi.fn();
 const mockIsGroupOwner = vi.fn();
 const mockDeleteAllUserPushSubscriptionsForGroup = vi.fn();
-const mockDeleteAllUserDeviceTokensForGroup = vi.fn();
 const mockTransferGroupOwnership = vi.fn();
 const mockGetGroupExportPhotos = vi.fn();
 
@@ -46,8 +45,6 @@ vi.mock('../lib/db', () => ({
   updateMemberImageProtection: (...args: unknown[]) => mockUpdateMemberImageProtection(...args),
   deleteAllUserPushSubscriptionsForGroup: (...args: unknown[]) =>
     mockDeleteAllUserPushSubscriptionsForGroup(...args),
-  deleteAllUserDeviceTokensForGroup: (...args: unknown[]) =>
-    mockDeleteAllUserDeviceTokensForGroup(...args),
   transferGroupOwnership: (...args: unknown[]) => mockTransferGroupOwnership(...args),
   getGroupExportPhotos: (...args: unknown[]) => mockGetGroupExportPhotos(...args),
 }));
@@ -757,12 +754,8 @@ describe('self-service group access and archive actions', () => {
       'user-1',
       'group-1'
     );
-    expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
     expect(mockDeleteMembership.mock.invocationCallOrder[0]).toBeLessThan(
       mockDeleteAllUserPushSubscriptionsForGroup.mock.invocationCallOrder[0]
-    );
-    expect(mockDeleteMembership.mock.invocationCallOrder[0]).toBeLessThan(
-      mockDeleteAllUserDeviceTokensForGroup.mock.invocationCallOrder[0]
     );
   });
 
@@ -787,7 +780,6 @@ describe('self-service group access and archive actions', () => {
       'user-1',
       'group-1'
     );
-    expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
   });
 
   it('requires an owner to transfer or delete before leaving', async () => {
@@ -922,7 +914,6 @@ describe('DELETE /groups/:groupId/members/:userId', () => {
     mockDeleteMembership.mockResolvedValue({ success: true });
     mockIsGroupOwner.mockResolvedValue(false);
     mockDeleteAllUserPushSubscriptionsForGroup.mockResolvedValue(undefined);
-    mockDeleteAllUserDeviceTokensForGroup.mockResolvedValue(undefined);
 
     app = new Hono();
     app.use('*', async (c, next) => {
@@ -933,7 +924,7 @@ describe('DELETE /groups/:groupId/members/:userId', () => {
     app.onError(errorHandler);
   });
 
-  it('revokes both web push and native device notifications for the removed member', async () => {
+  it('revokes web push notifications for the removed member', async () => {
     const res = await app.request('/groups/group-1/members/user-1', {
       method: 'DELETE',
       headers: { Authorization: 'Bearer valid-token' },
@@ -941,20 +932,19 @@ describe('DELETE /groups/:groupId/members/:userId', () => {
 
     expect(res.status).toBe(200);
     expect(mockDeleteMembership).toHaveBeenCalledWith({}, 'user-1', 'group-1');
+    // Without this, the expelled member's browser keeps receiving the group's
+    // photo notifications, caption text included.
     expect(mockDeleteAllUserPushSubscriptionsForGroup).toHaveBeenCalledWith(
       {},
       'user-1',
       'group-1'
     );
-    // Without this, the expelled member's device keeps receiving the group's
-    // photo notifications, caption text included.
-    expect(mockDeleteAllUserDeviceTokensForGroup).toHaveBeenCalledWith({}, 'user-1', 'group-1');
   });
 
   it('keeps the membership when revoking notifications fails, so the removal is retryable', async () => {
     // The reverse order would delete the membership first: the retry would then
     // 404 and the surviving notification rows could never be cleared.
-    mockDeleteAllUserDeviceTokensForGroup.mockRejectedValue(new Error('D1 unavailable'));
+    mockDeleteAllUserPushSubscriptionsForGroup.mockRejectedValue(new Error('D1 unavailable'));
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const res = await app.request('/groups/group-1/members/user-1', {
@@ -978,7 +968,6 @@ describe('DELETE /groups/:groupId/members/:userId', () => {
 
     expect(res.status).toBe(403);
     expect(mockDeleteAllUserPushSubscriptionsForGroup).not.toHaveBeenCalled();
-    expect(mockDeleteAllUserDeviceTokensForGroup).not.toHaveBeenCalled();
     expect(mockDeleteMembership).not.toHaveBeenCalled();
   });
 });

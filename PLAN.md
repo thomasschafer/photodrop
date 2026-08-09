@@ -20,7 +20,7 @@
 - ✅ Phase 2.7 (Performance optimizations): Complete - N+1 query fix, infinite scroll, non-blocking notifications
 - ✅ Phase 2.8 (Codebase improvements): Complete - security hardening, Zod validation, component splits, mobile fixes
 - 🔶 Phase 3 (Polish): Partially complete - admin UIs, keyboard nav, image protection, bugs/reliability, accessibility, performance, security done; ready for launch
-- 🔶 Phase 3.5 (Native mobile): In progress - Capacitor setup, Android builds, deep linking, pull-to-refresh done; native push code complete but not deployed; iOS not started
+- ❌ Phase 3.5 (Native mobile): Abandoned - Capacitor/FCM wrapper was built but never shipped, and has been removed from the codebase (recoverable from git history)
 - ❌ Phase 4 (Launch): Not started - beta testing, full launch
 - ❌ Phase 5 (Post-launch): Not started - token revocation, structured logging, UX improvements, deeper test coverage
 
@@ -169,7 +169,7 @@ CREATE TABLE photos (
   FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
--- Plus: photo_views, photo_reactions, push_subscriptions, device_tokens tables
+-- Plus: photo_views, photo_reactions, push_subscriptions tables
 ```
 
 **Critical:** All queries MUST filter by group_id (from JWT) to prevent cross-group access.
@@ -1214,65 +1214,10 @@ The migration assigns random colors to all existing users so the column can be N
 
 ### Phase 3.5: Native Mobile Apps
 
-**Goal:** Wrap the PWA in native iOS/Android shells for reliable push notifications and screenshot protection.
-
-**See [MOBILE_PLAN.md](MOBILE_PLAN.md) and [MOBILE_FIXES.md](MOBILE_FIXES.md) for implementation details.**
-
-**Summary:**
-
-- Use Capacitor to wrap existing web app (minimal code changes)
-- Native push via FCM (Android) and APNs (iOS)
-- Screenshot blocking via `@capacitor-community/privacy-screen`
-- GitHub Actions CI/CD for automated builds
-
-**Phase 3.5.1: Capacitor Setup & Polish** ✅
-
-- [x] Set up GitHub Actions workflows for Android builds
-- [x] Set up Capacitor project structure
-- [x] Configure deep linking for magic links (Android App Links)
-- [x] Android release signing setup
-- [x] Fix safe area / status bar handling
-- [x] Fix image loading on native (authenticated fetch)
-- [x] Add pull-to-refresh for native
-- [x] Hide PWA install banner on native
-- [x] Add PR builds to workflow
-
-**Phase 3.5.2: Push Notifications** (in progress)
-
-- [x] Firebase project setup
-- [x] Add `google-services.json` via GitHub secret (CI) or local copy
-- [x] Install `@capacitor/push-notifications` plugin
-- [x] Frontend: request permission, register token (auto on login)
-- [x] Backend: device_tokens table + endpoints
-- [x] Backend: send to FCM on photo upload
-- [x] Test notification button (long-press bell)
-- [x] Debug info modal (tap bell when loading/error)
-- [x] Test end-to-end notification flow
-
-**Known issues (see MOBILE_FIXES.md for details):**
-
-- Auto-registration may not work if permission granted via settings (needs testing)
-
-**Also fixed in this branch:**
-
-- [x] HEIC image uploads on web (heic2any conversion)
-- [x] Native uploads failing (CapacitorHttp global patching)
-- [x] Notification bell hidden during loading
-
-**Phase 3.5.3: iOS & Distribution** (later)
-
-- [ ] Apple Developer account ($99/year)
-- [ ] iOS signing setup
-- [ ] iOS push (APNs) configuration
-- [x] Screenshot protection plugin (`@capacitor-community/privacy-screen` — working on Android)
-- [ ] Test on physical iOS device
-- [ ] Submit to App Store / Play Store
-
-**Prerequisites:**
-
-- [ ] Apple Developer account ($99/year) — needed for iOS
-- [ ] Google Play Developer account ($25 one-time) — needed for Play Store release
-- [x] Firebase project — needed for Android push notifications
+**Status: abandoned and removed.** The Capacitor wrapper, FCM native push, and
+Android build pipeline were built but never shipped. The code was removed once
+the PWA proved sufficient; recover it from git history if native apps are ever
+revisited.
 
 ### Phase 4: Launch
 
@@ -1329,10 +1274,6 @@ The migration assigns random colors to all existing users so the column can be N
 **Nice-to-haves:** Batch upload, albums, ownership transfer (allow owner to transfer ownership to another member)
 
 **Technical:** Progressive image loading, CDN optimization
-
-**Mobile app (Capacitor):** See `MOBILE_PLAN.md` on mobile branch for native app wrapper details
-
-**Security consideration:** Mobile CORS origins (`http://localhost`, `capacitor://localhost`) are currently always allowed. For tighter production control, consider adding `ENABLE_MOBILE_CORS` environment variable to gate these origins when no mobile app is deployed.
 
 ## Testing strategy
 

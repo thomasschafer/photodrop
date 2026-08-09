@@ -3,15 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { ThemeProvider, useTheme } from './ThemeContext';
 
-vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => false },
-}));
-
-vi.mock('@capacitor/status-bar', () => ({
-  StatusBar: { setStyle: vi.fn(), setBackgroundColor: vi.fn() },
-  Style: { Dark: 'DARK', Light: 'LIGHT' },
-}));
-
 // setTheme is captured and called directly rather than through a click: a DOM
 // event dispatch swallows a throw from the handler, which would let a regression
 // here pass unnoticed.

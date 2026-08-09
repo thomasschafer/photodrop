@@ -2,7 +2,7 @@
   "name": "photodrop",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["backend", "frontend", "mobile", "common"],
+  "workspaces": ["backend", "frontend", "common"],
   "description": "A Progressive Web App for privately sharing photos within isolated groups",
   "scripts": {
     "setup:dev": "./scripts/setup.sh dev",

@@ -22,14 +22,6 @@ import {
   deletePushSubscription,
   deletePushSubscriptionForGroup,
   deleteAllUserPushSubscriptionsForGroup,
-  createDeviceToken,
-  getDeviceToken,
-  getGroupDeviceTokens,
-  deleteUserDeviceTokensForToken,
-  deleteDeviceTokenForOtherUsers,
-  deleteAllUserDeviceTokensForGroup,
-  deleteDeviceTokenByToken,
-  countUserDeviceTokensSince,
   markMagicLinkTokenUsed,
   createComment,
   getCommentsByPhotoId,
@@ -622,28 +614,28 @@ describe('anonymizeUserAccount', () => {
   };
 
   it('gates every cleanup and token mutation on the ownership-safe tombstone', async () => {
-    const { db, sql, batch } = createBatchDb(new Array(10).fill(1));
+    const { db, sql, batch } = createBatchDb(new Array(9).fill(1));
 
     await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(true);
 
     expect(batch).toHaveBeenCalledOnce();
-    expect(sql).toHaveLength(10);
+    expect(sql).toHaveLength(9);
     expect(sql[0]).toContain('NOT EXISTS (SELECT 1 FROM groups WHERE owner_id = ?)');
     for (const cleanup of sql.slice(1)) {
       expect(cleanup).toContain('deleted_at = ?');
     }
-    expect(sql[9]).toContain('used_at IS NULL');
+    expect(sql[8]).toContain('used_at IS NULL');
   });
 
   it('reports a blocked tombstone or unburned token as unsuccessful', async () => {
-    const { db } = createBatchDb(new Array(10).fill(0));
+    const { db } = createBatchDb(new Array(9).fill(0));
 
     await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(false);
   });
 
   it('reports an unburned token as unsuccessful after the tombstone succeeds', async () => {
-    const changes = new Array(10).fill(1);
-    changes[9] = 0;
+    const changes = new Array(9).fill(1);
+    changes[8] = 0;
     const { db } = createBatchDb(changes);
 
     await expect(anonymizeUserAccount(db, user, 'delete-token')).resolves.toBe(false);
@@ -1021,235 +1013,6 @@ describe('Push subscription functions', () => {
       );
       expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
       expect(db._mocks.mockRun).toHaveBeenCalled();
-    });
-  });
-});
-
-describe('Device token functions (native push)', () => {
-  describe('createDeviceToken', () => {
-    it('creates new device token', async () => {
-      const db = createMockDb([]);
-
-      const result = await createDeviceToken(db, 'user-1', 'group-1', 'android', 'fcm-token-123');
-
-      expect(result).toBeTruthy();
-      expect(db._mocks.mockPrepare).toHaveBeenCalled();
-      expect(db._mocks.mockBind).toHaveBeenCalledWith(
-        expect.any(String), // id
-        'user-1',
-        'group-1',
-        'android',
-        'fcm-token-123',
-        expect.any(Number) // created_at
-      );
-      expect(db._mocks.mockRun).toHaveBeenCalled();
-    });
-
-    it('upserts on duplicate user+group+token', async () => {
-      const db = createMockDb([]);
-
-      await createDeviceToken(db, 'user-1', 'group-1', 'ios', 'fcm-token-123');
-
-      const prepareCall = db._mocks.mockPrepare.mock.calls[0][0];
-      expect(prepareCall).toContain('ON CONFLICT');
-      expect(prepareCall).toContain('DO UPDATE');
-    });
-
-    it('accepts ios platform', async () => {
-      const db = createMockDb([]);
-
-      await createDeviceToken(db, 'user-1', 'group-1', 'ios', 'apns-token-456');
-
-      expect(db._mocks.mockBind).toHaveBeenCalledWith(
-        expect.any(String),
-        'user-1',
-        'group-1',
-        'ios',
-        'apns-token-456',
-        expect.any(Number)
-      );
-    });
-  });
-
-  describe('getDeviceToken', () => {
-    it('returns device token for user+group+token', async () => {
-      const deviceToken = {
-        id: 'dt-1',
-        user_id: 'user-1',
-        group_id: 'group-1',
-        platform: 'android',
-        token: 'fcm-token-123',
-        created_at: 1000,
-      };
-      const db = createMockDb([deviceToken]);
-
-      const result = await getDeviceToken(db, 'user-1', 'group-1', 'fcm-token-123');
-
-      expect(result).not.toBeNull();
-      expect(result?.id).toBe('dt-1');
-      expect(result?.platform).toBe('android');
-      expect(result?.token).toBe('fcm-token-123');
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1', 'fcm-token-123');
-    });
-
-    it('returns null for non-existent token', async () => {
-      const db = createMockDb([]);
-
-      const result = await getDeviceToken(db, 'user-1', 'group-1', 'nonexistent-token');
-
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('getGroupDeviceTokens', () => {
-    it('returns all device tokens for group', async () => {
-      const deviceTokens = [
-        {
-          id: 'dt-1',
-          user_id: 'user-1',
-          group_id: 'group-1',
-          platform: 'android',
-          token: 'token-1',
-          created_at: 1000,
-        },
-        {
-          id: 'dt-2',
-          user_id: 'user-2',
-          group_id: 'group-1',
-          platform: 'ios',
-          token: 'token-2',
-          created_at: 2000,
-        },
-      ];
-      const db = createMockDb(deviceTokens);
-
-      const result = await getGroupDeviceTokens(db, 'group-1');
-
-      expect(result).toHaveLength(2);
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1');
-    });
-
-    it('only returns tokens whose owner is still a member of the group', async () => {
-      const db = createMockDb([]);
-
-      await getGroupDeviceTokens(db, 'group-1');
-
-      // Rows left behind by a removed member must not receive the group's
-      // notifications, so the query joins memberships rather than trusting
-      // cleanup to have happened.
-      const query = db._mocks.mockPrepare.mock.calls[0][0] as string;
-      expect(query).toContain(
-        'JOIN memberships m ON m.user_id = dt.user_id AND m.group_id = dt.group_id'
-      );
-    });
-
-    it('excludes specified user when excludeUserId provided', async () => {
-      const deviceTokens = [
-        {
-          id: 'dt-2',
-          user_id: 'user-2',
-          group_id: 'group-1',
-          platform: 'ios',
-          token: 'token-2',
-          created_at: 2000,
-        },
-      ];
-      const db = createMockDb(deviceTokens);
-
-      const result = await getGroupDeviceTokens(db, 'group-1', 'user-1');
-
-      expect(result).toHaveLength(1);
-      expect(result[0].user_id).toBe('user-2');
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('group-1', 'user-1');
-    });
-
-    it('returns empty array for group with no tokens', async () => {
-      const db = createMockDb([]);
-
-      const result = await getGroupDeviceTokens(db, 'group-empty');
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('deleteUserDeviceTokensForToken', () => {
-    it('removes the token from every group the user registered it in', async () => {
-      const db = createMockDb([]);
-      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 3 } });
-
-      const result = await deleteUserDeviceTokensForToken(db, 'user-1', 'fcm-token-123');
-
-      expect(result).toBe(3);
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        'DELETE FROM device_tokens WHERE user_id = ? AND token = ?'
-      );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'fcm-token-123');
-    });
-  });
-
-  describe('deleteDeviceTokenForOtherUsers', () => {
-    it('detaches the token from every other account', async () => {
-      const db = createMockDb([]);
-      db._mocks.mockRun.mockResolvedValue({ success: true, meta: { changes: 2 } });
-
-      const result = await deleteDeviceTokenForOtherUsers(db, 'user-2', 'fcm-token-123');
-
-      expect(result).toBe(2);
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        'DELETE FROM device_tokens WHERE token = ? AND user_id != ?'
-      );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('fcm-token-123', 'user-2');
-    });
-  });
-
-  describe('deleteAllUserDeviceTokensForGroup', () => {
-    it('removes every token a user has for one group', async () => {
-      const db = createMockDb([]);
-
-      await deleteAllUserDeviceTokensForGroup(db, 'user-1', 'group-1');
-
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        'DELETE FROM device_tokens WHERE user_id = ? AND group_id = ?'
-      );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', 'group-1');
-      expect(db._mocks.mockRun).toHaveBeenCalled();
-    });
-  });
-
-  describe('deleteDeviceTokenByToken', () => {
-    it('removes token by token value only', async () => {
-      const db = createMockDb([]);
-
-      await deleteDeviceTokenByToken(db, 'fcm-token-123');
-
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        'DELETE FROM device_tokens WHERE token = ?'
-      );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('fcm-token-123');
-      expect(db._mocks.mockRun).toHaveBeenCalled();
-    });
-  });
-
-  describe('countUserDeviceTokensSince', () => {
-    it('counts tokens created since given timestamp', async () => {
-      const db = createMockDb([{ count: 5 }]);
-      const sinceTimestamp = 1700000000;
-
-      const result = await countUserDeviceTokensSince(db, 'user-1', sinceTimestamp);
-
-      expect(result).toBe(5);
-      expect(db._mocks.mockPrepare).toHaveBeenCalledWith(
-        'SELECT COUNT(*) as count FROM device_tokens WHERE user_id = ? AND created_at >= ?'
-      );
-      expect(db._mocks.mockBind).toHaveBeenCalledWith('user-1', sinceTimestamp);
-    });
-
-    it('returns 0 when no tokens found', async () => {
-      const db = createMockDb([null]);
-
-      const result = await countUserDeviceTokensSince(db, 'user-1', 1700000000);
-
-      expect(result).toBe(0);
     });
   });
 });

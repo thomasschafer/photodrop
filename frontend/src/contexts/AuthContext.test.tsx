@@ -30,31 +30,9 @@ vi.mock('../lib/api', async (importActual) => {
   };
 });
 
-// api.ts reads Capacitor.isNativePlatform() at module load, so the real module
-// (pulled in above via importActual) needs this stubbed.
-vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => false },
-  CapacitorHttp: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn(), patch: vi.fn() },
-}));
-
 vi.mock('../lib/cache', () => ({
   clearAllUserCaches: vi.fn(),
   clearGroupCaches: vi.fn(),
-}));
-
-vi.mock('../lib/nativePush', () => ({
-  isNativePlatform: () => false,
-  initializeNativePush: vi.fn(),
-  cleanupOnLogout: vi.fn().mockResolvedValue(undefined),
-  onGroupSwitch: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('../lib/privacyScreen', () => ({
-  setNativeScreenshotProtection: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('@capacitor/app', () => ({
-  App: { addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }) },
 }));
 
 const user = { id: 'u1', name: 'Tom', email: 'tom@example.com', profileColor: 'teal' as const };

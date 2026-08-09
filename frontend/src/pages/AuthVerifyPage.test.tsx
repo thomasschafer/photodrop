@@ -20,12 +20,6 @@ vi.mock('../lib/api', async (importActual) => {
   };
 });
 
-// api.ts reads Capacitor.isNativePlatform() at module load.
-vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => false },
-  CapacitorHttp: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn(), patch: vi.fn() },
-}));
-
 vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({ login: mockLogin }),
 }));
