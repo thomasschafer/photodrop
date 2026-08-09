@@ -6,7 +6,10 @@ const mocks = vi.hoisted(() => ({
   getMembers: vi.fn(),
   updateMemberImageProtection: vi.fn(),
   setMemberDisplayName: vi.fn(),
+  exportGroup: vi.fn(),
 }));
+
+vi.mock('../lib/groupExport', () => ({ exportGroup: mocks.exportGroup }));
 
 vi.mock('../lib/api', () => ({
   ApiError: mocks.ApiError,
@@ -318,5 +321,78 @@ describe('MembersList display names', () => {
       screen.getByRole('button', { name: "Set Alice's display name in Family" })
     ).toBeInTheDocument();
     expect(displayNameField()).toHaveValue('Ali');
+  });
+});
+
+describe('MembersList group export', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.getMembers.mockResolvedValue({
+      members: [makeMember('alice', 'Alice')],
+      ownerId: 'someone-else',
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Starts an export that reports one photo done, then hangs until settled. */
+  async function startExport() {
+    let capturedSignal: AbortSignal | undefined;
+    let settle!: (outcome: { status: 'downloaded' | 'cancelled' }) => void;
+    mocks.exportGroup.mockImplementation(
+      (
+        _groupId: string,
+        onProgress?: (progress: { completed: number; total: number }) => void,
+        signal?: AbortSignal
+      ) => {
+        capturedSignal = signal;
+        onProgress?.({ completed: 1, total: 3 });
+        return new Promise((resolve) => {
+          settle = resolve;
+        });
+      }
+    );
+
+    const { unmount } = render(<MembersList />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Export group' }));
+
+    return { getSignal: () => capturedSignal, settle: () => settle, unmount };
+  }
+
+  it('aborts the run and reports it when cancel is clicked', async () => {
+    const { getSignal, settle } = await startExport();
+
+    const cancel = await screen.findByRole('button', { name: 'Cancel' });
+    expect(screen.getByRole('button', { name: 'Exporting 1/3…' })).toBeDisabled();
+
+    fireEvent.click(cancel);
+    expect(getSignal()?.aborted).toBe(true);
+
+    await act(async () => settle()({ status: 'cancelled' }));
+
+    // Cancelling is reported as an outcome, not an error, and the button is
+    // usable again so the export can be restarted.
+    expect(screen.getByText('Group export cancelled')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export group' })).toBeEnabled();
+  });
+
+  it('offers no cancel until an export is running', async () => {
+    render(<MembersList />);
+    await screen.findByRole('button', { name: 'Export group' });
+
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+
+  it('aborts a running export when the page goes away', async () => {
+    const { getSignal, unmount } = await startExport();
+    expect(getSignal()?.aborted).toBe(false);
+
+    unmount();
+
+    expect(getSignal()?.aborted).toBe(true);
   });
 });
