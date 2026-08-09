@@ -3,9 +3,9 @@
 # Photodrop deployment script
 # Deploys to production environment with custom domain
 #
-# Usage:
-#   Local:  ./scripts/deploy.sh (loads from backend/.prod.vars)
-#   CI:     Requires environment variables set
+# Deploys run in CI (see .github/workflows/ci.yml), which provides all required
+# environment variables. For break-glass manual deploys, see README.md →
+# "Break-glass: manual production access".
 
 set -eo pipefail
 
@@ -20,20 +20,15 @@ FRONTEND_DIR="$ROOT_DIR/frontend"
 # Navigate to backend directory
 cd "$BACKEND_DIR"
 
-# Load environment variables
-# Priority: 1) Already set (CI), 2) From .prod.vars (local)
-if [ -f .prod.vars ] && [ -z "${D1_DATABASE_ID:-}" ]; then
-    echo "Loading configuration from .prod.vars..."
-    # shellcheck source=/dev/null
-    source .prod.vars
-fi
-
-# Validate required environment variables
+# Validate required environment variables. RESEND_API_KEY is required because
+# email is the only authentication path: a Worker deployed without it cannot
+# send magic links, so fail here rather than shipping a broken deployment.
 REQUIRED_VARS=(
     "D1_DATABASE_ID"
     "JWT_SECRET"
     "VAPID_PUBLIC_KEY"
     "VAPID_PRIVATE_KEY"
+    "RESEND_API_KEY"
     "DOMAIN"
     "API_DOMAIN"
     "ZONE_NAME"
@@ -42,19 +37,13 @@ REQUIRED_VARS=(
 for var in "${REQUIRED_VARS[@]}"; do
     if [ -z "${!var:-}" ]; then
         echo "Error: Required variable $var is not set"
-        echo "Run 'nix run .#setup-prod' first"
+        echo ""
+        echo "Deploys run in CI with these variables provided from GitHub"
+        echo "Actions secrets and variables. For manual deploys, see README.md"
+        echo "→ 'Break-glass: manual production access'."
         exit 1
     fi
 done
-
-# For local deploys, require RESEND_API_KEY (email is required for the app to work)
-if [ -f .prod.vars ] && [ -z "${RESEND_API_KEY:-}" ]; then
-    echo "Error: RESEND_API_KEY is not set in .prod.vars"
-    echo ""
-    echo "Email is required for magic link authentication."
-    echo "See README.md → 'Email setup (Resend)'"
-    exit 1
-fi
 
 EMAIL_FROM="${EMAIL_FROM:-photodrop <noreply@$DOMAIN>}"
 ESCAPED_EMAIL_FROM="${EMAIL_FROM//\\/\\\\}"
@@ -74,10 +63,10 @@ cleanup() {
 trap cleanup EXIT
 
 write_secrets_file() {
-    # Export so the node subprocess can read them via process.env. Values sourced
-    # from .prod.vars are plain (unexported) shell variables, so without this the
-    # secrets file is written empty and the Worker deploys with no secrets.
-    export JWT_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY RESEND_API_KEY FIREBASE_SERVICE_ACCOUNT
+    # Export so the node subprocess can read them via process.env. Without this,
+    # unexported shell variables would leave the secrets file empty and the
+    # Worker would deploy with no secrets.
+    export JWT_SECRET VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY RESEND_API_KEY
     SECRETS_FILE_PATH="$SECRETS_FILE" node <<'NODE'
 const fs = require('fs');
 
@@ -86,7 +75,6 @@ const secretNames = [
   'VAPID_PUBLIC_KEY',
   'VAPID_PRIVATE_KEY',
   'RESEND_API_KEY',
-  'FIREBASE_SERVICE_ACCOUNT',
 ];
 
 const secrets = {};

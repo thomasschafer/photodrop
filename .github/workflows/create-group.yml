@@ -1,0 +1,76 @@
+name: Create group
+
+# Creates a production group and emails the owner a magic link. This repo is
+# public, so run logs are world-readable: owner details are masked below, and
+# the script's --email-only mode never prints the magic link.
+
+on:
+  workflow_dispatch:
+    inputs:
+      group_name:
+        description: 'Group name'
+        required: true
+        type: string
+      owner_name:
+        description: 'Owner name'
+        required: true
+        type: string
+      owner_email:
+        description: 'Owner email (receives the magic link)'
+        required: true
+        type: string
+
+concurrency: create-group
+
+# The default GITHUB_TOKEN never needs more than reading the repo here.
+permissions:
+  contents: read
+
+jobs:
+  create-group:
+    name: Create group
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only run against reviewed code: a dispatch from any other ref would hand
+    # production credentials to unmerged scripts.
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      # Must run before any step that could echo the inputs. The values are
+      # read from the event payload rather than a step env block or ${{ }}
+      # interpolation, both of which the runner prints to the (public) log
+      # before the shell that registers the masks even starts. Masking per
+      # line also covers values that somehow contain newlines.
+      - name: Mask owner details in logs
+        run: |
+          jq -r '.inputs.owner_name, .inputs.owner_email' "$GITHUB_EVENT_PATH" |
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then
+                echo "::add-mask::$line"
+              fi
+            done
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # No later step runs git; don't leave GITHUB_TOKEN in .git/config
+          # while production secrets are in scope.
+          persist-credentials: false
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Create group
+        # Inputs are passed via env rather than interpolated into the command
+        # line, so quotes or shell metacharacters in them cannot break out.
+        env:
+          GROUP_NAME: ${{ inputs.group_name }}
+          OWNER_NAME: ${{ inputs.owner_name }}
+          OWNER_EMAIL: ${{ inputs.owner_email }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DOMAIN: ${{ vars.DOMAIN }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          FRONTEND_URL: https://${{ vars.DOMAIN }}
+        run: nix run .#create-group -- "$GROUP_NAME" "$OWNER_NAME" "$OWNER_EMAIL" --prod --email-only
