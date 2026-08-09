@@ -137,11 +137,22 @@ VALUES ('$USER_ID', '$OWNER_NAME', '$OWNER_EMAIL', '$RANDOM_COLOR', $NOW);
     echo "Created new user (ID: $USER_ID)"
 fi
 
-# Reuse an existing group with the same owner and name, so a run that failed
-# partway (e.g. email delivery) can be retried without creating duplicates
-EXISTING_GROUP=$(wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --command "
+# Reuse an existing group with the same owner and name — unique per migration
+# 0017, which makes (owner_id, name) a safe idempotency key — so a run that
+# failed partway (e.g. email delivery) can be retried without creating
+# duplicates. The lookup fails closed: a wrangler or parse error aborts the
+# script (set -e) rather than falling through to a duplicate insert.
+GROUP_LOOKUP=$(wrangler d1 execute "$DB_NAME" $WRANGLER_REMOTE_FLAG --json --command "
 SELECT id FROM groups WHERE owner_id = '$USER_ID' AND name = '$GROUP_NAME';
-" 2>&1 | grep -oE '[a-f0-9]{32}' | grep -v "$USER_ID" | head -1 || true)
+")
+EXISTING_GROUP=$(printf '%s' "$GROUP_LOOKUP" | node -e '
+let data = "";
+process.stdin.on("data", (c) => (data += c));
+process.stdin.on("end", () => {
+  const id = JSON.parse(data)[0]?.results?.[0]?.id;
+  if (id) process.stdout.write(id);
+});
+')
 
 if [ -n "$EXISTING_GROUP" ]; then
     GROUP_ID="$EXISTING_GROUP"
@@ -177,10 +188,13 @@ if [ "$IS_PROD" = true ] && [ -n "${RESEND_API_KEY:-}" ] && [ -n "${EMAIL_FROM:-
     echo "Sending invite email..."
 
     # Build the request body with a real JSON encoder, and HTML-escape the
-    # user-supplied names where they land in markup
-    EMAIL_PAYLOAD=$(
-        RAW_GROUP_NAME="$1" RAW_OWNER_NAME="$2" RAW_OWNER_EMAIL="$3" \
-        RAW_EMAIL_FROM="$EMAIL_FROM" RAW_MAGIC_LINK="$MAGIC_LINK" node <<'NODE'
+    # user-supplied names where they land in markup. The payload goes via a
+    # temp file: a heredoc inside $() trips a parser bug in macOS's bash 3.2.
+    EMAIL_PAYLOAD_FILE=$(mktemp)
+    trap 'rm -f "$EMAIL_PAYLOAD_FILE"' EXIT
+    RAW_GROUP_NAME="$1" RAW_OWNER_NAME="$2" RAW_OWNER_EMAIL="$3" \
+    RAW_EMAIL_FROM="$EMAIL_FROM" RAW_MAGIC_LINK="$MAGIC_LINK" \
+    node > "$EMAIL_PAYLOAD_FILE" <<'NODE'
 const escapeHtml = (s) =>
   s
     .replace(/&/g, '&amp;')
@@ -202,12 +216,11 @@ process.stdout.write(
   }),
 );
 NODE
-    )
 
     EMAIL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.resend.com/emails" \
         -H "Authorization: Bearer $RESEND_API_KEY" \
         -H "Content-Type: application/json" \
-        -d "$EMAIL_PAYLOAD")
+        --data-binary @"$EMAIL_PAYLOAD_FILE")
 
     HTTP_CODE=$(echo "$EMAIL_RESPONSE" | tail -n1)
     if [ "$HTTP_CODE" = "200" ]; then

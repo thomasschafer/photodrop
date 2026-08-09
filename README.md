@@ -177,6 +177,10 @@ This repo is public, so the workflow is careful with its logs: owner details are
 masked and the magic link is only ever delivered by email. If the email fails to
 send, the run fails rather than printing the link.
 
+Runs are idempotent: re-running with the same group name and owner reuses the
+existing user and group (group names are unique per owner) and emails a fresh
+magic link, so a failed run can simply be retried.
+
 ### Email setup (Resend)
 
 Email is required for magic link authentication. We use [Resend](https://resend.com) (3,000 emails/month free).
