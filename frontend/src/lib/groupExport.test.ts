@@ -140,6 +140,66 @@ describe('exportGroup', () => {
     expect(mocks.downloadBlob).toHaveBeenCalledTimes(2);
   });
 
+  it('stops downloading and produces no file once cancelled', async () => {
+    const abortController = new AbortController();
+    mocks.downloadBlob.mockImplementation(async () => {
+      // Cancel while the first photo is in flight, as a user clicking mid-run
+      // would, rather than before the export starts.
+      abortController.abort();
+      return new Blob([new Uint8Array([1])]);
+    });
+    const progress = vi.fn();
+
+    const outcome = await exportGroup('group-1', progress, abortController.signal);
+
+    expect(outcome).toEqual({ status: 'cancelled' });
+    // The first photo finished before the abort landed, so it counts; the
+    // second is never started, and the partial archive is discarded.
+    expect(mocks.downloadBlob).toHaveBeenCalledOnce();
+    expect(progress).toHaveBeenCalledExactlyOnceWith({ completed: 1, total: 2 });
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('reports a completed export as downloaded', async () => {
+    mocks.downloadBlob.mockResolvedValue(new Blob([new Uint8Array([1])]));
+
+    const outcome = await exportGroup('group-1', undefined, new AbortController().signal);
+
+    expect(outcome).toEqual({ status: 'downloaded' });
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it('does not retry a download that failed because of cancellation', async () => {
+    const abortController = new AbortController();
+    // An aborted fetch rejects with a plain error, which the retry policy
+    // would otherwise read as a transient network blip worth retrying.
+    mocks.downloadBlob.mockImplementation(async () => {
+      abortController.abort();
+      throw new TypeError('The user aborted a request.');
+    });
+
+    const outcome = await exportGroup('group-1', undefined, abortController.signal);
+
+    expect(outcome).toEqual({ status: 'cancelled' });
+    expect(mocks.downloadBlob).toHaveBeenCalledOnce();
+  });
+
+  it('cancels during the retry backoff rather than waiting it out', async () => {
+    vi.useFakeTimers();
+    const abortController = new AbortController();
+    mocks.downloadBlob.mockRejectedValue(new ApiError(429, 'Too Many Requests', 'Slow down'));
+
+    const exportPromise = exportGroup('group-1', undefined, abortController.signal);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.downloadBlob).toHaveBeenCalledOnce();
+
+    abortController.abort();
+
+    // Resolves without the backoff elapsing, and without a second attempt.
+    await expect(exportPromise).resolves.toEqual({ status: 'cancelled' });
+    expect(mocks.downloadBlob).toHaveBeenCalledOnce();
+  });
+
   it('stops after three attempts when a transient failure persists', async () => {
     mocks.downloadBlob.mockRejectedValue(new TypeError('connection lost'));
 

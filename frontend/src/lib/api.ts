@@ -393,8 +393,8 @@ export const api = {
         body: JSON.stringify({ newOwnerId }),
       }),
 
-    getExport: (groupId: string): Promise<GroupExportResponse> =>
-      requestJson(`/groups/${groupId}/export`),
+    getExport: (groupId: string, signal?: AbortSignal): Promise<GroupExportResponse> =>
+      requestJson(`/groups/${groupId}/export`, { signal }),
 
     updateMemberImageProtection: (
       groupId: string,
@@ -456,8 +456,8 @@ export const api = {
 
     get: (photoId: string): Promise<PhotoDetailResponse> => requestJson(`/photos/${photoId}`),
 
-    downloadBlob: async (photoId: string): Promise<Blob> => {
-      const response = await fetchWithAuth(`/photos/${photoId}/download`);
+    downloadBlob: async (photoId: string, signal?: AbortSignal): Promise<Blob> => {
+      const response = await fetchWithAuth(`/photos/${photoId}/download`, { signal });
       return response.blob();
     },
 

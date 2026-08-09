@@ -56,6 +56,7 @@ export function MembersList() {
   const removeButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const roleSelectRefs = useRef<Map<string, HTMLSelectElement>>(new Map());
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
 
   const fetchMembers = useCallback(async () => {
     if (!currentGroup) return;
@@ -82,6 +83,9 @@ export function MembersList() {
       if (successTimeoutRef.current) {
         clearTimeout(successTimeoutRef.current);
       }
+      // Navigating away is as much a cancellation as pressing the button:
+      // nothing is left to receive the archive.
+      exportAbortRef.current?.abort();
     };
   }, []);
 
@@ -291,19 +295,28 @@ export function MembersList() {
 
   const handleExport = async () => {
     if (!currentGroup) return;
+    const abortController = new AbortController();
+    exportAbortRef.current = abortController;
     setExportLoading(true);
     setExportProgress(null);
     setError(null);
     try {
-      await exportGroup(currentGroup.id, setExportProgress);
-      showSuccess('Group export downloaded');
+      const outcome = await exportGroup(currentGroup.id, setExportProgress, abortController.signal);
+      showSuccess(
+        outcome.status === 'downloaded' ? 'Group export downloaded' : 'Group export cancelled'
+      );
     } catch (err) {
       console.error('Failed to export group:', err);
       setError(err instanceof Error ? err.message : 'Failed to export group');
     } finally {
+      exportAbortRef.current = null;
       setExportLoading(false);
       setExportProgress(null);
     }
+  };
+
+  const handleCancelExport = () => {
+    exportAbortRef.current?.abort();
   };
 
   const handleTransferOwnership = async () => {
@@ -781,14 +794,21 @@ export function MembersList() {
           Download the converted photos currently stored, together with captions, upload dates and
           uploader names. Only admins can export.
         </p>
-        <div aria-live="polite">
-          <Button onClick={handleExport} variant="secondary" disabled={exportLoading}>
-            {exportLoading
-              ? exportProgress
-                ? `Exporting ${exportProgress.completed}/${exportProgress.total}…`
-                : 'Preparing export…'
-              : 'Export group'}
-          </Button>
+        <div className="flex items-center gap-3">
+          <div aria-live="polite">
+            <Button onClick={handleExport} variant="secondary" disabled={exportLoading}>
+              {exportLoading
+                ? exportProgress
+                  ? `Exporting ${exportProgress.completed}/${exportProgress.total}…`
+                  : 'Preparing export…'
+                : 'Export group'}
+            </Button>
+          </div>
+          {exportLoading && (
+            <Button onClick={handleCancelExport} variant="link">
+              Cancel
+            </Button>
+          )}
         </div>
       </div>
 
