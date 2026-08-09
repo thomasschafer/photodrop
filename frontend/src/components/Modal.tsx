@@ -1,11 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { useFocusTrap } from '../lib/useFocusTrap';
-
-/**
- * `raised` lifts the modal further off the page — a stronger shadow and a
- * dimmer, blurred backdrop — for modals the user did not open themselves.
- */
-export type ModalElevation = 'default' | 'raised';
+import { ModalBackdrop, type ModalElevation } from './ModalBackdrop';
 
 interface ModalProps {
   title: string;
@@ -13,12 +8,8 @@ interface ModalProps {
   onClose: () => void;
   maxWidth?: 'sm' | 'md' | 'lg';
   elevation?: ModalElevation;
+  blurBackdrop?: boolean;
 }
-
-const backdropClasses: Record<ModalElevation, string> = {
-  default: 'bg-black/50',
-  raised: 'bg-black/60 backdrop-blur-[2px]',
-};
 
 const panelShadowClasses: Record<ModalElevation, string> = {
   default: 'shadow-elevated',
@@ -31,6 +22,7 @@ export function Modal({
   onClose,
   maxWidth = 'sm',
   elevation = 'default',
+  blurBackdrop = true,
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -66,11 +58,7 @@ export function Modal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className={`absolute inset-0 ${backdropClasses[elevation]}`}
-        aria-hidden="true"
-        onClick={onClose}
-      />
+      <ModalBackdrop onClick={onClose} elevation={elevation} blurBackdrop={blurBackdrop} />
       <div
         ref={modalRef}
         role="dialog"
