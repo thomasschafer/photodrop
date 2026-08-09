@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Capacitor } from '@capacitor/core';
-import { CapacitorHttp } from '@capacitor/core';
 import { API_BASE_URL, refreshAccessToken } from './api';
 
 // Tracks how many mounted consumers are currently displaying each cache key, so
@@ -110,31 +108,6 @@ interface BlobResult {
 
 /** Fetch the image bytes for the given token. Returns the status and (on 200) the blob. */
 async function fetchBlob(url: string, token: string): Promise<BlobResult> {
-  if (Capacitor.isNativePlatform()) {
-    // Use CapacitorHttp for native - it handles CORS natively
-    const response = await CapacitorHttp.get({
-      url,
-      headers: { Authorization: `Bearer ${token}` },
-      responseType: 'blob',
-    });
-
-    if (response.status !== 200) {
-      return { status: response.status, blob: null };
-    }
-
-    // CapacitorHttp returns base64 string for blob responseType
-    const base64 = response.data as string;
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    // Get content-type case-insensitively (headers may vary)
-    const contentType =
-      response.headers['content-type'] || response.headers['Content-Type'] || 'image/jpeg';
-    return { status: 200, blob: new Blob([bytes], { type: contentType }) };
-  }
-
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
     credentials: 'include',
@@ -150,8 +123,8 @@ async function fetchBlob(url: string, token: string): Promise<BlobResult> {
 /**
  * Fetch the image bytes and wrap them in a blob URL. Throws on failure.
  *
- * Image requests don't go through fetchWithAuth (they need blob handling and
- * CapacitorHttp on native), so they recover from an expired access token here:
+ * Image requests don't go through fetchWithAuth (they need blob handling), so
+ * they recover from an expired access token here:
  * on a 401 we run the shared single-flight refresh and retry once, matching the
  * API layer. Without this, an image that 401s during the brief window before a
  * foreground refresh completes would stay broken until the photo remounts.

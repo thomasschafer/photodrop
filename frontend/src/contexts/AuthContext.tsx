@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { App as CapApp } from '@capacitor/app';
 import {
   api,
   isSessionExpired,
@@ -19,13 +18,6 @@ import {
   type AuthResponse,
 } from '../lib/api';
 import { clearAllUserCaches, clearGroupCaches } from '../lib/cache';
-import {
-  isNativePlatform,
-  initializeNativePush,
-  cleanupOnLogout as cleanupNativePush,
-  onGroupSwitch as nativePushGroupSwitch,
-} from '../lib/nativePush';
-import { setNativeScreenshotProtection } from '../lib/privacyScreen';
 
 interface AuthState {
   user: User | null;
@@ -101,11 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 
-  // Track if native push has been initialized (to avoid double init)
-  const nativePushInitialized = useRef(false);
   const [imageProtection, setImageProtectionState] = useState(true);
-  // Throttle foreground-triggered refreshes so visibility + native app-state
-  // events don't fire two refreshes back to back.
+  // Throttle foreground-triggered refreshes so rapid repeat visibility events
+  // don't fire two refreshes back to back.
   const lastForegroundRefresh = useRef(0);
 
   const login = useCallback(
@@ -149,8 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The single teardown for "this session is over": explicit logout, a refresh
   // the server rejected, the session-expired event, and the post-group-deletion
   // fallback must all leave exactly the same state behind. Clearing the caches
-  // matters most — they hold another session's photos — and resetting the push
-  // flag is what lets native push register again on the next sign-in.
+  // matters most — they hold another session's photos.
   //
   // Awaited rather than fire-and-forget: clearAllUserCaches only drops the
   // in-memory image cache after the Cache API deletion resolves, so ignoring
@@ -163,7 +152,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     bumpSessionEpoch();
     localStorage.removeItem('accessToken');
     setAuthState(LOGGED_OUT_STATE);
-    nativePushInitialized.current = false;
     await clearAllUserCaches();
   }, []);
 
@@ -189,15 +177,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         } catch (pushError) {
           console.error('Error cleaning up push subscription:', pushError);
-        }
-      }
-
-      // Clean up native push
-      if (isNativePlatform()) {
-        try {
-          await cleanupNativePush();
-        } catch (nativePushError) {
-          console.error('Error cleaning up native push:', nativePushError);
         }
       }
 
@@ -262,13 +241,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         needsGroupSelection: false,
         selectionToken: null,
       });
-
-      // Re-register native push for new group
-      if (isNativePlatform()) {
-        nativePushGroupSwitch().catch((error) => {
-          console.error('Error re-registering native push for new group:', error);
-        });
-      }
     } catch (error) {
       console.error('Switch group error:', error);
       throw error;
@@ -484,47 +456,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // CapApp.addListener resolves asynchronously. If this effect is cleaned up
-    // (re-run on auth change, or unmount) before the handle arrives, remove it
-    // on resolution instead — otherwise the listener leaks and keeps firing.
-    let nativeListener: { remove: () => void } | undefined;
-    let cancelled = false;
-    if (isNativePlatform()) {
-      CapApp.addListener('appStateChange', ({ isActive }) => {
-        if (isActive) refreshOnForeground();
-      }).then((handle) => {
-        if (cancelled) handle.remove();
-        else nativeListener = handle;
-      });
-    }
-
     return () => {
-      cancelled = true;
       document.removeEventListener('visibilitychange', handleVisibility);
-      nativeListener?.remove();
     };
   }, [authState.user, refreshAuth]);
-
-  // Initialize native push notifications when authenticated with a group
-  useEffect(() => {
-    if (!authState.user || !authState.currentGroup || !isNativePlatform()) return;
-    if (nativePushInitialized.current) return;
-
-    nativePushInitialized.current = true;
-    initializeNativePush().catch((error) => {
-      console.error('Error initializing native push:', error);
-      nativePushInitialized.current = false;
-    });
-  }, [authState.user, authState.currentGroup]);
 
   // Update privacy screen protection when current group changes
   useEffect(() => {
     if (!authState.currentGroup) return;
     const enabled = authState.currentGroup.imageProtection;
     setImageProtectionState(enabled);
-    setNativeScreenshotProtection(enabled).catch((error) => {
-      console.error('Failed to update image protection:', error);
-    });
   }, [authState.currentGroup]);
 
   // Listen for image protection changes from settings toggle

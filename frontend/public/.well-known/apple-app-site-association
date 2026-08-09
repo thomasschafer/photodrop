@@ -1,9 +1,0 @@
-{
-  "applinks": {
-    "apps": [],
-    "details": [{
-      "appID": "TEAM_ID.com.photodrop.app",
-      "paths": ["/auth/*"]
-    }]
-  }
-}

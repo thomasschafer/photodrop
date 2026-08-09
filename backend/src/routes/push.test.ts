@@ -5,10 +5,6 @@ const mockVerifyJWT = vi.fn();
 const mockGetMembership = vi.fn();
 const mockCreatePushSubscription = vi.fn();
 const mockCountUserPushSubscriptionsForGroup = vi.fn();
-const mockCreateDeviceToken = vi.fn();
-const mockCountUserDeviceTokensSince = vi.fn();
-const mockDeleteDeviceTokenForOtherUsers = vi.fn();
-const mockDeleteUserDeviceTokensForToken = vi.fn();
 const mockCheckRateLimit = vi.fn();
 
 vi.mock('../lib/jwt', () => ({
@@ -24,13 +20,6 @@ vi.mock('../lib/db', () => ({
   deletePushSubscriptionForGroup: vi.fn(),
   deleteAllPushSubscriptionsForEndpointWithToken: vi.fn(),
   getUserPushSubscriptionsForGroup: vi.fn(),
-  createDeviceToken: (...args: unknown[]) => mockCreateDeviceToken(...args),
-  deleteDeviceTokenForOtherUsers: (...args: unknown[]) =>
-    mockDeleteDeviceTokenForOtherUsers(...args),
-  deleteUserDeviceTokensForToken: (...args: unknown[]) =>
-    mockDeleteUserDeviceTokensForToken(...args),
-  getDeviceToken: vi.fn(),
-  countUserDeviceTokensSince: (...args: unknown[]) => mockCountUserDeviceTokensSince(...args),
 }));
 
 // The rate limit middleware itself is deliberately left real: stubbing it out
@@ -39,12 +28,6 @@ vi.mock('../lib/db', () => ({
 vi.mock('../lib/rateLimit', () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
   cleanupExpiredRateLimits: vi.fn(),
-}));
-
-vi.mock('../lib/fcm', () => ({
-  configureFcm: vi.fn(),
-  isFcmConfigured: vi.fn(() => false),
-  sendFcmNotification: vi.fn(),
 }));
 
 import push from './push';
@@ -66,14 +49,6 @@ function createApp(env: Record<string, unknown> = {}) {
 function authedPost(app: Hono, path: string, body: unknown) {
   return app.request(path, {
     method: 'POST',
-    headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
-function authedDelete(app: Hono, path: string, body: unknown) {
-  return app.request(path, {
-    method: 'DELETE',
     headers: { Authorization: 'Bearer valid-token', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -218,74 +193,6 @@ describe('push validation', () => {
       } finally {
         random.mockRestore();
       }
-    });
-  });
-
-  describe('POST /push/device', () => {
-    it('returns 400 for an invalid platform', async () => {
-      const app = createApp();
-      const res = await authedPost(app, '/push/device', {
-        platform: 'windows',
-        token: 'device-token',
-      });
-
-      expect(res.status).toBe(400);
-      expect(mockCreateDeviceToken).not.toHaveBeenCalled();
-    });
-
-    it('registers a valid device token', async () => {
-      mockCountUserDeviceTokensSince.mockResolvedValue(0);
-      mockCreateDeviceToken.mockResolvedValue(undefined);
-      const app = createApp();
-      const res = await authedPost(app, '/push/device', {
-        platform: 'ios',
-        token: 'device-token',
-      });
-
-      expect(res.status).toBe(201);
-      expect(mockCreateDeviceToken).toHaveBeenCalledWith(
-        expect.anything(),
-        'user-1',
-        'group-1',
-        'ios',
-        'device-token'
-      );
-    });
-
-    it('detaches the device token from any other account before registering it', async () => {
-      mockCountUserDeviceTokensSince.mockResolvedValue(0);
-      mockDeleteDeviceTokenForOtherUsers.mockResolvedValue(1);
-      mockCreateDeviceToken.mockResolvedValue(undefined);
-      const app = createApp();
-
-      const res = await authedPost(app, '/push/device', {
-        platform: 'ios',
-        token: 'shared-device-token',
-      });
-
-      expect(res.status).toBe(201);
-      expect(mockDeleteDeviceTokenForOtherUsers).toHaveBeenCalledWith(
-        {},
-        'user-1',
-        'shared-device-token'
-      );
-      // Signing in second must not leave the previous account's rows behind, so
-      // the cleanup has to happen before the new registration.
-      expect(mockDeleteDeviceTokenForOtherUsers.mock.invocationCallOrder[0]).toBeLessThan(
-        mockCreateDeviceToken.mock.invocationCallOrder[0]
-      );
-    });
-  });
-
-  describe('DELETE /push/device', () => {
-    it('unregisters the token in every group the caller registered it in', async () => {
-      mockDeleteUserDeviceTokensForToken.mockResolvedValue(2);
-      const app = createApp();
-
-      const res = await authedDelete(app, '/push/device', { token: 'device-token' });
-
-      expect(res.status).toBe(200);
-      expect(mockDeleteUserDeviceTokensForToken).toHaveBeenCalledWith({}, 'user-1', 'device-token');
     });
   });
 });

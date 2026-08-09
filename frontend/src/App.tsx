@@ -1,6 +1,5 @@
 import { useRef, useCallback, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, Link, useNavigate } from 'react-router-dom';
-import { subscribeToDeepLinks } from './lib/deepLink';
 import { useAuth } from './contexts/AuthContext';
 import { getNavDirection } from './lib/keyboard';
 import { Logo } from './components/Logo';
@@ -178,11 +177,6 @@ function MainApp() {
 
 function App() {
   const { user, currentGroup, loading } = useAuth();
-  const navigate = useNavigate();
-
-  // Handle deep link navigation without full page reload. Subscribing also
-  // replays a cold-start link that was published before this component existed.
-  useEffect(() => subscribeToDeepLinks((path) => navigate(path, { replace: true })), [navigate]);
 
   if (loading) {
     return (

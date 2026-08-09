@@ -5,7 +5,6 @@ import { api, ApiError } from '../lib/api';
 import { displayNameFromInput } from '../lib/displayName';
 import { useFocusRestore } from '../lib/hooks';
 import { ROLE_DISPLAY_NAMES } from '../lib/roles';
-import { setNativeScreenshotProtection } from '../lib/privacyScreen';
 import { exportGroup, type GroupExportProgress } from '../lib/groupExport';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
@@ -132,14 +131,9 @@ export function MembersList() {
       setActionLoading(null);
     }
 
-    // If toggling own protection, update the privacy screen and notify AuthContext.
-    // The server has already persisted the change by this point, so the native
-    // call is best-effort — failing it must not roll the UI back to assert the
-    // opposite of what's stored (AuthContext applies it the same way).
+    // If toggling own protection, notify AuthContext so the UI reflects the
+    // stored state immediately.
     if (memberId === user?.id) {
-      setNativeScreenshotProtection(enabled).catch((err) => {
-        console.error('Failed to update native screenshot protection:', err);
-      });
       window.dispatchEvent(new CustomEvent('imageProtectionChanged', { detail: { enabled } }));
     }
     showSuccess(`Image protection ${enabled ? 'enabled' : 'disabled'} for ${memberName}`);

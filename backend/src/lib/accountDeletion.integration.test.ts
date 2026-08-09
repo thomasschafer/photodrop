@@ -35,7 +35,6 @@ describe('privacy-critical account and membership guards with real D1', () => {
       db.prepare('CREATE TABLE photo_reactions (user_id TEXT)'),
       db.prepare('CREATE TABLE photo_views (user_id TEXT)'),
       db.prepare('CREATE TABLE push_subscriptions (user_id TEXT)'),
-      db.prepare('CREATE TABLE device_tokens (user_id TEXT)'),
       db.prepare('CREATE TABLE sessions (user_id TEXT)'),
       db.prepare('CREATE TABLE comments (user_id TEXT, author_name TEXT)'),
       db.prepare('CREATE TABLE magic_link_tokens (email TEXT)'),
@@ -69,7 +68,6 @@ describe('privacy-critical account and membership guards with real D1', () => {
       db.prepare('INSERT INTO photo_reactions (user_id) VALUES (?)').bind(user.id),
       db.prepare('INSERT INTO photo_views (user_id) VALUES (?)').bind(user.id),
       db.prepare('INSERT INTO push_subscriptions (user_id) VALUES (?)').bind(user.id),
-      db.prepare('INSERT INTO device_tokens (user_id) VALUES (?)').bind(user.id),
       db.prepare('INSERT INTO sessions (user_id) VALUES (?)').bind(user.id),
       db
         .prepare('INSERT INTO comments (user_id, author_name) VALUES (?, ?)')
@@ -148,7 +146,6 @@ describe('privacy-critical account and membership guards with real D1', () => {
       'photo_reactions',
       'photo_views',
       'push_subscriptions',
-      'device_tokens',
       'sessions',
       'comments',
       'magic_link_tokens',

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Capacitor } from '@capacitor/core';
 import {
   INSTALL_PROMPT_STORAGE_KEY,
   INSTALL_PROMPT_DISMISSED,
@@ -102,9 +101,6 @@ function detectPlatform(): Platform {
 
 function checkIsInstalled(): boolean {
   if (typeof window === 'undefined') return false;
-
-  // Native Capacitor app is always "installed"
-  if (Capacitor.isNativePlatform()) return true;
 
   // Check if running in standalone mode (installed PWA)
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches;

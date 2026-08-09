@@ -1,5 +1,3 @@
-import { Capacitor } from '@capacitor/core';
-import { CapacitorHttp, type HttpOptions, type HttpResponse } from '@capacitor/core';
 import type {
   AuthResponse,
   NeedsNameResponse,
@@ -29,13 +27,9 @@ import type {
   VapidPublicKeyResponse,
   PushSubscribedResponse,
   PushStatusResponse,
-  DeviceStatusResponse,
 } from '@photodrop/common/apiTypes';
 import type { ProfileColor } from './profileColors';
 import { setLocalStorageItem } from './storage';
-
-// Check if we're in a Capacitor native environment
-const isNative = Capacitor.isNativePlatform();
 
 export type User = UserJson;
 export type Group = GroupJson;
@@ -61,11 +55,8 @@ function getApiBaseUrl(): string {
 
   const hostname = window.location.hostname;
 
-  // Local development or Capacitor native
+  // Local development
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    if (isNative) {
-      return 'http://localhost:8787';
-    }
     return '/api';
   }
 
@@ -90,25 +81,6 @@ class ApiError extends Error {
     this.name = 'ApiError';
     this.status = status;
     this.statusText = statusText;
-  }
-}
-
-// Wrapper to normalize Capacitor HTTP response to look like fetch Response
-class NativeResponse {
-  status: number;
-  statusText: string;
-  ok: boolean;
-  private data: unknown;
-
-  constructor(response: HttpResponse) {
-    this.status = response.status;
-    this.statusText = response.status >= 200 && response.status < 300 ? 'OK' : 'Error';
-    this.ok = response.status >= 200 && response.status < 300;
-    this.data = response.data;
-  }
-
-  async json() {
-    return this.data;
   }
 }
 
@@ -143,46 +115,9 @@ async function executeRequest(
   url: string,
   options: RequestInit,
   includeAuth: boolean
-): Promise<Response | NativeResponse> {
+): Promise<Response> {
   const headers = buildHeaders(options, includeAuth);
 
-  // Use native HTTP for Capacitor, regular fetch for web
-  // EXCEPT for FormData uploads - use regular fetch for those (CapacitorHttp handles it via plugin)
-  if (isNative && !(options.body instanceof FormData)) {
-    const httpOptions: HttpOptions = {
-      url: `${API_BASE_URL}${url}`,
-      headers,
-      webFetchExtra: { credentials: 'include' },
-    };
-
-    // Handle method and body
-    const method = (options.method || 'GET').toUpperCase();
-    if (options.body && typeof options.body === 'string') {
-      httpOptions.data = JSON.parse(options.body);
-    }
-
-    let response: HttpResponse;
-    switch (method) {
-      case 'POST':
-        response = await CapacitorHttp.post(httpOptions);
-        break;
-      case 'PUT':
-        response = await CapacitorHttp.put(httpOptions);
-        break;
-      case 'DELETE':
-        response = await CapacitorHttp.delete(httpOptions);
-        break;
-      case 'PATCH':
-        response = await CapacitorHttp.patch(httpOptions);
-        break;
-      default:
-        response = await CapacitorHttp.get(httpOptions);
-    }
-
-    return new NativeResponse(response);
-  }
-
-  // Regular fetch for web
   return fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers,
@@ -310,7 +245,7 @@ async function fetchWithAuth(
   options: RequestInit = {},
   includeAuth: boolean = true,
   isRetry: boolean = false
-): Promise<Response | NativeResponse> {
+): Promise<Response> {
   const response = await executeRequest(url, options, includeAuth);
 
   // The access token has likely expired. Refresh once via the httpOnly refresh
@@ -523,9 +458,6 @@ export const api = {
 
     downloadBlob: async (photoId: string): Promise<Blob> => {
       const response = await fetchWithAuth(`/photos/${photoId}/download`);
-      if (response instanceof NativeResponse) {
-        throw new Error('Group export is available from the web app');
-      }
       return response.blob();
     },
 
@@ -626,46 +558,6 @@ export const api = {
         localStorage.removeItem(`push_deletion_token:${endpoint}`);
       } catch (error) {
         console.error('Failed to revoke the push subscription on the server:', error);
-      }
-    },
-
-    // Native push (FCM) device token methods
-    registerDevice: (platform: 'ios' | 'android', token: string): Promise<MessageResponse> =>
-      requestJson('/push/device', {
-        method: 'POST',
-        body: JSON.stringify({ platform, token }),
-      }),
-
-    unregisterDevice: (token: string): Promise<MessageResponse> =>
-      requestJson('/push/device', {
-        method: 'DELETE',
-        body: JSON.stringify({ token }),
-      }),
-
-    getDeviceStatus: (token: string): Promise<DeviceStatusResponse> =>
-      requestJson(`/push/device/status?token=${encodeURIComponent(token)}`),
-
-    sendTestNotification: async (
-      token: string
-    ): Promise<{ success?: boolean; error?: string; message?: string; debug?: unknown }> => {
-      try {
-        return await requestJson('/push/test', {
-          method: 'POST',
-          body: JSON.stringify({ token }),
-        });
-      } catch (error) {
-        // Return error info instead of throwing
-        if (error instanceof ApiError) {
-          return {
-            success: false,
-            error: error.message,
-            debug: { status: error.status, statusText: error.statusText },
-          };
-        }
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
       }
     },
   },

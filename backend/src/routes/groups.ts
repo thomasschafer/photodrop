@@ -6,7 +6,6 @@ import {
   updateMembershipRole,
   deleteMembership,
   deleteAllUserPushSubscriptionsForGroup,
-  deleteAllUserDeviceTokensForGroup,
   getGroupPhotoKeys,
   getGroupPhotoCount,
   deleteGroup,
@@ -141,20 +140,17 @@ groups.delete('/:groupId/members/:userId', requireAdmin, async (c) => {
     throw new ForbiddenError('Cannot remove the group owner');
   }
 
-  // Both notification channels have to be revoked, or the removed member's
-  // browser/device keeps receiving this group's photos and caption text.
+  // Push subscriptions have to be revoked, or the removed member's browser
+  // keeps receiving this group's photos and caption text.
   //
   // Revoked *before* the membership row goes, because D1 gives us no
   // transaction across the two and only this ordering is safe to retry: a
   // failure here leaves a member whose notifications are already gone (they
   // simply re-subscribe), whereas deleting the membership first and then
-  // failing would strand the subscription and device-token rows with no way
-  // back — the retry 404s on the membership that no longer exists, and the
-  // removed member keeps receiving the group's photos.
-  await Promise.all([
-    deleteAllUserPushSubscriptionsForGroup(c.env.DB, userId, groupId),
-    deleteAllUserDeviceTokensForGroup(c.env.DB, userId, groupId),
-  ]);
+  // failing would strand the subscription rows with no way back — the retry
+  // 404s on the membership that no longer exists, and the removed member
+  // keeps receiving the group's photos.
+  await deleteAllUserPushSubscriptionsForGroup(c.env.DB, userId, groupId);
 
   const result = await deleteMembership(c.env.DB, userId, groupId);
   if (!result.success) {
@@ -189,12 +185,10 @@ groups.delete('/:groupId/membership', requireAuth, async (c) => {
   // keep the operation idempotent and finish cleaning up any notification
   // credentials that remain. Cleanup follows the membership write so a failed
   // delete never silently disables notifications for someone still inside.
-  const cleanupResults = await Promise.allSettled([
-    deleteAllUserPushSubscriptionsForGroup(c.env.DB, currentUser.id, groupId),
-    deleteAllUserDeviceTokensForGroup(c.env.DB, currentUser.id, groupId),
-  ]);
-  if (cleanupResults.some((cleanup) => cleanup.status === 'rejected')) {
-    console.error('Group left but notification credential cleanup failed', cleanupResults);
+  try {
+    await deleteAllUserPushSubscriptionsForGroup(c.env.DB, currentUser.id, groupId);
+  } catch (cleanupError) {
+    console.error('Group left but notification credential cleanup failed', cleanupError);
   }
 
   return c.json({ message: 'You have left the group' });

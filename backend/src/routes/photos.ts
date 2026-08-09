@@ -12,7 +12,6 @@ import {
   removePhotoReaction,
   getPhotoReactionsWithUsers,
   getGroupPushSubscriptions,
-  getGroupDeviceTokens,
   getResolvedMemberName,
   createComment,
   getCommentsByPhotoId,
@@ -24,7 +23,6 @@ import {
 import { generateId } from '../lib/crypto';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { configureVapid, sendPushNotifications } from '../lib/push';
-import { configureFcm, isFcmConfigured, sendFcmNotifications } from '../lib/fcm';
 import {
   validateImageMagicBytes,
   MAX_PHOTO_SIZE,
@@ -139,35 +137,6 @@ async function sendPhotoUploadNotifications(
       }
     } catch (pushError) {
       console.error('Failed to send web push notifications:', pushError);
-    }
-  }
-
-  // Send FCM notifications to native apps
-  if (env.FIREBASE_SERVICE_ACCOUNT) {
-    try {
-      if (!isFcmConfigured()) {
-        configureFcm(env.FIREBASE_SERVICE_ACCOUNT);
-      }
-
-      const deviceTokens = await getGroupDeviceTokens(env.DB, groupId, uploaderId);
-
-      if (deviceTokens.length > 0) {
-        await sendFcmNotifications(
-          deviceTokens,
-          {
-            title,
-            body,
-            data: {
-              url: `${env.FRONTEND_URL || ''}/photo/${photoId}?group=${encodeURIComponent(groupId)}`,
-              groupId,
-              photoId,
-            },
-          },
-          env.DB
-        );
-      }
-    } catch (fcmError) {
-      console.error('Failed to send FCM notifications:', fcmError);
     }
   }
 }

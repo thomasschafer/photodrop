@@ -31,7 +31,6 @@ vi.mock('../lib/db', () => ({
   removePhotoReaction: (...args: unknown[]) => mockRemovePhotoReaction(...args),
   getPhotoReactionsWithUsers: vi.fn(),
   getGroupPushSubscriptions: (...args: unknown[]) => mockGetGroupPushSubscriptions(...args),
-  getGroupDeviceTokens: vi.fn().mockResolvedValue([]),
   getGroup: vi.fn(),
   getResolvedMemberName: (...args: unknown[]) => mockGetResolvedMemberName(...args),
   createComment: (...args: unknown[]) => mockCreateComment(...args),
@@ -475,7 +474,7 @@ describe('photo upload notifications', () => {
 
   it('still notifies the group when the uploader name lookup rejects', async () => {
     // Unguarded, this rejection would sink the whole background task: no push,
-    // no FCM, no log — just an unhandled rejection.
+    // no log — just an unhandled rejection.
     mockGetResolvedMemberName.mockRejectedValue(new Error('D1 unavailable'));
 
     const body = new FormData();

@@ -2,15 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { resetInstallPromptStateForTests, useInstallPrompt } from './useInstallPrompt';
 
-// Mock Capacitor
-vi.mock('@capacitor/core', () => ({
-  Capacitor: {
-    isNativePlatform: vi.fn(() => false),
-  },
-}));
-
-import { Capacitor } from '@capacitor/core';
-
 describe('useInstallPrompt', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -47,28 +38,14 @@ describe('useInstallPrompt', () => {
     vi.restoreAllMocks();
   });
 
-  describe('native platform detection', () => {
-    it('returns isInstalled=true when running in native Capacitor app', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
-
-      const { result } = renderHook(() => useInstallPrompt());
-
-      expect(result.current.isInstalled).toBe(true);
-      expect(result.current.shouldShowPrompt).toBe(false);
-    });
-
-    it('returns isInstalled=false on web browser', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
-
+  describe('PWA standalone detection', () => {
+    it('returns isInstalled=false in a plain browser tab', () => {
       const { result } = renderHook(() => useInstallPrompt());
 
       expect(result.current.isInstalled).toBe(false);
     });
-  });
 
-  describe('PWA standalone detection', () => {
     it('detects standalone mode via matchMedia', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
       window.matchMedia = vi.fn().mockImplementation((query) => ({
         matches: query === '(display-mode: standalone)',
         media: query,
@@ -82,7 +59,6 @@ describe('useInstallPrompt', () => {
     });
 
     it('detects iOS standalone mode via navigator.standalone', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
       Object.defineProperty(navigator, 'standalone', {
         value: true,
         configurable: true,
@@ -96,15 +72,18 @@ describe('useInstallPrompt', () => {
 
   describe('shouldShowPrompt', () => {
     it('returns true when not installed and not dismissed', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
-
       const { result } = renderHook(() => useInstallPrompt());
 
       expect(result.current.shouldShowPrompt).toBe(true);
     });
 
     it('returns false when installed', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+      window.matchMedia = vi.fn().mockImplementation((query) => ({
+        matches: query === '(display-mode: standalone)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }));
 
       const { result } = renderHook(() => useInstallPrompt());
 
@@ -112,8 +91,6 @@ describe('useInstallPrompt', () => {
     });
 
     it('returns false when dismissed', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
-
       const { result } = renderHook(() => useInstallPrompt());
 
       act(() => {
@@ -147,8 +124,6 @@ describe('useInstallPrompt', () => {
 
   describe('dismiss', () => {
     it('permanently dismisses when called with true', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
-
       const { result } = renderHook(() => useInstallPrompt());
 
       act(() => {
@@ -162,8 +137,6 @@ describe('useInstallPrompt', () => {
     });
 
     it('temporarily dismisses when called with false', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
-
       const { result } = renderHook(() => useInstallPrompt());
 
       act(() => {
@@ -182,7 +155,6 @@ describe('useInstallPrompt', () => {
       // Private browsing / restricted webviews / quota pressure make setItem
       // throw. The dismissal is a convenience, so it must not blow up out of
       // the click handler that triggered it.
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
       vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new DOMException('QuotaExceededError');
       });
@@ -201,7 +173,6 @@ describe('useInstallPrompt', () => {
 
   describe('platform detection', () => {
     it('detects Firefox', () => {
-      vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
       Object.defineProperty(navigator, 'userAgent', {
         value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0',
         configurable: true,

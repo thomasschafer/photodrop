@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   getMembers: vi.fn(),
   updateMemberImageProtection: vi.fn(),
   setMemberDisplayName: vi.fn(),
-  setNativeScreenshotProtection: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
@@ -18,10 +17,6 @@ vi.mock('../lib/api', () => ({
       setMemberDisplayName: mocks.setMemberDisplayName,
     },
   },
-}));
-
-vi.mock('../lib/privacyScreen', () => ({
-  setNativeScreenshotProtection: mocks.setNativeScreenshotProtection,
 }));
 
 // A stable auth value: the component's member fetch is keyed on the identity
@@ -67,7 +62,6 @@ const protectionToggle = (name: string, on: boolean) =>
 describe('MembersList image protection toggle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.setNativeScreenshotProtection.mockResolvedValue(undefined);
     // The component logs every failure it handles; keep test output readable.
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -108,13 +102,12 @@ describe('MembersList image protection toggle', () => {
     expect(protectionToggle('Bob', true)).toBeInTheDocument();
   });
 
-  it('keeps the server-confirmed toggle when the native privacy screen fails', async () => {
+  it('keeps a server-confirmed toggle and announces it', async () => {
     mocks.getMembers.mockResolvedValue({
       members: [makeMember('me', 'Me')],
       ownerId: 'someone-else',
     });
     mocks.updateMemberImageProtection.mockResolvedValue(undefined);
-    mocks.setNativeScreenshotProtection.mockRejectedValue(new Error('plugin unavailable'));
 
     render(<MembersList />);
     await screen.findByRole('button', { name: 'Enable image protection for Me' });
@@ -122,11 +115,6 @@ describe('MembersList image protection toggle', () => {
     fireEvent.click(protectionToggle('Me', false));
 
     await waitFor(() => expect(protectionToggle('Me', true)).toBeInTheDocument());
-    // Flush the rejected native call: the server already persisted the change,
-    // so it must not drag the row back to the opposite of what's stored.
-    await act(async () => {});
-
-    expect(protectionToggle('Me', true)).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Image protection enabled for Me');
   });
@@ -149,7 +137,6 @@ describe('MembersList image protection toggle', () => {
       )
     );
     expect(protectionToggle('Alice', false)).toBeInTheDocument();
-    expect(mocks.setNativeScreenshotProtection).not.toHaveBeenCalled();
   });
 });
 
@@ -167,7 +154,6 @@ describe('MembersList display names', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.setNativeScreenshotProtection.mockResolvedValue(undefined);
     // The component logs every failure it handles; keep test output readable.
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });

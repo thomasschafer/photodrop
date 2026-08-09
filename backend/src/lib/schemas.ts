@@ -96,15 +96,6 @@ export const unsubscribeFromGroupSchema = z.object({
   endpoint: z.string().min(1, 'Endpoint is required'),
 });
 
-export const registerDeviceSchema = z.object({
-  platform: z.enum(['ios', 'android']),
-  token: z.string().min(1),
-});
-
-export const deviceTokenSchema = z.object({
-  token: z.string().min(1, 'Token is required'),
-});
-
 // User schemas
 export const updateProfileSchema = z
   .object({
