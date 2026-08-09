@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useFocusTrap } from '../lib/useFocusTrap';
 import { Button } from './Button';
+import { ModalBackdrop } from './ModalBackdrop';
 
 interface ConfirmModalProps {
   title: string;
@@ -15,6 +16,7 @@ interface ConfirmModalProps {
   onDontAskAgain?: () => void;
   onConfirm: () => void;
   onCancel: () => void;
+  blurBackdrop?: boolean;
 }
 
 export function ConfirmModal({
@@ -30,6 +32,7 @@ export function ConfirmModal({
   onDontAskAgain,
   onConfirm,
   onCancel,
+  blurBackdrop = true,
 }: ConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
@@ -62,7 +65,7 @@ export function ConfirmModal({
       className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+      <ModalBackdrop onClick={onCancel} blurBackdrop={blurBackdrop} />
       <div
         ref={modalRef}
         role="dialog"

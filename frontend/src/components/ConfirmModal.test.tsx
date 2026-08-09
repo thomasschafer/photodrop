@@ -2,7 +2,35 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ConfirmModal } from './ConfirmModal';
 
+function backdropOf(container: HTMLElement) {
+  const backdrop = container.querySelector('[aria-hidden="true"]');
+  if (!backdrop) throw new Error('backdrop not rendered');
+  return backdrop;
+}
+
 describe('ConfirmModal', () => {
+  it('blurs the backdrop without the caller asking', () => {
+    const { container } = render(
+      <ConfirmModal title="Delete photo" message="Sure?" onConfirm={vi.fn()} onCancel={vi.fn()} />
+    );
+
+    expect(backdropOf(container)).toHaveClass('backdrop-blur-[2px]');
+  });
+
+  it('threads an opt-out through to the backdrop', () => {
+    const { container } = render(
+      <ConfirmModal
+        title="Delete photo"
+        message="Sure?"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        blurBackdrop={false}
+      />
+    );
+
+    expect(backdropOf(container)).not.toHaveClass('backdrop-blur-[2px]');
+  });
+
   it('leaves focus on an autofocused child instead of grabbing it', () => {
     // React applies a child's autoFocus during commit, i.e. before the modal's
     // own mount effect runs. The rename modal renders exactly this — an
