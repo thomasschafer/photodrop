@@ -2,10 +2,15 @@
 set -e
 
 # Create a new group with an owner
-# Usage: ./scripts/create-group.sh "Group Name" "Owner Name" "owner@example.com" [--prod]
+# Usage: ./scripts/create-group.sh "Group Name" "Owner Name" "owner@example.com" [--prod] [--email-only]
+#
+#   --prod        Target the production D1 database (requires Cloudflare auth)
+#   --email-only  Require the invite email to be sent, and never print the
+#                 magic link or owner details. Used by CI, where logs are
+#                 publicly visible.
 
 if [ "$#" -lt 3 ]; then
-    echo "Usage: $0 <group_name> <owner_name> <owner_email> [--prod]"
+    echo "Usage: $0 <group_name> <owner_name> <owner_email> [--prod] [--email-only]"
     echo "Example: $0 \"Family Photos\" \"Tom\" \"tom@example.com\""
     exit 1
 fi
@@ -19,9 +24,25 @@ GROUP_NAME=$(escape_sql "$1")
 OWNER_NAME=$(escape_sql "$2")
 OWNER_EMAIL=$(escape_sql "$3")
 IS_PROD=false
+EMAIL_ONLY=false
 
-if [ "$4" = "--prod" ]; then
-    IS_PROD=true
+for arg in "${@:4}"; do
+    case "$arg" in
+        --prod) IS_PROD=true ;;
+        --email-only) EMAIL_ONLY=true ;;
+        *)
+            echo "Error: Unknown option: $arg"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$EMAIL_ONLY" = true ] && [ "$IS_PROD" != true ]; then
+    echo "Error: --email-only requires --prod (emails are only sent in production)"
+    exit 1
+fi
+
+if [ "$IS_PROD" = true ]; then
     WRANGLER_REMOTE_FLAG="--remote"
     DB_NAME="photodrop-db-prod"
 else
@@ -43,8 +64,22 @@ TOKEN=$(generate_token)
 NOW=$(date +%s)
 EXPIRES_AT=$((NOW + 900))  # 15 minutes
 
-echo "Creating group: $GROUP_NAME"
-echo "Owner: $OWNER_NAME ($OWNER_EMAIL)"
+# Email-only mode runs in GitHub Actions, where this workflow command masks the
+# token in the publicly visible logs — without it, a failing wrangler call
+# could echo the SQL, token included.
+if [ "$EMAIL_ONLY" = true ]; then
+    echo "::add-mask::$TOKEN"
+fi
+
+# In email-only mode, keep owner details out of the output as defence in depth
+# against them landing in publicly visible CI logs.
+if [ "$EMAIL_ONLY" = true ]; then
+    echo "Creating group: $GROUP_NAME"
+    echo "Owner: (withheld from logs)"
+else
+    echo "Creating group: $GROUP_NAME"
+    echo "Owner: $OWNER_NAME ($OWNER_EMAIL)"
+fi
 if [ "$IS_PROD" = true ]; then
     echo "Environment: Production"
 else
@@ -57,20 +92,28 @@ cd "$(dirname "$0")/../backend"
 
 # Determine the frontend URL
 if [ "$IS_PROD" = true ]; then
-    # Load production config
-    if [ -f .prod.vars ]; then
+    # Config comes from the environment (CI) or from .prod.vars (break-glass
+    # local use, written by setup-prod). Environment values win.
+    if [ -f .prod.vars ] && [ -z "${FRONTEND_URL:-}" ]; then
         # shellcheck source=/dev/null
         source .prod.vars
-        FRONTEND_URL="${FRONTEND_URL:-https://photodrop.pages.dev}"
-    else
+    fi
+    if [ -z "${FRONTEND_URL:-}" ]; then
         FRONTEND_URL="https://photodrop.pages.dev"
-        echo "Warning: .prod.vars not found, using default URL"
+        echo "Warning: FRONTEND_URL not configured, using default URL"
     fi
     if [ -z "${EMAIL_FROM:-}" ] && [ -n "${DOMAIN:-}" ]; then
         EMAIL_FROM="photodrop <noreply@$DOMAIN>"
     fi
 else
     FRONTEND_URL="http://localhost:5173"
+fi
+
+# In email-only mode the email is the sole way the owner receives their magic
+# link, so fail before touching the database if sending cannot possibly work.
+if [ "$EMAIL_ONLY" = true ] && { [ -z "${RESEND_API_KEY:-}" ] || [ -z "${EMAIL_FROM:-}" ]; }; then
+    echo "Error: --email-only requires RESEND_API_KEY and EMAIL_FROM to be set"
+    exit 1
 fi
 
 # Check if user already exists
@@ -147,16 +190,29 @@ if [ "$IS_PROD" = true ] && [ -n "${RESEND_API_KEY:-}" ] && [ -n "${EMAIL_FROM:-
     fi
 fi
 
+if [ "$EMAIL_ONLY" = true ] && [ "$EMAIL_SENT" != true ]; then
+    echo ""
+    echo "Error: The invite email could not be sent, and --email-only forbids"
+    echo "printing the magic link. The group and owner were already created, so"
+    echo "fix the email problem and re-run — but note that re-running creates a"
+    echo "second group; delete the unused one afterwards."
+    exit 1
+fi
+
 echo ""
 echo "=========================================="
 echo "Setup complete!"
 echo ""
-if [ "$EMAIL_SENT" = true ]; then
+if [ "$EMAIL_ONLY" = true ]; then
+    echo "Invite email sent to the owner's address."
+    echo "The magic link expires in 15 minutes."
+elif [ "$EMAIL_SENT" = true ]; then
     echo "Invite email sent to: $3"
     echo ""
     echo "Magic link (for reference):"
+    echo "$MAGIC_LINK"
 else
     echo "Magic link (expires in 15 minutes):"
+    echo "$MAGIC_LINK"
 fi
-echo "$MAGIC_LINK"
 echo "=========================================="

@@ -54,21 +54,28 @@ The command is idempotent: re-running replaces the previously seeded photos, alo
 | `nix run .#test`                                   | Run unit tests                         |
 | `nix run .#test-e2e`                               | Run end-to-end tests                   |
 | `nix run .#setup-prod`                             | Create production Cloudflare resources |
-| `nix run .#deploy`                                 | Deploy to production                   |
+| `nix run .#deploy`                                 | Deploy to production (run by CI)       |
 | `nix run .#teardown-dev`                           | Clean local dev files                  |
 | `nix run .#teardown-prod`                          | Delete production Cloudflare resources |
 
 ## Production deployment
 
+Production deploys run in CI: every push to `main` deploys automatically once tests
+pass (see `.github/workflows/ci.yml`). Day-to-day operation needs no Cloudflare
+credentials on any local machine — the only exceptions are the one-time provisioning
+below and the break-glass procedures at the end of this section.
+
 ### Prerequisites
 
 - Cloudflare account with Workers & Pages, D1 and R2 enabled
 - Domain already added to Cloudflare (can be apex like `example.com` or subdomain like `photos.example.com`)
-- `wrangler` CLI authenticated (`wrangler login`)
 
-### One-time setup
+### One-time provisioning
+
+Provisioning runs locally with temporary Cloudflare credentials:
 
 ```bash
+wrangler login
 nix run .#setup-prod
 ```
 
@@ -79,6 +86,13 @@ The script will:
 3. Generate secrets (JWT, VAPID keys)
 4. Create Pages project
 5. Run database migrations
+
+Afterwards, copy the generated values from `backend/.prod.vars` into GitHub Actions
+secrets and variables (see "CI/CD setup" below), then remove the local credentials:
+
+```bash
+rm ~/Library/Preferences/.wrangler/config/default.toml
+```
 
 Your app will be available at:
 
@@ -96,9 +110,9 @@ frontend to call the API through the same origin (e.g. for SW caching), set
 
 ### Deploy
 
-```bash
-nix run .#deploy
-```
+Push to `main` (or trigger the CI workflow manually via Actions → CI → Run workflow).
+The deploy job applies database migrations, deploys the Worker with its secrets, and
+publishes the frontend to Pages.
 
 After the first deploy, set up DNS and custom domains:
 
@@ -121,9 +135,9 @@ After the first deploy, set up DNS and custom domains:
    - Set Target URL to `https://your-domain.com/${1}` with status 301
    - Check "Preserve query string"
 
-### CI/CD setup (optional)
+### CI/CD setup
 
-For automatic deployments on push to `main`:
+CI needs the following configuration to deploy and to create groups:
 
 1. Add **secrets** to GitHub (Settings → Secrets and variables → Actions):
    - `CLOUDFLARE_API_TOKEN` - Create at https://dash.cloudflare.com/profile/api-tokens with permissions:
@@ -139,7 +153,8 @@ For automatic deployments on push to `main`:
    - `JWT_SECRET` - From `backend/.prod.vars`
    - `VAPID_PUBLIC_KEY` - From `backend/.prod.vars`
    - `VAPID_PRIVATE_KEY` - From `backend/.prod.vars`
-   - `RESEND_API_KEY` - (Optional) Only needed if you want CI to manage this secret
+   - `RESEND_API_KEY` - From Resend (see "Email setup" below). Required: email is
+     the only authentication path, so deploys fail without it
 
 2. Add **variables** to GitHub (Settings → Secrets and variables → Actions → Variables):
    - `DOMAIN` - Your frontend domain (e.g., `photos.example.com`)
@@ -152,11 +167,15 @@ For automatic deployments on push to `main`:
 
 **Note:** Email must be configured before creating groups. See "Email setup" below.
 
-```bash
-nix run .#create-group -- "Family Photos" "Tom" "tom@example.com" --prod
-```
+Groups are created via the "Create group" GitHub Actions workflow:
 
-The magic link will be sent to the email address provided.
+1. Go to Actions → Create group → Run workflow
+2. Enter the group name, owner name, and owner email
+3. The magic link is emailed to the owner (expires in 15 minutes)
+
+This repo is public, so the workflow is careful with its logs: owner details are
+masked and the magic link is only ever delivered by email. If the email fails to
+send, the run fails rather than printing the link.
 
 ### Email setup (Resend)
 
@@ -175,20 +194,36 @@ Email is required for magic link authentication. We use [Resend](https://resend.
    - Give it a name and "Sending access" permission
    - Copy the key (you won't see it again)
 
-4. **Add to production**:
-
-   ```bash
-   # Add to your local .prod.vars
-   echo 'RESEND_API_KEY="re_xxxxx"' >> backend/.prod.vars
-
-   # Deploy the secret to Cloudflare (persists across deploys)
-   echo "re_xxxxx" | wrangler secret put RESEND_API_KEY --name photodrop-api
-   ```
+4. **Add to production**: save the key as the `RESEND_API_KEY` GitHub Actions secret.
+   The next CI deploy applies it to the Worker.
 
 5. **Test**: Create a group with your real email address and verify the invite email arrives.
 
 Emails are sent from `EMAIL_FROM` when configured, otherwise `noreply@your-domain.com`
 based on your `DOMAIN` setting.
+
+### Break-glass: manual production access
+
+Routine operations (deploys, group creation) run in CI and need no local
+credentials. For everything else — provisioning, teardown, incident debugging —
+authenticate temporarily and clean up afterwards:
+
+1. Authenticate: `wrangler login` (or export a short-lived, tightly scoped
+   `CLOUDFLARE_API_TOKEN`)
+2. Run what you need:
+   - Provision or tear down: `nix run .#setup-prod` / `nix run .#teardown-prod`
+   - Manual deploy: export the variables listed under "CI/CD setup" (e.g.
+     `set -a; source backend/.prod.vars; set +a` after provisioning), then
+     `nix run .#deploy`
+   - Inspect the production database: prefer the D1 console in the Cloudflare
+     dashboard; for CLI access run
+     `npx wrangler d1 execute photodrop-db-prod --remote --command "..."` from
+     `backend/`
+3. Remove the credentials:
+
+   ```bash
+   rm ~/Library/Preferences/.wrangler/config/default.toml
+   ```
 
 ## Mobile app (Capacitor)
 

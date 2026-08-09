@@ -1,0 +1,60 @@
+name: Create group
+
+# Creates a production group and emails the owner a magic link. This repo is
+# public, so run logs are world-readable: owner details are masked below, and
+# the script's --email-only mode never prints the magic link.
+
+on:
+  workflow_dispatch:
+    inputs:
+      group_name:
+        description: 'Group name'
+        required: true
+        type: string
+      owner_name:
+        description: 'Owner name'
+        required: true
+        type: string
+      owner_email:
+        description: 'Owner email (receives the magic link)'
+        required: true
+        type: string
+
+concurrency: create-group
+
+jobs:
+  create-group:
+    name: Create group
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # Must run before any step that could echo the inputs.
+      - name: Mask owner details in logs
+        env:
+          OWNER_NAME: ${{ inputs.owner_name }}
+          OWNER_EMAIL: ${{ inputs.owner_email }}
+        run: |
+          echo "::add-mask::$OWNER_NAME"
+          echo "::add-mask::$OWNER_EMAIL"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Create group
+        # Inputs are passed via env rather than interpolated into the command
+        # line, so quotes or shell metacharacters in them cannot break out.
+        env:
+          GROUP_NAME: ${{ inputs.group_name }}
+          OWNER_NAME: ${{ inputs.owner_name }}
+          OWNER_EMAIL: ${{ inputs.owner_email }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DOMAIN: ${{ vars.DOMAIN }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          FRONTEND_URL: https://${{ vars.DOMAIN }}
+        run: nix run .#create-group -- "$GROUP_NAME" "$OWNER_NAME" "$OWNER_EMAIL" --prod --email-only
